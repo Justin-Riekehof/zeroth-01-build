@@ -1,0 +1,11 @@
+[project]
+name = "zeroth-01-servo-gui"
+version = "0.1.0"
+description = "Single-servo test GUI with 3D CAD visualization for the Zeroth-01 build"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "ftservo-python-sdk>=2.0.0",
+    "pyserial>=3.5",
+]

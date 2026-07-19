@@ -1,0 +1,618 @@
+{
+  "document": "b4672a7f8ce3947bd250f2c1",
+  "microversion": "93de75674ad4a5ad06ef4abc",
+  "element": "6e9a04dde965d2dab1a3d9af",
+  "frame": "assembly (CAD, Z-up, meters)",
+  "joints": [
+    {
+      "name": "right_shoulder_pitch",
+      "origin": [
+        -0.07815,
+        -0.0,
+        0.3582
+      ],
+      "axis": [
+        1.0,
+        -0.0,
+        0.0
+      ],
+      "xaxes": [
+        [
+          0.0,
+          0.446077,
+          -0.894994
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0
+        ]
+      ],
+      "occurrences": [
+        "right_shoulder_yaw <3>",
+        "right_shoulder_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "left_shoulder_pitch",
+      "origin": [
+        0.07815,
+        -0.0,
+        0.3582
+      ],
+      "axis": [
+        -1.0,
+        0.0,
+        -0.0
+      ],
+      "xaxes": [
+        [
+          0.0,
+          0.999551,
+          0.029977
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0
+        ]
+      ],
+      "occurrences": [
+        "left_shoulder_yaw <1>",
+        "left_shoulder_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "right_shoulder_yaw",
+      "origin": [
+        -0.10815,
+        -0.022985,
+        0.367778
+      ],
+      "axis": [
+        -0.0,
+        -0.446077,
+        0.894994
+      ],
+      "xaxes": [
+        [
+          0.936384,
+          -0.314123,
+          -0.156563
+        ],
+        [
+          1.0,
+          -0.0,
+          0.0
+        ]
+      ],
+      "occurrences": [
+        "right_shoulder_yaw_motor <1>",
+        "right_shoulder_yaw <3>"
+      ]
+    },
+    {
+      "name": "left_shoulder_yaw",
+      "origin": [
+        0.10815,
+        -0.018328,
+        0.341344
+      ],
+      "axis": [
+        -0.0,
+        -0.999551,
+        -0.029977
+      ],
+      "xaxes": [
+        [
+          0.916253,
+          0.012009,
+          -0.400421
+        ],
+        [
+          1.0,
+          -0.0,
+          0.0
+        ]
+      ],
+      "occurrences": [
+        "left_shoulder_yaw_motor <1>",
+        "left_shoulder_yaw <1>"
+      ]
+    },
+    {
+      "name": "right_hip_pitch",
+      "origin": [
+        -0.04565,
+        -0.0,
+        0.2082
+      ],
+      "axis": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "xaxes": [
+        [
+          -0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.995391,
+          0.095896
+        ]
+      ],
+      "occurrences": [
+        "right_hip_pitch_motor <1>",
+        "hip_yaw_right <1>"
+      ]
+    },
+    {
+      "name": "right_hip_yaw",
+      "origin": [
+        -0.06501,
+        -0.024184,
+        0.193312
+      ],
+      "axis": [
+        -0.0,
+        0.995391,
+        0.095896
+      ],
+      "xaxes": [
+        [
+          0.993313,
+          0.011071,
+          -0.114916
+        ],
+        [
+          1.0,
+          0.0,
+          -0.0
+        ]
+      ],
+      "occurrences": [
+        "hip_roll_right <1>",
+        "right_hip_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "right_hip_roll",
+      "origin": [
+        -0.072833,
+        -0.002798,
+        0.127754
+      ],
+      "axis": [
+        -0.115448,
+        0.095254,
+        -0.988736
+      ],
+      "xaxes": [
+        [
+          0.993313,
+          0.011071,
+          -0.114916
+        ],
+        [
+          0.70238,
+          0.711675,
+          -0.01345
+        ]
+      ],
+      "occurrences": [
+        "right_hip_roll_motor <1>",
+        "knee_pitch_right <1>"
+      ]
+    },
+    {
+      "name": "right_knee_pitch",
+      "origin": [
+        -0.062463,
+        0.012953,
+        0.103069
+      ],
+      "axis": [
+        -0.70238,
+        -0.711675,
+        0.01345
+      ],
+      "xaxes": [
+        [
+          -0.702378,
+          0.696021,
+          0.149067
+        ],
+        [
+          -0.691524,
+          0.686726,
+          0.224059
+        ]
+      ],
+      "occurrences": [
+        "knee_pitch_right <1>",
+        "right_knee_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "left_hip_pitch",
+      "origin": [
+        0.04565,
+        -0.0,
+        0.2082
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "xaxes": [
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          0.993396,
+          0.114734
+        ]
+      ],
+      "occurrences": [
+        "left_hip_pitch_motor <1>",
+        "hip_yaw_left <1>"
+      ]
+    },
+    {
+      "name": "left_hip_yaw",
+      "origin": [
+        0.06501,
+        -0.023897,
+        0.192857
+      ],
+      "axis": [
+        -0.0,
+        0.993396,
+        0.114734
+      ],
+      "xaxes": [
+        [
+          0.996195,
+          0.01,
+          -0.08658
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "occurrences": [
+        "hip_roll_left <1>",
+        "left_hip_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "left_hip_roll",
+      "origin": [
+        0.059104,
+        -0.001252,
+        0.127521
+      ],
+      "axis": [
+        -0.087156,
+        0.114298,
+        -0.989616
+      ],
+      "xaxes": [
+        [
+          0.996195,
+          0.01,
+          -0.08658
+        ],
+        [
+          0.704416,
+          -0.695366,
+          -0.142351
+        ]
+      ],
+      "occurrences": [
+        "left_hip_roll_motor <1>",
+        "knee_pitch_left <1>"
+      ]
+    },
+    {
+      "name": "left_knee_pitch",
+      "origin": [
+        0.04369,
+        0.014663,
+        0.105748
+      ],
+      "axis": [
+        0.704416,
+        -0.695366,
+        -0.142351
+      ],
+      "xaxes": [
+        [
+          0.704416,
+          0.709508,
+          0.019908
+        ],
+        [
+          0.709259,
+          0.68185,
+          0.178978
+        ]
+      ],
+      "occurrences": [
+        "knee_pitch_left <1>",
+        "left_knee_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "right_elbow_yaw",
+      "origin": [
+        -0.158827,
+        -0.067416,
+        0.345465
+      ],
+      "axis": [
+        -0.0,
+        0.446077,
+        -0.894994
+      ],
+      "xaxes": [
+        [
+          -0.943786,
+          0.295846,
+          0.147454
+        ],
+        [
+          -0.700322,
+          0.638871,
+          0.318422
+        ]
+      ],
+      "occurrences": [
+        "right_hand <1>",
+        "right_elbow_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "left_elbow_yaw",
+      "origin": [
+        0.109865,
+        -0.01605,
+        0.270407
+      ],
+      "axis": [
+        -0.0,
+        0.999551,
+        0.029977
+      ],
+      "xaxes": [
+        [
+          -0.988126,
+          0.004606,
+          -0.153578
+        ],
+        [
+          -0.999708,
+          0.000724,
+          -0.024146
+        ]
+      ],
+      "occurrences": [
+        "left_hand <1>",
+        "left_elbow_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "left_ankle_pitch",
+      "origin": [
+        0.045467,
+        0.032656,
+        0.030158
+      ],
+      "axis": [
+        0.704416,
+        -0.695366,
+        -0.142351
+      ],
+      "xaxes": [
+        [
+          0.041569,
+          -0.159794,
+          0.986275
+        ],
+        [
+          0.709259,
+          0.68185,
+          0.178978
+        ]
+      ],
+      "occurrences": [
+        "foot_left <1>",
+        "left_ankle_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "right_ankle_pitch",
+      "origin": [
+        -0.075574,
+        0.024461,
+        0.027332
+      ],
+      "axis": [
+        -0.70238,
+        -0.711675,
+        0.01345
+      ],
+      "xaxes": [
+        [
+          0.168694,
+          -0.148073,
+          0.974483
+        ],
+        [
+          -0.691524,
+          0.686726,
+          0.224059
+        ]
+      ],
+      "occurrences": [
+        "foot_right <1>",
+        "right_ankle_pitch_motor <1>"
+      ]
+    }
+  ],
+  "fastened": [
+    [
+      "right_hip_pitch_motor <1>",
+      "hip_pitch_dual_carry <1>"
+    ],
+    [
+      "right_hip_yaw_motor <1>",
+      "hip_yaw_right <1>"
+    ],
+    [
+      "hip_roll_right <1>",
+      "right_hip_roll_motor <1>"
+    ],
+    [
+      "ankle_pitch_right <1>",
+      "right_ankle_pitch_motor <1>"
+    ],
+    [
+      "ankle_pitch_right <1>",
+      "right_knee_pitch_motor <1>"
+    ],
+    [
+      "Torso <1>",
+      "right_shoulder_pitch_motor <1>"
+    ],
+    [
+      "Torso <1>",
+      "hip_pitch_dual_carry <1>"
+    ],
+    [
+      "left_hip_pitch_motor <1>",
+      "hip_pitch_dual_carry <1>"
+    ],
+    [
+      "Battery, 5.2 Ah, DC5521 Plug <1>",
+      "Torso <1>"
+    ],
+    [
+      "left_shoulder_pitch_motor <1>",
+      "Torso <1>"
+    ],
+    [
+      "left_hip_yaw_motor <1>",
+      "hip_yaw_left <1>"
+    ],
+    [
+      "left_hip_roll_motor <1>",
+      "hip_roll_left <1>"
+    ],
+    [
+      "left_knee_pitch_motor <1>",
+      "ankle_pitch_left <1>"
+    ],
+    [
+      "elbow_bracket_left <1>",
+      "right_shoulder_yaw_motor <1>"
+    ],
+    [
+      "right_elbow_yaw_motor <1>",
+      "elbow_bracket_left <1>"
+    ],
+    [
+      "elbow_bracket_right <1>",
+      "left_elbow_yaw_motor <1>"
+    ],
+    [
+      "left_shoulder_yaw_motor <1>",
+      "elbow_bracket_right <1>"
+    ],
+    [
+      "left_ankle_pitch_motor <1>",
+      "ankle_pitch_left <1>"
+    ],
+    [
+      "Hex socket head cap screw M3x0.50 x 8 <1>",
+      "left_shoulder_yaw <1>"
+    ],
+    [
+      "Hex socket head cap screw M3x0.50 x 6 <1>",
+      "left_shoulder_yaw <1>"
+    ],
+    [
+      "Torso <1>",
+      "Electronics Mount <1>"
+    ],
+    [
+      "?",
+      "Electronics Mount <1>"
+    ],
+    [
+      "?",
+      "Electronics Mount <1>"
+    ],
+    [
+      "Electronics Mount <1>",
+      "[Draft] Speaker Mount <2>"
+    ],
+    [
+      "?",
+      "Neck Mount <1>"
+    ],
+    [
+      "MIC <1>",
+      "?"
+    ],
+    [
+      "LCD IMU <2>",
+      "?"
+    ],
+    [
+      "Milk Camera <2>",
+      "Neck Mount <1>"
+    ],
+    [
+      "Head <2>",
+      "Neck Mount <1>"
+    ],
+    [
+      "BackPack <1>",
+      "Torso <1>"
+    ],
+    [
+      "Torso <1>",
+      "Torso to Neck <1>"
+    ],
+    [
+      "Torso to Neck <1>",
+      "Neck Mount <1>"
+    ],
+    [
+      "Chamfered plain washer normal M2 <1>",
+      "Hex socket head cap screw M3x0.50 x 5 <1>"
+    ],
+    [
+      "Chamfered plain washer normal M2 <1>",
+      "hip_yaw_right <1>"
+    ],
+    [
+      "Chamfered plain washer normal M3 <1>",
+      "hip_yaw_right <1>"
+    ],
+    [
+      "Hex socket head cap screw M3x0.50 x 6 <2>",
+      "Chamfered plain washer normal M3 <1>"
+    ]
+  ]
+}

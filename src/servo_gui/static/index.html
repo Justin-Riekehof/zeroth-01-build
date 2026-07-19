@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zeroth-01 · Servo Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <h1>Zeroth-01 · Servo Test</h1>
+
+    <section>
+      <h2>Connection</h2>
+      <div class="row">
+        <select id="port"></select>
+        <button id="refreshPorts" class="icon" title="Rescan serial ports">⟳</button>
+      </div>
+      <div class="row">
+        <button id="connect">Connect</button>
+        <button id="disconnect" disabled>Disconnect</button>
+      </div>
+      <label class="check"><input type="checkbox" id="simulate" checked>
+        Simulation (no hardware needed)</label>
+      <div id="connState" class="muted">not connected</div>
+    </section>
+
+    <section>
+      <h2>Bus IDs <span class="hint">— daisy chain setup</span></h2>
+      <div class="row">
+        <button id="scan" title="Ping IDs 1–30 and list every servo on the bus">scan bus</button>
+      </div>
+      <div id="scanResult" class="muted"></div>
+      <div class="grid2">
+        <label>Current ID <input type="number" id="oldId" value="1" min="1" max="253"></label>
+        <label>New ID <input type="number" id="newId" value="11" min="1" max="253"></label>
+      </div>
+      <div class="row">
+        <button id="setId" title="Persistently write a new ID into the servo EPROM — only one servo with the current ID may be on the bus">set ID</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Servo <span class="hint">— click a part in the model</span></h2>
+      <div id="selName" class="selname">nothing selected</div>
+      <div class="row">
+        <button id="selParent" disabled title="Widen selection to parent group">⬆ parent</button>
+        <button id="selClear" disabled>clear</button>
+      </div>
+      <div class="grid2">
+        <label>Servo ID <input type="number" id="servoId" value="1" min="1" max="253"></label>
+        <label>Model
+          <select id="servoModel">
+            <option>STS3250</option>
+            <option>STS3215</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <button id="saveMap" disabled title="Remember servo ID + model for the selected part">save mapping</button>
+        <button id="ping">ping</button>
+      </div>
+      <div id="poseRow" class="hidden">
+        <label>Pose <span id="poseVal">+0.0°</span>
+          <input type="range" id="poseSlider" min="-176.5" max="176.5" step="0.5" value="0">
+        </label>
+        <div class="row"><button id="poseReset">reset pose (all joints)</button></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Test interval <span class="hint">— 0° = center (mount pos.)</span></h2>
+      <div class="grid2">
+        <label>Min [°] <input type="number" id="minDeg" value="-90" min="-176.5" max="176.5" step="0.5"></label>
+        <label>Max [°] <input type="number" id="maxDeg" value="90" min="-176.5" max="176.5" step="0.5"></label>
+      </div>
+      <div class="row">
+        <button id="saveLimits" disabled title="Store min/max as safe limits for this joint in hardware/joint_limits.json — tests are clamped to them">save limits</button>
+      </div>
+      <label class="check"><input type="checkbox" id="symmetric" checked>
+        apply to mirror joint (left ↔ right)</label>
+      <div class="grid2">
+        <label>Speed [ticks/s] <input type="number" id="speed" value="500" min="1" max="3400"></label>
+        <label>Accel <input type="number" id="acc" value="50" min="0" max="254"></label>
+      </div>
+      <label>Cycles <input type="number" id="cycles" value="1" min="1" max="20"></label>
+      <label>Shaft axis <span class="hint">(part frame — pick the one matching the output shaft)</span>
+        <select id="axis">
+          <option value="Z">Z</option>
+          <option value="X">X</option>
+          <option value="Y">Y</option>
+        </select>
+      </label>
+      <div class="row">
+        <button id="center" title="Move the servo to tick 2048 (180° absolute) — assembly/calibration position">⌂ Move to center (mount position)</button>
+      </div>
+      <div class="row">
+        <button id="run" class="primary">▶ Run test</button>
+        <button id="stop" class="danger" disabled>■ Stop</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Group <span class="hint">— test several servos</span></h2>
+      <div id="groupList"></div>
+      <div class="row">
+        <button id="groupAll" title="Select all / none">All</button>
+        <select id="groupMode">
+          <option value="sequential">sequential (asc. ID)</option>
+          <option value="simultaneous">simultaneous</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="groupCenter" title="Move all selected servos to center (mount pose)">⌂ center</button>
+        <button id="groupRun" class="primary" title="Sweep each selected joint within its configured limits">▶ run group</button>
+      </div>
+      <div id="readout">
+        <span id="phase">idle</span>
+        <span id="posDeg">–</span>
+      </div>
+      <pre id="log"></pre>
+    </section>
+  </aside>
+
+  <main id="viewport">
+    <canvas id="c"></canvas>
+    <div id="dropHint" class="hidden">
+      <div>
+        <h2>CAD model missing</h2>
+        <p>The pinned GLB snapshot was not found at<br>
+          <code>resources/cad/z001-opus-m-93de7567.glb</code></p>
+        <p><strong>Drag &amp; drop</strong> the exported <code>.glb</code> here,<br>
+          or run <code>python resources/cad/download_model.py</code><br>
+          (see <code>resources/cad/VERSION.md</code>).</p>
+      </div>
+    </div>
+  </main>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

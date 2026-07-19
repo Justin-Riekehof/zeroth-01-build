@@ -1,0 +1,472 @@
+{
+  "document": "cacc96f8a7850b951e7aa69a",
+  "version": "cbb187394d36d76f5d27cf84",
+  "element": "b53fc045ae6c03f8f08a378f",
+  "frame": "assembly (CAD, Z-up, meters)",
+  "joints": [
+    {
+      "name": "right_shoulder_pitch",
+      "origin": [
+        -0.07815,
+        -0.0,
+        0.3382
+      ],
+      "axis": [
+        1.0,
+        -0.0,
+        -0.0
+      ],
+      "xaxes": [
+        [
+          -0.0,
+          0.99998,
+          0.006289
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "occurrences": [
+        "shoulder_yaw_right <1>",
+        "right_shoulder_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "right_shoulder_yaw",
+      "origin": [
+        -0.10815,
+        -0.018722,
+        0.321783
+      ],
+      "axis": [
+        -0.0,
+        0.99998,
+        0.006289
+      ],
+      "xaxes": [
+        [
+          1.0,
+          -0.0,
+          -0.0
+        ],
+        [
+          0.976003,
+          -0.00137,
+          0.217755
+        ]
+      ],
+      "occurrences": [
+        "shoulder_yaw_right <1>",
+        "right_shoulder_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "right_elbow_yaw",
+      "origin": [
+        -0.123422,
+        -0.018036,
+        0.252454
+      ],
+      "axis": [
+        0.0,
+        0.99998,
+        0.006289
+      ],
+      "xaxes": [
+        [
+          0.998317,
+          -0.000365,
+          0.057997
+        ],
+        [
+          0.976588,
+          0.001353,
+          -0.215115
+        ]
+      ],
+      "occurrences": [
+        "Left Hand <2>",
+        "right_elbow_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "right_hip_pitch",
+      "origin": [
+        -0.04565,
+        -0.0,
+        0.1982
+      ],
+      "axis": [
+        -1.0,
+        -0.0,
+        0.0
+      ],
+      "xaxes": [
+        [
+          -0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.995983,
+          -0.089539
+        ]
+      ],
+      "occurrences": [
+        "right_hip_pitch_motor <1>",
+        "hip_yaw_right <1>"
+      ]
+    },
+    {
+      "name": "right_hip_yaw",
+      "origin": [
+        -0.06501,
+        -0.025621,
+        0.197993
+      ],
+      "axis": [
+        -0.0,
+        0.995983,
+        -0.089539
+      ],
+      "xaxes": [
+        [
+          0.996195,
+          0.007804,
+          0.086806
+        ],
+        [
+          1.0,
+          0.0,
+          -0.0
+        ]
+      ],
+      "occurrences": [
+        "hip_roll_right <1>",
+        "right_hip_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "right_hip_roll",
+      "origin": [
+        -0.059104,
+        -0.016726,
+        0.129419
+      ],
+      "axis": [
+        -0.087156,
+        0.089198,
+        0.992193
+      ],
+      "xaxes": [
+        [
+          0.995082,
+          -0.039259,
+          0.090939
+        ],
+        [
+          0.996195,
+          0.007804,
+          0.086806
+        ]
+      ],
+      "occurrences": [
+        "knee_pitch_right <1>",
+        "right_hip_roll_motor <1>"
+      ]
+    },
+    {
+      "name": "right_knee_pitch",
+      "origin": [
+        -0.036693,
+        -0.02123,
+        0.089251
+      ],
+      "axis": [
+        -0.995082,
+        0.039259,
+        -0.090939
+      ],
+      "xaxes": [
+        [
+          0.085115,
+          0.80849,
+          -0.582322
+        ],
+        [
+          0.047064,
+          0.99524,
+          -0.085338
+        ]
+      ],
+      "occurrences": [
+        "ankle_pitch_right <1>",
+        "right_knee_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "right_ankle_pitch",
+      "origin": [
+        -0.033642,
+        -0.056591,
+        0.040602
+      ],
+      "axis": [
+        0.995082,
+        -0.039259,
+        0.090939
+      ],
+      "xaxes": [
+        [
+          0.085115,
+          0.80849,
+          -0.582322
+        ],
+        [
+          -0.001317,
+          0.912774,
+          0.408463
+        ]
+      ],
+      "occurrences": [
+        "right_ankle_pitch_motor <1>",
+        "foot_right <1>"
+      ]
+    },
+    {
+      "name": "left_shoulder_pitch",
+      "origin": [
+        0.07815,
+        -0.0,
+        0.3382
+      ],
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "xaxes": [
+        [
+          -0.0,
+          0.999203,
+          -0.039923
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "occurrences": [
+        "shoulder_yaw_left <1>",
+        "left_shoulder_pitch_motor <1>"
+      ]
+    },
+    {
+      "name": "left_shoulder_yaw",
+      "origin": [
+        0.10815,
+        -0.019461,
+        0.322665
+      ],
+      "axis": [
+        -0.0,
+        -0.999203,
+        0.039923
+      ],
+      "xaxes": [
+        [
+          0.940062,
+          -0.013614,
+          -0.340732
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "occurrences": [
+        "left_shoulder_yaw_motor <1>",
+        "shoulder_yaw_left <1>"
+      ]
+    },
+    {
+      "name": "left_elbow_yaw",
+      "origin": [
+        0.114414,
+        -0.022034,
+        0.251995
+      ],
+      "axis": [
+        -0.0,
+        0.999203,
+        -0.039923
+      ],
+      "xaxes": [
+        [
+          0.995558,
+          0.003759,
+          0.094077
+        ],
+        [
+          0.9961,
+          0.003522,
+          0.088162
+        ]
+      ],
+      "occurrences": [
+        "hand_right <1>",
+        "left_elbow_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "left_hip_pitch",
+      "origin": [
+        0.04565,
+        -0.0,
+        0.1982
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "xaxes": [
+        [
+          -0.0,
+          1.0,
+          -0.0
+        ],
+        [
+          -0.0,
+          0.981659,
+          0.190645
+        ]
+      ],
+      "occurrences": [
+        "left_hip_pitch_motor <1>",
+        "hip_yaw_left <1>"
+      ]
+    },
+    {
+      "name": "left_hip_yaw",
+      "origin": [
+        0.06501,
+        -0.024556,
+        0.190884
+      ],
+      "axis": [
+        0.0,
+        0.981659,
+        0.190645
+      ],
+      "xaxes": [
+        [
+          0.996222,
+          0.016557,
+          -0.085252
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "occurrences": [
+        "hip_roll_left <1>",
+        "left_hip_yaw_motor <1>"
+      ]
+    },
+    {
+      "name": "left_hip_roll",
+      "origin": [
+        0.059125,
+        0.003038,
+        0.127478
+      ],
+      "axis": [
+        0.086845,
+        -0.189925,
+        0.97795
+      ],
+      "xaxes": [
+        [
+          0.994463,
+          -0.041776,
+          -0.096425
+        ],
+        [
+          0.996222,
+          0.016557,
+          -0.085252
+        ]
+      ],
+      "occurrences": [
+        "knee_pitch_right <2>",
+        "left_hip_roll_motor <1>"
+      ]
+    },
+    {
+      "name": "left_knee_pitch",
+      "origin": [
+        0.036463,
+        0.012552,
+        0.084342
+      ],
+      "axis": [
+        -0.994463,
+        0.041776,
+        0.096425
+      ],
+      "xaxes": [
+        [
+          0.059169,
+          0.980909,
+          0.185245
+        ],
+        [
+          0.046063,
+          0.998027,
+          0.042664
+        ]
+      ],
+      "occurrences": [
+        "left_knee_pitch_motor <1>",
+        "ankle_pitch_left <1>"
+      ]
+    },
+    {
+      "name": "left_ankle_pitch",
+      "origin": [
+        0.031577,
+        0.01518,
+        0.028143
+      ],
+      "axis": [
+        0.994463,
+        -0.041776,
+        -0.096425
+      ],
+      "xaxes": [
+        [
+          0.046063,
+          0.998027,
+          0.042664
+        ],
+        [
+          0.046063,
+          0.998027,
+          0.042664
+        ]
+      ],
+      "occurrences": [
+        "foot_left <1>",
+        "left_ankle_pitch_motor <1>"
+      ]
+    }
+  ]
+}

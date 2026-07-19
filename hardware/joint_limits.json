@@ -1,0 +1,38 @@
+{
+  "left_elbow_yaw": {
+    "max_deg": 70.0,
+    "min_deg": -95.0,
+    "set": "direct",
+    "updated": "2026-07-19"
+  },
+  "left_shoulder_pitch": {
+    "max_deg": 60.0,
+    "min_deg": -60.0,
+    "set": "mirrored",
+    "updated": "2026-07-19"
+  },
+  "left_shoulder_yaw": {
+    "max_deg": 45.0,
+    "min_deg": -50.0,
+    "set": "direct",
+    "updated": "2026-07-19"
+  },
+  "right_elbow_yaw": {
+    "max_deg": 100.0,
+    "min_deg": -60.0,
+    "set": "direct",
+    "updated": "2026-07-19"
+  },
+  "right_shoulder_pitch": {
+    "max_deg": 60.0,
+    "min_deg": -60.0,
+    "set": "direct",
+    "updated": "2026-07-19"
+  },
+  "right_shoulder_yaw": {
+    "max_deg": 45.0,
+    "min_deg": -50.0,
+    "set": "direct",
+    "updated": "2026-07-19"
+  }
+}
