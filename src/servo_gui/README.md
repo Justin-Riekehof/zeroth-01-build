@@ -1,8 +1,13 @@
 # Servo test GUI
 
-Browser GUI to test **one servo at a time** (STS3215 / STS3250) with a 3D view of the
-Zeroth-01 CAD model — click the servo you are testing, set the position interval, and
-watch the range gauge + live position while the test runs.
+Browser GUI to test the Zeroth-01's servos (STS3215 / STS3250) with a 3D view of the
+CAD model — click the servo you are testing, set the position interval, and watch the
+range gauge + live position while the test runs. Joints are posable via sliders, and
+group runs (sequential / simultaneous) animate the whole rig.
+
+![GUI overview](../../media/servo-gui-overview.png)
+
+![Demo — joint selection, pose slider, simulated group sweep](../../media/servo-gui-demo.gif)
 
 ## Run
 

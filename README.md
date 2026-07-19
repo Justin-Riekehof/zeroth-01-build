@@ -67,6 +67,10 @@ Browser-based tool (FastAPI + three.js) used to bring up and test the robot, bui
 around a **pinned OnShape CAD version** ([resources/cad/](resources/cad/)) so all
 tooling refers to one immutable geometry state:
 
+![Servo test GUI demo — select a joint, pose it, run a simulated group sweep](media/servo-gui-demo.gif)
+
+*Demo (simulation mode): joint selection, pose slider, then a simultaneous group sweep of all six upper-body servos within their configured limits.*
+
 - **3D model, clickable** — select a servo in the CAD view; joint axes, rotation
   centers and zero references are pulled from the OnShape assembly's revolute mates,
   not guessed
@@ -81,6 +85,10 @@ tooling refers to one immutable geometry state:
   (ascending ID) or simultaneously; the 3D model is posable (per-joint sliders) and
   animates live during runs via a kinematic tree derived from the CAD mates
 - **Simulation mode** — full GUI works without hardware
+
+![Joint selected — test-interval gauge at the CAD joint, limits loaded from config](media/servo-gui-joint.png)
+
+*A clicked joint (`⚙ right_shoulder_pitch`): the gauge ring sits on the CAD joint axis, min/max auto-filled from [hardware/joint_limits.json](hardware/joint_limits.json).*
 
 ```
 cd src/servo_gui
