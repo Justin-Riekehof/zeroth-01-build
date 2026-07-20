@@ -1,8 +1,32 @@
 {
-  "left_shoulder_pitch_motor": { "servo_id": 11, "servo_model": "STS3215", "axis": "Z" },
-  "left_shoulder_yaw_motor": { "servo_id": 12, "servo_model": "STS3215", "axis": "Z" },
-  "left_elbow_yaw_motor": { "servo_id": 13, "servo_model": "STS3215", "axis": "Z" },
-  "right_shoulder_pitch_motor": { "servo_id": 21, "servo_model": "STS3215", "axis": "Z" },
-  "right_shoulder_yaw_motor": { "servo_id": 22, "servo_model": "STS3215", "axis": "Z" },
-  "right_elbow_yaw_motor": { "servo_id": 23, "servo_model": "STS3215", "axis": "Z" }
+  "left_shoulder_pitch_motor": {
+    "servo_id": 11,
+    "servo_model": "STS3215",
+    "axis": "Z"
+  },
+  "left_shoulder_yaw_motor": {
+    "servo_id": 12,
+    "servo_model": "STS3215",
+    "axis": "Z"
+  },
+  "left_elbow_yaw_motor": {
+    "servo_id": 13,
+    "servo_model": "STS3215",
+    "axis": "Z"
+  },
+  "right_shoulder_pitch_motor": {
+    "servo_id": 21,
+    "servo_model": "STS3215",
+    "axis": "Z"
+  },
+  "right_shoulder_yaw_motor": {
+    "servo_id": 22,
+    "servo_model": "STS3215",
+    "axis": "Z"
+  },
+  "right_elbow_yaw_motor": {
+    "servo_id": 23,
+    "servo_model": "STS3215",
+    "axis": "Z"
+  }
 }

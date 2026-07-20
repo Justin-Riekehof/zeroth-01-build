@@ -618,9 +618,14 @@ $('saveMap').onclick = guard(async () => {
   if (!selected) return;
   const entry = { servo_id: +$('servoId').value,
     servo_model: $('servoModel').value, axis: $('axis').value };
-  await api.post('/api/mapping', { node: selected.name, ...entry });
-  mapping[selected.name] = entry;
-  clientMsg(`mapping saved: "${selected.name}" -> ID ${entry.servo_id}, axis ${entry.axis}`);
+  const r = await api.post('/api/mapping', { node: selected.name, ...entry,
+    joint: currentJoint?.name ?? null });
+  servoIds = r.servo_ids ?? servoIds;
+  renderGroup();
+  clientMsg(`mapping saved: "${selected.name}" -> ID ${entry.servo_id}`
+    + (currentJoint
+      ? ` (+ group config: ${currentJoint.name} -> ID ${entry.servo_id})`
+      : ' (no CAD joint — group config unchanged)'));
 });
 $('run').onclick = guard(async () => {
   clientLog.length = 0;

@@ -437,9 +437,14 @@ class GroupParams(BaseModel):
     simulate: bool = False
 
 
+def _read_servo_ids() -> dict:
+    if SERVO_IDS_PATH.exists():
+        return json.loads(SERVO_IDS_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
 def _build_plan(joints_sel: list[str]) -> list[dict]:
-    ids = json.loads(SERVO_IDS_PATH.read_text(encoding="utf-8")) \
-        if SERVO_IDS_PATH.exists() else {}
+    ids = _read_servo_ids()
     lims = _read_limits()
     plan = []
     for j in joints_sel:
@@ -493,9 +498,7 @@ def group_test(p: GroupParams):
 
 @app.get("/api/servo_ids")
 def servo_ids():
-    if SERVO_IDS_PATH.exists():
-        return json.loads(SERVO_IDS_PATH.read_text(encoding="utf-8"))
-    return {}
+    return _read_servo_ids()
 
 
 @app.post("/api/stop")
@@ -594,6 +597,7 @@ class MapEntry(BaseModel):
     servo_id: int = Field(ge=1, le=253)
     servo_model: str = "STS3250"
     axis: str = Field("Z", pattern="^[XYZ]$")
+    joint: str | None = None       # CAD joint -> also update servo_ids.json
 
 
 @app.post("/api/mapping")
@@ -602,7 +606,18 @@ def set_mapping(e: MapEntry):
     mapping[e.node] = {"servo_id": e.servo_id, "servo_model": e.servo_model,
                        "axis": e.axis}
     MAP_PATH.write_text(json.dumps(mapping, indent=2), encoding="utf-8")
-    return {"ok": True}
+    # keep the canonical joint -> ID config (group runs) in sync
+    ids = _read_servo_ids()
+    if e.joint:
+        old = ids.get(e.joint)
+        ids[e.joint] = e.servo_id
+        SERVO_IDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SERVO_IDS_PATH.write_text(
+            json.dumps(ids, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
+        S.log(f"servo ID config: {e.joint} -> ID {e.servo_id}"
+              + (f" (was {old})" if old not in (None, e.servo_id) else ""))
+    return {"ok": True, "servo_ids": ids}
 
 
 # ---------------------------------------------------------------- model file

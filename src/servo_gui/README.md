@@ -41,7 +41,11 @@ GLB manually from the pinned URL and drag & drop it into the GUI window.
    everything without hardware.
 2. **Servo** — click the part in the 3D model that corresponds to the servo on the
    bench. *save mapping* remembers servo ID + model per CAD part
-   (stored in `servo_map.json`).
+   (stored in `servo_map.json`) — and, when the part belongs to a CAD joint, also
+   updates the canonical joint → ID config
+   ([hardware/servo_ids.json](../../hardware/servo_ids.json)) that drives the
+   group runs. Onboarding new servos (e.g. the legs) is therefore fully doable
+   from the GUI: flash the ID (*Bus IDs*), click the joint, *save mapping*.
 3. **Test interval** — set min/max in degrees **relative to the center position**
    (see calibration convention below; seam-safe limits ±176.5° are enforced), speed,
    acceleration, cycles. *Run test* pings the servo, moves to min, then sweeps
