@@ -592,7 +592,7 @@ $('groupRun').onclick = guard(async () => {
   });
 });
 $('scan').onclick = guard(async () => {
-  $('scanResult').textContent = 'scanning IDs 1–30 …';
+  $('scanResult').textContent = 'scanning IDs 1–60 …';
   const r = await api.get('/api/scan').catch(e => {
     $('scanResult').textContent = '';
     throw e;

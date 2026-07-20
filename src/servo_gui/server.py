@@ -331,7 +331,7 @@ class PingParams(BaseModel):
 
 
 @app.get("/api/scan")
-def scan(id_from: int = 1, id_to: int = 30):
+def scan(id_from: int = 1, id_to: int = 60):
     with S.lock:
         bus = S.bus
         if S.live["running"]:
