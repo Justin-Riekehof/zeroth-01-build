@@ -69,6 +69,12 @@
         <button id="saveMap" disabled title="Remember servo ID + model for the selected part">save mapping</button>
         <button id="ping">ping</button>
       </div>
+      <div id="offsetRow" class="hidden">
+        <div class="grid2">
+          <label>Mount offset [°] <input type="number" id="offsetDeg" value="0" min="-180" max="180" step="0.5"></label>
+          <label>&nbsp;<button id="saveOffset" title="Servo mounted off-center: store the offset — 0° (CAD pose) then maps to tick 2048 + offset for this joint">save offset</button></label>
+        </div>
+      </div>
       <div id="poseRow" class="hidden">
         <label>Pose <span id="poseVal">+0.0°</span>
           <input type="range" id="poseSlider" min="-176.5" max="176.5" step="0.5" value="0">

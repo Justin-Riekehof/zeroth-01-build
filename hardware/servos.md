@@ -66,3 +66,9 @@ Servos are moved to **tick 2048 (= 180° absolute)** before mounting printed par
 tooling are relative to this center: 0° = mount position, travel ±176.5°
 (seam-safe). Rationale for the seam margin: see header comment in
 [src/tests/servos/sts3250_test.py](../src/tests/servos/sts3250_test.py).
+
+**Mount offsets:** if a servo could not be mounted at center (e.g. `left_hip_pitch`
+sits **+90°** off), the offset is stored in [joint_offsets.json](joint_offsets.json)
+(GUI: *save offset*). All tooling shifts that joint's zero accordingly — 0° keeps
+meaning "CAD pose", the servo just parks at tick 2048 + offset. Note the usable
+travel becomes asymmetric (e.g. +90° offset → about −180°…+86° remain).

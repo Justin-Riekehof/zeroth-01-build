@@ -182,6 +182,14 @@ function select(obj) {
   const hasPivot = !!(currentJoint && pivots.has(currentJoint.name));
   $('poseRow').classList.toggle('hidden', !hasPivot);
   if (hasPivot) syncPoseUI(jointAngles.get(currentJoint.name) ?? 0);
+  $('offsetRow').classList.toggle('hidden', !currentJoint);
+  if (currentJoint) {
+    $('offsetDeg').value = jointOffsets[currentJoint.name] ?? 0;
+    if (jointOffsets[currentJoint.name])
+      clientMsg(`mount offset from config: `
+        + `${jointOffsets[currentJoint.name] >= 0 ? '+' : ''}`
+        + `${jointOffsets[currentJoint.name]}°`);
+  }
   $('saveLimits').disabled = !currentJoint;
   const lims = currentJoint && jointLimits[currentJoint.name];
   if (lims) {
@@ -477,6 +485,7 @@ let joints = [];
 let fastened = [];
 let jointLimits = {};   // joint name -> {min_deg, max_deg, set} from repo config
 let servoIds = {};      // joint name -> bus ID from hardware/servo_ids.json
+let jointOffsets = {};  // joint name -> mount offset deg (hardware/joint_offsets.json)
 
 new EventSource('/api/stream').onmessage = e => {
   const live = JSON.parse(e.data);
@@ -678,7 +687,18 @@ $('center').onclick = guard(async () => {
     speed: Math.min(+$('speed').value, 500),   // gentle move for assembly
     acc: +$('acc').value,
     simulate: $('simulate').checked,
+    joint: currentJoint?.name ?? null,
   });
+});
+$('saveOffset').onclick = guard(async () => {
+  if (!currentJoint) return;
+  const r = await api.post('/api/offsets', {
+    joint: currentJoint.name,
+    offset_deg: +$('offsetDeg').value,
+  });
+  jointOffsets = r.offsets;
+  clientMsg(`mount offset saved: ${currentJoint.name} -> `
+    + `${+$('offsetDeg').value >= 0 ? '+' : ''}${+$('offsetDeg').value}°`);
 });
 $('stop').onclick = guard(() => api.post('/api/stop'));
 
@@ -704,6 +724,7 @@ guard(async () => {
   await Promise.all([refreshPorts(), refreshStatus()]);
   mapping = await api.get('/api/mapping');
   jointLimits = await api.get('/api/limits');
+  jointOffsets = await api.get('/api/offsets');
   servoIds = await api.get('/api/servo_ids');
   renderGroup();
   const jr = await api.get('/api/joints');
