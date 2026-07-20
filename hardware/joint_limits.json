@@ -13,9 +13,9 @@
   },
   "left_hip_pitch": {
     "max_deg": 0.0,
-    "min_deg": -50.0,
+    "min_deg": -30.0,
     "set": "direct",
-    "updated": "2026-07-20"
+    "updated": "2026-07-21"
   },
   "left_shoulder_pitch": {
     "max_deg": 60.0,
@@ -42,9 +42,9 @@
     "updated": "2026-07-19"
   },
   "right_hip_pitch": {
-    "max_deg": 0.0,
-    "min_deg": -50.0,
-    "set": "mirrored",
+    "max_deg": 90.0,
+    "min_deg": -45.0,
+    "set": "direct",
     "updated": "2026-07-20"
   },
   "right_hip_roll": {

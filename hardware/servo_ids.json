@@ -1,18 +1,18 @@
 {
+  "left_ankle_pitch": 35,
+  "left_elbow_yaw": 13,
+  "left_hip_pitch": 31,
+  "left_hip_roll": 33,
+  "left_hip_yaw": 32,
+  "left_knee_pitch": 34,
   "left_shoulder_pitch": 11,
   "left_shoulder_yaw": 12,
-  "left_elbow_yaw": 13,
-  "right_shoulder_pitch": 21,
-  "right_shoulder_yaw": 22,
+  "right_ankle_pitch": 45,
   "right_elbow_yaw": 23,
-  "left_hip_pitch": 31,
-  "left_hip_yaw": 32,
-  "left_hip_roll": 33,
-  "left_knee_pitch": 34,
-  "left_ankle_pitch": 35,
   "right_hip_pitch": 41,
-  "right_hip_yaw": 42,
   "right_hip_roll": 43,
+  "right_hip_yaw": 42,
   "right_knee_pitch": 44,
-  "right_ankle_pitch": 45
+  "right_shoulder_pitch": 21,
+  "right_shoulder_yaw": 22
 }
