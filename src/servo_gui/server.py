@@ -206,10 +206,20 @@ def _group_test_body(bus, p, plan):
 def _run_group(bus, p, plan, body):
     try:
         S.set(phase="ping")
+        responding = []
         for e in plan:
-            model = bus.ping(e["id"])
+            try:
+                model = bus.ping(e["id"])
+            except ServoBusError:
+                S.log(f"WARNING: ID {e['id']} ({e['joint']}) does not respond "
+                      f"— skipped (not wired yet?)")
+                continue
             S.log(f"ID {e['id']} ({e['joint']}) responds (model {model}"
                   f"{', simulated' if bus.simulated else ''})")
+            responding.append(e)
+        if not responding:
+            raise ServoBusError("none of the selected servos responds")
+        plan = responding
         body(bus, p, plan)
         S.set(phase="done")
     except ServoBusError as e:
