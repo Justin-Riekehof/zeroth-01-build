@@ -33,7 +33,17 @@ ID 1 stays reserved for "factory-fresh, unconfigured"):
 | 11 | left_shoulder_pitch  | 21 | right_shoulder_pitch  |
 | 12 | left_shoulder_yaw    | 22 | right_shoulder_yaw    |
 | 13 | left_elbow_yaw       | 23 | right_elbow_yaw       |
-| 3x | left leg (planned)   | 4x | right leg (planned)   |
+
+Legs (planned — order follows the kinematic chain from the CAD mates,
+hip → foot, which is also the daisy-chain wiring order):
+
+| ID | Joint                | ID | Joint                 |
+| -- | -------------------- | -- | --------------------- |
+| 31 | left_hip_pitch       | 41 | right_hip_pitch       |
+| 32 | left_hip_yaw         | 42 | right_hip_yaw         |
+| 33 | left_hip_roll        | 43 | right_hip_roll        |
+| 34 | left_knee_pitch      | 44 | right_knee_pitch      |
+| 35 | left_ankle_pitch     | 45 | right_ankle_pitch     |
 
 Canonical joint → ID assignment (used by the GUI backend for group runs):
 [servo_ids.json](servo_ids.json). The CAD-part ↔ ID mapping used by the 3D viewer
