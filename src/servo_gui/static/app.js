@@ -512,6 +512,7 @@ let fastened = [];
 let jointLimits = {};   // joint name -> {min_deg, max_deg, set} from repo config
 let servoIds = {};      // joint name -> bus ID from hardware/servo_ids.json
 let jointOffsets = {};  // joint name -> mount offset deg (hardware/joint_offsets.json)
+let availableIds = null; // Set of bus IDs present, or null = unknown (all enabled)
 let connected = false;  // real hardware bus present (from /api/status)
 let running = false;    // a run is in progress (from the SSE stream)
 
@@ -617,27 +618,53 @@ $('refreshPorts').onclick = guard(refreshPorts);
 $('connect').onclick = guard(async () => {
   await api.post('/api/connect', { port: $('port').value || null });
   await refreshStatus();
+  await refreshPresence();               // gray out servos not on the bus
 });
 $('disconnect').onclick = guard(async () => {
   await api.post('/api/disconnect');
   await refreshStatus();
+  await refreshPresence();               // -> all enabled again (simulation)
 });
 function renderGroup() {
+  const wasChecked = new Set(selectedJoints());   // preserve selection across re-render
   const entries = Object.entries(servoIds).sort((a, b) => a[1] - b[1]);
   $('groupList').innerHTML = entries.length
     ? entries.map(([j, id]) => {
         const lim = jointLimits[j];
         const range = lim ? ` [${lim.min_deg}, ${lim.max_deg}]°` : ' (no limits!)';
-        return `<label class="check"><input type="checkbox" class="gsel" `
-          + `value="${j}"> ${String(id).padStart(2)} · ${j}${range}</label>`;
+        const absent = availableIds && !availableIds.has(id);   // not on the bus
+        return `<label class="check${absent ? ' absent' : ''}">`
+          + `<input type="checkbox" class="gsel" value="${j}"`
+          + `${absent ? ' disabled' : ''}> `
+          + `${String(id).padStart(2)} · ${j}${range}`
+          + `${absent ? ' — not found' : ''}</label>`;
       }).join('')
     : '<span class="muted">no servo IDs configured (hardware/servo_ids.json)</span>';
+  document.querySelectorAll('.gsel').forEach(c => {
+    if (wasChecked.has(c.value) && !c.disabled) c.checked = true;
+  });
 }
 const selectedJoints = () =>
   [...document.querySelectorAll('.gsel:checked')].map(c => c.value);
 
+// gray out configured servos that don't answer on the bus (daisy chain not
+// fully wired). null availableIds (disconnected / simulation) = all enabled.
+async function refreshPresence() {
+  if (!connected) { availableIds = null; renderGroup(); return; }
+  try {
+    const r = await api.get('/api/present');
+    availableIds = new Set(r.present);
+    const missing = r.configured.filter(i => !availableIds.has(i));
+    clientMsg(missing.length
+      ? `on bus: ${r.present.length}/${r.configured.length} — not found: `
+        + `${missing.join(', ')} (grayed out)`
+      : `all ${r.present.length} configured servos present`);
+  } catch (e) { availableIds = null; clientMsg('presence check failed: ' + e.message); }
+  renderGroup();
+}
+
 $('groupAll').onclick = () => {
-  const boxes = [...document.querySelectorAll('.gsel')];
+  const boxes = [...document.querySelectorAll('.gsel:not(:disabled)')];
   const all = boxes.length && boxes.every(b => b.checked);
   boxes.forEach(b => { b.checked = !all; });
 };
@@ -674,6 +701,8 @@ $('scan').onclick = guard(async () => {
   $('scanResult').textContent = r.found.length
     ? 'found: ' + r.found.map(f => `ID ${f.id} (model ${f.model})`).join(' · ')
     : 'no servos found — check power, cabling, jumper';
+  availableIds = new Set(r.found.map(f => f.id));   // refresh group availability
+  renderGroup();
 });
 $('setId').onclick = guard(async () => {
   const oldId = +$('oldId').value, newId = +$('newId').value;
@@ -809,6 +838,7 @@ guard(async () => {
   jointOffsets = await api.get('/api/offsets');
   servoIds = await api.get('/api/servo_ids');
   renderGroup();
+  await refreshPresence();               // no-op if not connected
   const jr = await api.get('/api/joints');
   joints = jr.joints ?? [];
   fastened = jr.fastened ?? [];

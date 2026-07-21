@@ -54,6 +54,10 @@ In the GUI, clicking a joint retrieves its configured ID from `servo_ids.json`, 
 setting an ID (via *set ID* or the field) auto-selects the matching joint in the 3D
 model — so the selection always tracks the servo you are operating on.
 
+When connected, the GUI pings every configured ID and **grays out the servos not on
+the bus** in the group list (*All* / *run group* skip them). Servos come online as the
+daisy chain is wired up; *scan bus* re-checks.
+
 ## Joint limits
 
 Mechanically safe angle ranges per joint live in [joint_limits.json](joint_limits.json)

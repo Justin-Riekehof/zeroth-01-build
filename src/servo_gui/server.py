@@ -387,6 +387,30 @@ def scan(id_from: int = 1, id_to: int = 60):
     return {"found": found}
 
 
+@app.get("/api/present")
+def present():
+    """Ping every configured servo ID (servo_ids.json) and report which ones
+    respond — the group list grays out the servos not on the bus."""
+    with S.lock:
+        bus = S.bus
+        if S.live["running"]:
+            raise HTTPException(400, "Bus busy — a run is in progress.")
+    if not bus:
+        raise HTTPException(400, "Not connected.")
+    ids = sorted(set(_read_servo_ids().values()))
+    found = []
+    for sid in ids:
+        try:
+            bus.ping(sid)
+            found.append(sid)
+        except ServoBusError:
+            pass
+    missing = [i for i in ids if i not in found]
+    S.log(f"presence check: {len(found)}/{len(ids)} configured servos respond"
+          + (f" — missing {missing}" if missing else ""))
+    return {"present": found, "configured": ids}
+
+
 class SetIdParams(BaseModel):
     old_id: int = Field(ge=1, le=253)
     new_id: int = Field(ge=1, le=253)

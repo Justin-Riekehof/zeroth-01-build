@@ -42,6 +42,7 @@ button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5
 .hidden { display: none !important; }
 #groupList { margin-bottom: 8px; }
 #groupList .check { margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+#groupList .check.absent { opacity: .4; }
 input[type=range] { padding: 0; accent-color: var(--accent); }
 #poseVal { color: var(--accent); font-weight: 600; }
 .livepos { margin-bottom: 8px; color: var(--muted);
