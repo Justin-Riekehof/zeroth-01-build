@@ -44,6 +44,9 @@ button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5
 #groupList .check { margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 input[type=range] { padding: 0; accent-color: var(--accent); }
 #poseVal { color: var(--accent); font-weight: 600; }
+.livepos { margin-bottom: 8px; color: var(--muted);
+  font-variant-numeric: tabular-nums; }
+#livePos { color: var(--accent); font-weight: 700; }
 .selname { font-weight: 600; margin-bottom: 8px; min-height: 1.4em;
   color: var(--accent); word-break: break-all; }
 

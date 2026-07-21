@@ -50,6 +50,10 @@ Canonical joint → ID assignment (used by the GUI backend for group runs):
 lives in [src/servo_gui/servo_map.json](../src/servo_gui/servo_map.json).
 All six upper-body IDs were flashed on 2026-07-19.
 
+In the GUI, clicking a joint retrieves its configured ID from `servo_ids.json`, and
+setting an ID (via *set ID* or the field) auto-selects the matching joint in the 3D
+model — so the selection always tracks the servo you are operating on.
+
 ## Joint limits
 
 Mechanically safe angle ranges per joint live in [joint_limits.json](joint_limits.json)
@@ -68,7 +72,24 @@ tooling are relative to this center: 0° = mount position, travel ±176.5°
 [src/tests/servos/sts3250_test.py](../src/tests/servos/sts3250_test.py).
 
 **Mount offsets:** if a servo could not be mounted at center (e.g. `left_hip_pitch`
-sits **+90°** off), the offset is stored in [joint_offsets.json](joint_offsets.json)
-(GUI: *save offset*). All tooling shifts that joint's zero accordingly — 0° keeps
-meaning "CAD pose", the servo just parks at tick 2048 + offset. Note the usable
-travel becomes asymmetric (e.g. +90° offset → about −180°…+86° remain).
+sits **+90°** off), the offset is stored in [joint_offsets.json](joint_offsets.json).
+All tooling shifts that joint's zero accordingly — 0° keeps meaning "CAD pose", the
+servo just parks at tick 2048 + offset. Note the usable travel becomes asymmetric
+(e.g. +90° offset → about −180°…+86° remain).
+
+Two ways to set it in the GUI (per selected joint):
+
+- **⊙ set current position as zero** — the practical one. *Move to center*, hand-turn
+  the output to exactly where zero should be (torque is off after the move), then
+  click. The servo's current encoder position becomes the joint's 0°; the offset is
+  computed and stored automatically. Use this to trim the last couple of degrees that
+  the gear spline can't resolve.
+- **save offset** — enter a known offset in degrees manually.
+
+The **live position** readout (shown while connected) reflects the current angle in
+the CAD frame with the offset applied, and drives the gauge needle — so you can watch
+the value as you hand-turn.
+
+Re-zeroing a joint that already has limits **shifts those limits by the same amount**
+so they keep protecting the exact same physical stops (the range in
+[joint_limits.json](joint_limits.json) moves, the physical endpoints do not).

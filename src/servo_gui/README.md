@@ -64,6 +64,15 @@ negative = one direction, positive = the other.
 The **gauge axis** dropdown only orients the visualization ring; it does not affect
 the hardware.
 
+**Mount offset / re-zeroing.** If a joint can't be mounted exactly at center (gear
+spline resolution, or a deliberate ±90° mount), select it and use **⊙ set current
+position as zero**: move to center, hand-turn the output to where zero should be
+(torque is off after the move), then click — the current encoder position becomes the
+joint's 0° and the offset is stored in
+[hardware/joint_offsets.json](../../hardware/joint_offsets.json). The **live position**
+readout (shown when connected) tracks the current angle as you turn. All limits/tests
+stay in CAD-frame degrees; the offset is applied transparently.
+
 ## Safety
 
 - Output shaft must be free to rotate — same rule as the bench test.

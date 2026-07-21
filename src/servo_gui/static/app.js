@@ -185,6 +185,8 @@ function select(obj) {
   $('offsetRow').classList.toggle('hidden', !currentJoint);
   if (currentJoint) {
     $('offsetDeg').value = jointOffsets[currentJoint.name] ?? 0;
+    $('zeroHere').disabled = !connected;
+    $('livePos').textContent = connected ? '…' : '– (connect for live position)';
     if (jointOffsets[currentJoint.name])
       clientMsg(`mount offset from config: `
         + `${jointOffsets[currentJoint.name] >= 0 ? '+' : ''}`
@@ -202,12 +204,21 @@ function select(obj) {
     || selected.parent === modelRoot;
   $('selClear').disabled = !has;
   $('saveMap').disabled = !has;
-  if (has && mapping[selected.name]) {
-    const m = mapping[selected.name];
-    $('servoId').value = m.servo_id;
-    $('servoModel').value = m.servo_model;
-    if (m.axis) $('axis').value = m.axis;
-    clientMsg(`mapping: "${selected.name}" -> ID ${m.servo_id}`);
+  const nodeMap = has ? mapping[selected.name] : null;
+  if (nodeMap) {
+    $('servoModel').value = nodeMap.servo_model;
+    if (nodeMap.axis) $('axis').value = nodeMap.axis;
+  }
+  // servo ID: prefer the canonical joint -> ID config (hardware/servo_ids.json),
+  // the one `set ID` / group runs use, so a configured ID is always retrieved;
+  // fall back to the per-node mapping for non-joint parts
+  const cfgId = currentJoint ? servoIds[currentJoint.name] : undefined;
+  if (cfgId != null) {
+    $('servoId').value = cfgId;
+    clientMsg(`servo ID ${cfgId} for ${currentJoint.name} (from config)`);
+  } else if (nodeMap) {
+    $('servoId').value = nodeMap.servo_id;
+    clientMsg(`mapping: "${selected.name}" -> ID ${nodeMap.servo_id}`);
   }
   updateGauge();
 }
@@ -229,6 +240,21 @@ canvas.addEventListener('pointerup', e => {
 $('selParent').onclick = () =>
   selected && select(nearestNamed(selected.parent));
 $('selClear').onclick = () => select(null);
+
+// Reverse of servo_ids.json (id -> joint). Selecting the joint that carries a
+// given bus ID keeps the 3D selection in sync with the ID you are operating on,
+// so you never configure/test the wrong servo after changing the ID field.
+const jointForId = id =>
+  Object.entries(servoIds).find(([, i]) => i === id)?.[0];
+function selectJointForId(id) {
+  const jn = jointForId(id);
+  const j = jn && joints.find(x => x.name === jn);
+  if (!j) return false;
+  const occ = j.occurrences.find(o => /motor/i.test(o)) ?? j.occurrences[0];
+  const node = findNode(occ);
+  if (node && node !== selected) select(node);
+  return !!node;
+}
 
 // ---------------------------------------------------------------- gauge
 
@@ -486,9 +512,12 @@ let fastened = [];
 let jointLimits = {};   // joint name -> {min_deg, max_deg, set} from repo config
 let servoIds = {};      // joint name -> bus ID from hardware/servo_ids.json
 let jointOffsets = {};  // joint name -> mount offset deg (hardware/joint_offsets.json)
+let connected = false;  // real hardware bus present (from /api/status)
+let running = false;    // a run is in progress (from the SSE stream)
 
 new EventSource('/api/stream').onmessage = e => {
   const live = JSON.parse(e.data);
+  running = live.running;
   serverLog = live.log ?? [];
   renderLog();
   $('phase').textContent = live.phase;
@@ -498,9 +527,10 @@ new EventSource('/api/stream').onmessage = e => {
   $('center').disabled = live.running;
   $('stop').disabled = !live.running;
   $('groupRun').disabled = $('groupCenter').disabled = live.running;
-  if (needle && live.deg != null)
+  // during a run the SSE stream owns the needle/pose; when idle the 250 ms live
+  // poll owns them, so don't fight it here with a stale last-run angle
+  if (live.running && needle && live.deg != null)
     needle.rotation.z = THREE.MathUtils.degToRad(live.deg);
-  // animate the posed joint with the live servo position during a run
   if (live.running && live.deg != null
       && currentJoint && pivots.has(currentJoint.name)) {
     setJointAngle(currentJoint.name, live.deg);
@@ -523,18 +553,53 @@ function syncPoseUI(deg) {
   $('poseVal').textContent = (deg >= 0 ? '+' : '') + (+deg).toFixed(1) + '°';
 }
 
+const fmtDeg = d => (d >= 0 ? '+' : '') + (+d).toFixed(1) + '°';
+
+// Idle live position: while connected + not running + a joint is selected,
+// poll the selected servo a few times a second. Shows the current angle (in
+// CAD-frame, offset applied) and drives the gauge needle — so you can hand-turn
+// the output and watch it, then "set current position as zero".
+async function livePoll() {
+  try {
+    const j = currentJoint;                 // capture: selection may change mid-await
+    if (connected && !running && j) {
+      const r = await api.get(`/api/servo_pos?servo_id=${+$('servoId').value}`
+        + `&joint=${encodeURIComponent(j.name)}`);
+      // discard if the selection changed or a run started while awaiting
+      if (currentJoint === j && !running) {
+        if (r.ok) {
+          $('livePos').textContent = `${fmtDeg(r.deg)}  (tick ${r.ticks})`;
+          if (needle) needle.rotation.z = THREE.MathUtils.degToRad(r.deg);
+        } else if (!r.running) {
+          $('livePos').textContent = r.reason === 'no_response'
+            ? 'no response — wired & powered?' : '–';
+        }
+      }
+    }
+  } catch (_) { /* soft: keep last shown value */ }
+  finally {
+    setTimeout(livePoll, 250);
+  }
+}
+livePoll();
+
 // ---------------------------------------------------------------- controls
 
 async function refreshStatus() {
   const s = await api.get('/api/status');
+  connected = s.connected;
   $('connState').textContent = s.connected
     ? 'connected: ' + s.port : 'not connected';
   $('connect').disabled = s.connected;
   $('disconnect').disabled = !s.connected;
   $('simulate').checked = !s.connected;  // connected -> real hardware by default
   // bus operations are hardware-only — no point offering them unconnected
-  $('scan').disabled = $('setId').disabled = !s.connected;
-  if (!s.connected) $('scanResult').textContent = 'connect first (hardware only)';
+  $('scan').disabled = $('setId').disabled = $('zeroHere').disabled = !s.connected;
+  if (!s.connected) {
+    $('scanResult').textContent = 'connect first (hardware only)';
+    if (currentJoint) $('livePos').textContent = '– (connect for live position)';
+    if (needle) needle.rotation.z = 0;   // drop any stale live angle
+  }
 }
 
 async function refreshPorts() {
@@ -615,9 +680,15 @@ $('setId').onclick = guard(async () => {
   const r = await api.post('/api/set_id', { old_id: oldId, new_id: newId });
   clientMsg(`ID ${oldId} -> ${newId} written (model ${r.model}, persistent)`);
   $('servoId').value = newId;
+  // auto-select the body part that carries this ID, so you visually confirm
+  // which servo you just configured (guards against re-flashing the wrong one)
+  if (!selectJointForId(newId))
+    clientMsg(`ID ${newId} is not in the joint table — select the part manually`);
   $('oldId').value = 1;                  // ready for the next factory servo
   $('newId').value = newId + 1;
 });
+// manual ID edits also move the 3D selection to the matching joint
+$('servoId').addEventListener('change', () => selectJointForId(+$('servoId').value));
 $('ping').onclick = guard(async () => {
   if ($('simulate').checked) { clientMsg('simulation — ping skipped'); return; }
   const r = await api.post('/api/ping', { servo_id: +$('servoId').value });
@@ -699,6 +770,17 @@ $('saveOffset').onclick = guard(async () => {
   jointOffsets = r.offsets;
   clientMsg(`mount offset saved: ${currentJoint.name} -> `
     + `${+$('offsetDeg').value >= 0 ? '+' : ''}${+$('offsetDeg').value}°`);
+});
+$('zeroHere').onclick = guard(async () => {
+  if (!currentJoint) return;
+  const r = await api.post('/api/zero', {
+    servo_id: +$('servoId').value,
+    joint: currentJoint.name,
+  });
+  jointOffsets = r.offsets;
+  $('offsetDeg').value = r.offset;
+  clientMsg(`zeroed "${currentJoint.name}" at current position (tick ${r.ticks})`
+    + ` -> mount offset ${r.offset >= 0 ? '+' : ''}${r.offset}°`);
 });
 $('stop').onclick = guard(() => api.post('/api/stop'));
 

@@ -28,5 +28,10 @@
     "servo_id": 23,
     "servo_model": "STS3215",
     "axis": "Z"
+  },
+  "right_hip_pitch_motor": {
+    "servo_id": 31,
+    "servo_model": "STS3215",
+    "axis": "Z"
   }
 }

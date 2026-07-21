@@ -10,6 +10,7 @@ Run (in src/servo_gui):
 """
 
 import json
+import os
 import threading
 import time
 from datetime import date
@@ -44,6 +45,16 @@ def _read_offsets() -> dict:
     return {}
 
 
+def _write_json(path: Path, obj) -> None:
+    """Atomic write: a concurrent reader (e.g. the 250 ms live poll) never sees
+    a half-written config file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n",
+                   encoding="utf-8")
+    os.replace(tmp, path)
+
+
 # Mount offsets: a servo mounted e.g. +90 deg off has its CAD zero at
 # tick(180+90). All user-facing angles stay relative to the CAD zero; the
 # offset only shifts the servo-tick mapping.
@@ -54,6 +65,11 @@ def _to_ticks(rel_deg: float, offset: float = 0.0) -> int:
 
 def _to_rel(ticks: float, offset: float = 0.0) -> float:
     return ticks_to_rel_deg(ticks) - offset
+
+
+# reachable band in CAD degrees (seam-safe tick range), used to clamp limits
+SEAM_MIN_DEG = round(ticks_to_rel_deg(POS_MIN_SAFE), 2)
+SEAM_MAX_DEG = round(ticks_to_rel_deg(POS_MAX_SAFE), 2)
 
 
 # ---------------------------------------------------------------- state
@@ -267,7 +283,7 @@ def _run_group(bus, p, plan, body):
         S.log("torque disabled (all selected)")
         if bus.simulated:
             bus.close()
-        S.set(running=False, target=None, multi=None)
+        S.set(running=False, target=None, multi=None, pos=None, deg=None)
 
 
 def _run(bus, p, body):
@@ -293,7 +309,7 @@ def _run(bus, p, body):
             S.log("WARNING: could not disable torque")
         if bus.simulated:
             bus.close()
-        S.set(running=False, target=None)
+        S.set(running=False, target=None, pos=None, deg=None)
 
 
 # ---------------------------------------------------------------- api
@@ -406,17 +422,44 @@ def ping(p: PingParams):
     return {"ok": True, "model": model}
 
 
+@app.get("/api/servo_pos")
+def servo_pos(servo_id: int, joint: str | None = None):
+    """Live position of one servo (for the idle readout). Never raises — the
+    frontend polls this a few times a second; soft failures just show '–'.
+    During a run the SSE stream already carries the position, so we don't
+    touch the bus (avoids extra concurrent traffic)."""
+    with S.lock:
+        bus = S.bus
+        running = S.live["running"]
+    if running:
+        return {"ok": False, "running": True}
+    if not bus:
+        return {"ok": False, "reason": "disconnected"}
+    try:
+        off = float(_read_offsets().get(joint, 0.0)) if joint else 0.0
+        ticks = bus.read_pos(servo_id)
+    except Exception:      # closed port mid-read, partial config file, etc.
+        return {"ok": False, "reason": "no_response"}
+    return {"ok": True, "ticks": ticks, "deg": _to_rel(ticks, off),
+            "offset": off}
+
+
 def _launch(p, body, banner: str):
     with S.lock:
         if S.live["running"]:
             raise HTTPException(400, "A run is already in progress.")
         bus = S.bus
-    if p.simulate:
-        bus = SimBus(start_ticks=CENTER_TICKS)
-    elif not bus:
-        raise HTTPException(400, "Not connected (or enable simulation).")
+        S.live["running"] = True        # claim the slot atomically (TOCTOU)
+    try:
+        if p.simulate:
+            bus = SimBus(start_ticks=CENTER_TICKS)
+        elif not bus:
+            raise HTTPException(400, "Not connected (or enable simulation).")
+    except Exception:
+        S.set(running=False)            # release the slot on rejected launch
+        raise
     S.abort.clear()
-    S.set(running=True, phase="starting", servo_id=p.servo_id, error=None)
+    S.set(phase="starting", servo_id=p.servo_id, error=None)
     S.log(banner)
     t = threading.Thread(target=_run, args=(bus, p, body), daemon=True)
     with S.lock:
@@ -444,8 +487,20 @@ def start_test(p: TestParams):
                   f"(save new limits to widen)")
             p = p.model_copy(update={"min_deg": lo, "max_deg": hi})
     if p.joint:
-        p = p.model_copy(
-            update={"offset": float(_read_offsets().get(p.joint, 0.0))})
+        off = float(_read_offsets().get(p.joint, 0.0))
+        p = p.model_copy(update={"offset": off})
+        # detect seam clamping of the offset-shifted endpoints (otherwise a
+        # truncated / no-op sweep would still be reported as 'reached')
+        lo_t, hi_t = _to_ticks(p.min_deg, off), _to_ticks(p.max_deg, off)
+        if lo_t == hi_t:
+            raise HTTPException(400, f"Interval not reachable for {p.joint} "
+                                     f"with mount offset {off:+.1f} deg — both "
+                                     "ends fall outside the seam-safe range.")
+        got_lo, got_hi = _to_rel(lo_t, off), _to_rel(hi_t, off)
+        if abs(got_lo - p.min_deg) > 0.5 or abs(got_hi - p.max_deg) > 0.5:
+            S.log(f"NOTE: sweep truncated to reachable band "
+                  f"[{got_lo:+.1f}, {got_hi:+.1f}] deg "
+                  f"(mount offset {off:+.1f} deg near the encoder seam)")
     return _launch(p, _test_body,
                    f"--- test: ID {p.servo_id} ({p.servo_model}"
                    f"{', ' + p.node if p.node else ''}) "
@@ -511,12 +566,17 @@ def _launch_group(p: GroupParams, body, kind: str):
         if S.live["running"]:
             raise HTTPException(400, "A run is already in progress.")
         bus = S.bus
-    if p.simulate:
-        bus = SimBus(start_ticks=CENTER_TICKS)
-    elif not bus:
-        raise HTTPException(400, "Not connected (or enable simulation).")
+        S.live["running"] = True        # claim the slot atomically (TOCTOU)
+    try:
+        if p.simulate:
+            bus = SimBus(start_ticks=CENTER_TICKS)
+        elif not bus:
+            raise HTTPException(400, "Not connected (or enable simulation).")
+    except Exception:
+        S.set(running=False)            # release the slot on rejected launch
+        raise
     S.abort.clear()
-    S.set(running=True, phase="starting", servo_id=None, error=None, multi={})
+    S.set(phase="starting", servo_id=None, error=None, multi={})
     S.log(f"--- group {kind}: "
           + ", ".join(f"ID {e['id']} ({e['joint']})" for e in plan)
           + f", {p.mode}, {'SIMULATION' if p.simulate else 'hardware'} ---")
@@ -612,9 +672,7 @@ def set_limits(e: LimitEntry):
         else:
             limits[m] = {**entry, "set": "mirrored"}
             mirrored = m
-    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LIMITS_PATH.write_text(json.dumps(limits, indent=2, sort_keys=True),
-                           encoding="utf-8")
+    _write_json(LIMITS_PATH, limits)
     S.log(f"joint limits saved: {e.joint} [{e.min_deg:+.1f}, {e.max_deg:+.1f}]"
           + (f" + mirrored to {mirrored}" if mirrored else "")
           + (f" ({skipped} kept its own direct values)" if skipped else ""))
@@ -632,6 +690,10 @@ class OffsetEntry(BaseModel):
     offset_deg: float = Field(ge=-180, le=180)
 
 
+def _write_offsets(offs: dict) -> None:
+    _write_json(OFFSETS_PATH, offs)
+
+
 @app.post("/api/offsets")
 def set_offset(e: OffsetEntry):
     offs = _read_offsets()
@@ -640,13 +702,80 @@ def set_offset(e: OffsetEntry):
         offs.pop(e.joint, None)
     else:
         offs[e.joint] = e.offset_deg
-    OFFSETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OFFSETS_PATH.write_text(json.dumps(offs, indent=2, sort_keys=True) + "\n",
-                            encoding="utf-8")
+    _write_offsets(offs)
     S.log(f"mount offset: {e.joint} -> {e.offset_deg:+.1f} deg "
           f"(zero = tick {_to_ticks(0, e.offset_deg)})"
           + (f" (was {old:+.1f})" if old not in (None, e.offset_deg) else ""))
     return {"ok": True, "offsets": offs}
+
+
+class ZeroParams(BaseModel):
+    servo_id: int = Field(ge=1, le=253)
+    joint: str
+
+
+@app.post("/api/zero")
+def zero_here(p: ZeroParams):
+    """Capture the servo's CURRENT physical position as this joint's zero
+    (CAD pose). Used after mounting: move to center, hand-correct the last
+    couple of degrees, then re-zero here. The mount offset absorbs the shift
+    so that the current position now reads 0 deg — offset = the position (in
+    the un-offset frame) the servo sits at right now."""
+    with S.lock:
+        bus = S.bus
+        if S.live["running"]:
+            raise HTTPException(400, "Bus busy — a run is in progress.")
+    if not bus:
+        raise HTTPException(400, "Not connected.")
+    try:
+        ticks = bus.read_pos(p.servo_id)
+    except ServoBusError as ex:
+        raise HTTPException(400, str(ex)) from ex
+    offs = _read_offsets()
+    old = offs.get(p.joint)
+    old_offset = float(old) if isinstance(old, (int, float)) else 0.0
+    new_offset = round(ticks_to_rel_deg(ticks), 2)
+    delta = round(new_offset - old_offset, 2)
+    if abs(new_offset) < 0.05:
+        offs.pop(p.joint, None)
+        new_offset = 0.0
+    else:
+        offs[p.joint] = new_offset
+    _write_offsets(offs)
+    S.log(f"zeroed {p.joint} at current position (tick {ticks}) -> "
+          f"offset {new_offset:+.2f} deg"
+          + (f" (was {old_offset:+.2f}, shifted {delta:+.2f})" if delta else ""))
+
+    # keep safety limits pinned to the SAME physical stops: when the zero moves
+    # by +delta, a CAD-frame limit moves by -delta to stay physically put.
+    lim_note = None
+    if delta:
+        lims = _read_limits()
+        L = lims.get(p.joint)
+        if L:
+            lo = round(max(SEAM_MIN_DEG, min(SEAM_MAX_DEG,
+                                             L["min_deg"] - delta)), 2)
+            hi = round(max(SEAM_MIN_DEG, min(SEAM_MAX_DEG,
+                                             L["max_deg"] - delta)), 2)
+            if lo < hi:
+                L.update(min_deg=lo, max_deg=hi,
+                         updated=date.today().isoformat())
+                _write_json(LIMITS_PATH, lims)
+                lim_note = {"min_deg": lo, "max_deg": hi}
+                S.log(f"limits for {p.joint} shifted to [{lo:+.1f}, {hi:+.1f}] "
+                      "deg (same physical range after re-zero)")
+            else:
+                S.log(f"WARNING: re-zero would collapse {p.joint} limits — "
+                      "left unchanged, please re-check them")
+
+    # commanded moves to 0 clamp to the seam-safe band — warn if zeroed so near
+    # the encoder seam that CAD 0 can't actually be commanded to this position
+    if abs(ticks - _to_ticks(0.0, new_offset)) > TOLERANCE:
+        S.log(f"WARNING: {p.joint} zeroed near the encoder seam — commanded "
+              "moves to 0 deg will be limited by the seam-safe range")
+
+    return {"ok": True, "offset": new_offset, "ticks": ticks, "offsets": offs,
+            "limits_shifted": lim_note}
 
 
 @app.get("/api/joints")
@@ -684,10 +813,7 @@ def set_mapping(e: MapEntry):
     if e.joint:
         old = ids.get(e.joint)
         ids[e.joint] = e.servo_id
-        SERVO_IDS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SERVO_IDS_PATH.write_text(
-            json.dumps(ids, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8")
+        _write_json(SERVO_IDS_PATH, ids)
         S.log(f"servo ID config: {e.joint} -> ID {e.servo_id}"
               + (f" (was {old})" if old not in (None, e.servo_id) else ""))
     return {"ok": True, "servo_ids": ids}
