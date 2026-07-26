@@ -936,6 +936,9 @@ $('demoDelete').onclick = guard(async () => {
   const r = await api.post('/api/demos/delete', { name });
   demos = r.demos;
   renderDemoList();
+  editSteps = [];                 // clear the editor along with the demo
+  $('demoName').value = '';
+  renderDemoSteps();
   clientMsg(`demo '${name}' deleted`);
 });
 $('demoPlay').onclick = guard(async () => {
