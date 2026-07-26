@@ -38,6 +38,10 @@ OFFSETS_PATH = REPO_ROOT / "hardware" / "joint_offsets.json"
 POLL_S = 0.04          # position poll interval during a test
 TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
+# bumped on every backend behavior change; the frontend warns when its own
+# build expects a newer backend (guards against running a stale server)
+API_VERSION = 8
+
 
 def _read_offsets() -> dict:
     if OFFSETS_PATH.exists():
@@ -211,12 +215,22 @@ def _move_all_and_wait(bus, p, plan, targets: dict, label: str):
         time.sleep(POLL_S)
 
 
+def _hold(bus, e, held: set):
+    """Park confirmation: explicitly enable torque (verified by read-back)
+    instead of trusting that the position command left it on."""
+    ok = bus.torque_on(e["id"])
+    held.add(e["id"])
+    S.log(f"{e['joint']} holding center — torque "
+          + ("ON (verified)" if ok else "state UNVERIFIED, check servo!"))
+
+
 def _group_center_body(bus, p, plan, held: set):
     _move_all_and_wait(bus, p, plan,
                        {e["id"]: _to_ticks(0.0, e["offset"]) for e in plan},
                        "group: to center")
     if p.hold_center:
-        held.update(e["id"] for e in plan)
+        for e in plan:
+            _hold(bus, e, held)
     S.log("all selected servos at center (+0.0 deg, mount offsets applied)")
 
 
@@ -233,7 +247,8 @@ def _group_test_body(bus, p, plan, held: set):
         if p.hold_center:
             _move_all_and_wait(bus, p, plan, center_t,
                                "group: back to center (hold)")
-            held.update(e["id"] for e in plan)
+            for e in plan:
+                _hold(bus, e, held)
     else:                                    # sequential, ascending ID
         for e in plan:
             S.log(f"--- {e['joint']} (ID {e['id']}) "
@@ -253,7 +268,7 @@ def _group_test_body(bus, p, plan, held: set):
                 # the already-tested chain stays stable while the rest run
                 _move_all_and_wait(bus, p, plan, {e["id"]: center_t[e["id"]]},
                                    f"{e['joint']}: back to center (hold)")
-                held.add(e["id"])
+                _hold(bus, e, held)
             else:
                 bus.torque_off(e["id"])
     S.log("group test finished")
@@ -346,7 +361,7 @@ def status():
         connected = S.bus is not None
         port = S.bus.port if S.bus else None
     return {"model_present": GLB_PATH.exists(), "connected": connected,
-            "port": port, "live": S.snapshot(),
+            "port": port, "live": S.snapshot(), "api_version": API_VERSION,
             "limits": {"min_deg": ticks_to_rel_deg(POS_MIN_SAFE),
                        "max_deg": ticks_to_rel_deg(POS_MAX_SAFE)}}
 

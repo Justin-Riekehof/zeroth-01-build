@@ -102,6 +102,16 @@ class ServoBus:
         with self._lock:
             self._servo.write1ByteTxRx(servo_id, ADDR_TORQUE_ENABLE, 0)
 
+    def torque_on(self, servo_id: int) -> bool:
+        """Explicitly enable torque and read it back — used when parking a
+        joint that must actively HOLD its position (demo mode). Returns the
+        verified state instead of trusting the write."""
+        with self._lock:
+            self._servo.write1ByteTxRx(servo_id, ADDR_TORQUE_ENABLE, 1)
+            val, res, _err = self._servo.read1ByteTxRx(servo_id,
+                                                       ADDR_TORQUE_ENABLE)
+        return res == COMM_SUCCESS and val == 1
+
     def scan(self, id_from: int = 1, id_to: int = 30) -> list[dict]:
         """Ping every ID in the range; returns the servos that answered."""
         found = []
@@ -183,6 +193,9 @@ class SimBus:
 
     def torque_off(self, servo_id: int):
         pass
+
+    def torque_on(self, servo_id: int) -> bool:
+        return True
 
     def scan(self, id_from: int = 1, id_to: int = 30) -> list[dict]:
         return [{"id": sid, "model": 3250} for sid in sorted(self._pos)

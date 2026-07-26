@@ -8,6 +8,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
+// must match server.API_VERSION — mismatch means a stale backend is running
+const EXPECTED_API = 8;
+let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
   post: async (p, body) => {
@@ -589,6 +592,12 @@ livePoll();
 
 async function refreshStatus() {
   const s = await api.get('/api/status');
+  if ((s.api_version ?? 0) !== EXPECTED_API && !staleWarned) {
+    staleWarned = true;
+    clientMsg(`⚠ BACKEND OUTDATED (v${s.api_version ?? '<7'}, frontend expects `
+      + `v${EXPECTED_API}) — features WILL misbehave. Restart the server: `
+      + `Ctrl+C, then "uv run server.py"`);
+  }
   connected = s.connected;
   $('connState').textContent = s.connected
     ? 'connected: ' + s.port : 'not connected';
