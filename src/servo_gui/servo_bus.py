@@ -112,6 +112,14 @@ class ServoBus:
                                                        ADDR_TORQUE_ENABLE)
         return res == COMM_SUCCESS and val == 1
 
+    def read_torque(self, servo_id: int) -> int | None:
+        """Current TORQUE_ENABLE state (1/0), or None if no response —
+        watchdog for held joints (a brown-out reset silently drops torque)."""
+        with self._lock:
+            val, res, _err = self._servo.read1ByteTxRx(servo_id,
+                                                       ADDR_TORQUE_ENABLE)
+        return val if res == COMM_SUCCESS else None
+
     def scan(self, id_from: int = 1, id_to: int = 30) -> list[dict]:
         """Ping every ID in the range; returns the servos that answered."""
         found = []
@@ -196,6 +204,9 @@ class SimBus:
 
     def torque_on(self, servo_id: int) -> bool:
         return True
+
+    def read_torque(self, servo_id: int) -> int | None:
+        return 1
 
     def scan(self, id_from: int = 1, id_to: int = 30) -> list[dict]:
         return [{"id": sid, "model": 3250} for sid in sorted(self._pos)

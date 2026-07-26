@@ -40,7 +40,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 8
+API_VERSION = 9
 
 
 def _read_offsets() -> dict:
@@ -189,7 +189,13 @@ def _test_body(bus, p: "TestParams"):
 def _center_body(bus, p):
     target = _to_ticks(0.0, p.offset)
     _move_and_wait(bus, p, target, "to center (mount position)")
+    if p.hold_center:
+        ok = bus.torque_on(p.servo_id)
+        S.log(f"center reached: +0.0 deg (tick {target}) — holding, torque "
+              + ("ON (verified)" if ok else "state UNVERIFIED, check servo!"))
+        return True                      # tell _run to keep torque on
     S.log(f"center reached: +0.0 deg (tick {target}) — mount the part now")
+    return False
 
 
 # ------------------------------------------------------------ group runs
@@ -235,6 +241,26 @@ def _hold(bus, e, held: set):
           + ("ON (verified)" if ok else "state UNVERIFIED, check servo!"))
 
 
+def _check_held(bus, plan, held: set, center_t: dict):
+    """Hold watchdog: a supply brown-out (next servo's inrush) resets a
+    holding servo, which silently drops its torque. Detect that between test
+    phases, re-park the joint and log it — self-healing plus diagnosis."""
+    for e in plan:
+        sid = e["id"]
+        if sid not in held:
+            continue
+        try:
+            if bus.read_torque(sid) == 1:
+                continue
+            S.log(f"WARNING: {e['joint']} (ID {sid}) LOST torque "
+                  f"(supply dip / overload?) — re-parking at center. "
+                  f"Consider raising the PSU current limit!")
+            bus.move(sid, center_t[sid], 300, 50)
+            bus.torque_on(sid)
+        except ServoBusError:
+            S.log(f"WARNING: ID {sid} not responding during hold check")
+
+
 def _group_center_body(bus, p, plan, held: set):
     _move_all_and_wait(bus, p, plan,
                        {e["id"]: _to_ticks(0.0, e["offset"]) for e in plan},
@@ -268,12 +294,14 @@ def _group_test_body(bus, p, plan, held: set):
             hi = {e["id"]: _to_ticks(e["hi"], e["offset"])}
             _move_all_and_wait(bus, p, plan, lo,
                                f"{e['joint']}: to lower limit")
+            _check_held(bus, plan, held, center_t)
             for i in range(p.cycles):
                 tag = f" (cycle {i + 1}/{p.cycles})" if p.cycles > 1 else ""
                 _move_all_and_wait(bus, p, plan, hi,
                                    f"{e['joint']}: sweep up" + tag)
                 _move_all_and_wait(bus, p, plan, lo,
                                    f"{e['joint']}: sweep down" + tag)
+                _check_held(bus, plan, held, center_t)
             if p.hold_center:
                 # demo mode: park this joint at center and keep torque ON so
                 # the already-tested chain stays stable while the rest run
@@ -282,6 +310,7 @@ def _group_test_body(bus, p, plan, held: set):
                 _hold(bus, e, held)
             else:
                 bus.torque_off(e["id"])
+        _check_held(bus, plan, held, center_t)   # final sanity pass
     S.log("group test finished")
 
 
@@ -339,10 +368,13 @@ def _run_group(bus, p, plan, body):
 
 
 def _run(bus, p, body):
+    hold = False        # body returns True when the servo should keep holding
+    success = False
     try:
         _start_and_ping(bus, p)
-        body(bus, p)
+        hold = bool(body(bus, p))
         S.set(phase="done")
+        success = True
     except ServoBusError as e:
         if S.abort.is_set():
             S.set(phase="aborted")
@@ -354,11 +386,15 @@ def _run(bus, p, body):
         S.set(phase="error", error=repr(e))
         S.log(f"ERROR: {e!r}")
     finally:
-        try:
-            bus.torque_off(p.servo_id)
-            S.log("torque disabled")
-        except Exception:
-            S.log("WARNING: could not disable torque")
+        if success and hold:
+            S.log(f"ID {p.servo_id} keeps holding — "
+                  "'release torque' lets go")
+        else:
+            try:
+                bus.torque_off(p.servo_id)
+                S.log("torque disabled")
+            except Exception:
+                S.log("WARNING: could not disable torque")
         if bus.simulated:
             bus.close()
         S.set(running=False, target=None, pos=None, deg=None)
@@ -591,6 +627,7 @@ class CenterParams(BaseModel):
     simulate: bool = False
     joint: str | None = None
     offset: float = Field(0, ge=-180, le=180)   # resolved server-side
+    hold_center: bool = False                   # keep torque on after centering
 
 
 @app.post("/api/center")

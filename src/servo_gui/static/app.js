@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 8;
+const EXPECTED_API = 9;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -808,6 +808,7 @@ $('center').onclick = guard(async () => {
     acc: +$('acc').value,
     simulate: $('simulate').checked,
     joint: currentJoint?.name ?? null,
+    hold_center: $('holdCenter').checked,      // hold pose; ✋ release lets go
   });
 });
 $('saveOffset').onclick = guard(async () => {
