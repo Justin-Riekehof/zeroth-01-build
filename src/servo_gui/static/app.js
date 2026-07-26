@@ -882,7 +882,31 @@ const stepSummary = s => {
     : 'center pose (all 0°)';
 };
 
+// global speed/acc row: shows the common value of all steps (empty = mixed);
+// typing there stamps the value onto every step
+function syncGlobalFields() {
+  if (document.activeElement === $('gSpeed')
+      || document.activeElement === $('gAcc')) return;
+  const sp = new Set(editSteps.map(s => s.speed));
+  const ac = new Set(editSteps.map(s => s.acc));
+  $('gSpeed').value = sp.size === 1 ? [...sp][0] : '';
+  $('gAcc').value = ac.size === 1 ? [...ac][0] : '';
+}
+$('gSpeed').addEventListener('input', () => {
+  if ($('gSpeed').value === '') return;
+  const v = Math.max(1, Math.min(3400, +$('gSpeed').value));
+  editSteps.forEach(s => { s.speed = v; });
+  renderDemoSteps();
+});
+$('gAcc').addEventListener('input', () => {
+  if ($('gAcc').value === '') return;
+  const v = Math.max(0, Math.min(254, +$('gAcc').value));
+  editSteps.forEach(s => { s.acc = v; });
+  renderDemoSteps();
+});
+
 function renderDemoSteps() {
+  syncGlobalFields();
   $('demoSteps').innerHTML = editSteps.map((s, i) => `
     <div class="step" data-i="${i}" title="${stepSummary(s)}">
       <span class="n">#${i + 1}</span>
@@ -931,7 +955,8 @@ $('demoAddStep').onclick = () => {
   const angles = {};
   for (const j of Object.keys(servoIds))
     angles[j] = +((jointAngles.get(j) ?? 0).toFixed(1));
-  editSteps.push({ angles, speed: 500, acc: 50, pause_s: 0 });
+  editSteps.push({ angles, speed: +$('gSpeed').value || 500,
+    acc: $('gAcc').value === '' ? 50 : +$('gAcc').value, pause_s: 0 });
   renderDemoSteps();
   clientMsg(`step #${editSteps.length} from model pose — ${stepSummary(editSteps.at(-1))}`);
 };
@@ -939,7 +964,8 @@ $('demoAddRobot').onclick = guard(async () => {
   // physical teach-in: read the real robot's current pose (hand-posed,
   // torque released) and store it as a step; mirror it onto the 3D model
   const r = await api.get('/api/robot_pose');
-  editSteps.push({ angles: r.pose, speed: 500, acc: 50, pause_s: 0 });
+  editSteps.push({ angles: r.pose, speed: +$('gSpeed').value || 500,
+    acc: $('gAcc').value === '' ? 50 : +$('gAcc').value, pause_s: 0 });
   for (const [j, d] of Object.entries(r.pose))
     if (pivots.has(j)) setJointAngle(j, d);
   renderDemoSteps();

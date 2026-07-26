@@ -159,6 +159,12 @@
         <button id="demoPlay" class="primary" title="Play the selected demo — clamped to joint limits; final pose is held (release via release torque)">▶ play</button>
       </div>
       <label>Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
+      <div class="step" id="demoGlobals" title="Global speed/accel — typing here applies the value to every step; per-step fields can still fine-tune afterwards. Empty = steps have mixed values.">
+        <span class="n">all</span>
+        <span class="lbl">spd</span><input type="number" id="gSpeed" min="1" max="3400" placeholder="mix">
+        <span class="lbl">acc</span><input type="number" id="gAcc" min="0" max="254" placeholder="mix">
+        <span class="lbl">→ every step</span>
+      </div>
       <div id="demoSteps"></div>
       <div class="row">
         <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ step (model pose)</button>
