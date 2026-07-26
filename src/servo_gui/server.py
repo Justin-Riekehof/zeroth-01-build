@@ -38,13 +38,14 @@ SERVO_IDS_PATH = REPO_ROOT / "hardware" / "servo_ids.json"
 OFFSETS_PATH = REPO_ROOT / "hardware" / "joint_offsets.json"
 DEMOS_DIR = REPO_ROOT / "demos"
 MODEL_ZERO_PATH = REPO_ROOT / "hardware" / "model_zero_offsets.json"
+MODEL_INVERT_PATH = REPO_ROOT / "hardware" / "model_invert.json"
 
 POLL_S = 0.04          # position poll interval during a test
 TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 15
+API_VERSION = 16
 
 
 def _read_offsets() -> dict:
@@ -1203,6 +1204,38 @@ def set_model_zero(e: ModelZeroEntry):
     _write_json(MODEL_ZERO_PATH, mz)
     S.log(f"model zero (display only): {e.joint} -> {e.deg:+.1f} deg")
     return {"ok": True, "offsets": mz}
+
+
+def _read_model_invert() -> dict:
+    if MODEL_INVERT_PATH.exists():
+        return json.loads(MODEL_INVERT_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+@app.get("/api/model_invert")
+def get_model_invert():
+    return _read_model_invert()
+
+
+class ModelInvertEntry(BaseModel):
+    joint: str
+    invert: bool
+
+
+@app.post("/api/model_invert")
+def set_model_invert(e: ModelInvertEntry):
+    """Display-only: flip the model rig's rotation direction for a joint whose
+    real servo turns the other way (e.g. the knees). Servo commands, limits
+    and demos are unaffected."""
+    inv = _read_model_invert()
+    if e.invert:
+        inv[e.joint] = True
+    else:
+        inv.pop(e.joint, None)
+    _write_json(MODEL_INVERT_PATH, inv)
+    S.log(f"model direction (display only): {e.joint} -> "
+          + ("inverted" if e.invert else "normal"))
+    return {"ok": True, "invert": inv}
 
 
 class ModelZeroBulk(BaseModel):

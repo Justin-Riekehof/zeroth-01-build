@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 15;
+const EXPECTED_API = 16;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -71,8 +71,26 @@ function resize() {
 }
 new ResizeObserver(resize).observe(canvas.parentElement);
 
+// ground-contact heuristic ("gravity feel"): every frame, shift the whole
+// model vertically so the LOWEST foot touches the floor plane — kneeling
+// lowers the body instead of pushing feet through the ground. Display only,
+// no physics: feet may still slide horizontally, and with both feet "lifted"
+// the lower one is grounded anyway.
+let groundY = 0;
+let footNodes = [];
+const groundBox = new THREE.Box3();
 renderer.setAnimationLoop(() => {
   controls.update();
+  if (modelRoot && footNodes.length && $('groundSnap').checked) {
+    groundBox.makeEmpty();
+    footNodes.forEach(f => groundBox.expandByObject(f));
+    if (!groundBox.isEmpty()) {
+      const dy = groundY - groundBox.min.y;
+      if (Math.abs(dy) > 1e-5) modelRoot.position.y += dy;
+    }
+  } else if (modelRoot && modelRoot.position.y !== 0) {
+    modelRoot.position.y = 0;          // snap off -> original placement
+  }
   renderer.render(scene, camera);
 });
 
@@ -107,8 +125,10 @@ async function loadModel() {
   controls.target.copy(center);
   grid.position.y = box.min.y;
   grid.scale.setScalar(Math.max(1, diag * 2));
+  groundY = box.min.y;                 // floor plane for the ground snap
   clientMsg('CAD model loaded (pinned OnShape version, see resources/cad/VERSION.md)');
   buildRig();
+  footNodes = ['foot_left', 'foot_right'].map(findNode).filter(Boolean);
 }
 
 // ---------------------------------------------------------------- selection
@@ -393,10 +413,11 @@ function setJointAngle(name, deg) {
   const p = pivots.get(name);
   if (!p) return;
   jointAngles.set(name, deg);      // servo-space angle (0 = real robot zero)
-  // modelZero: display-only correction mapping the CAD scene pose onto the
-  // real robot's calibrated zero pose (straight legs, hanging arms)
+  // display-only mapping: modelZero shifts the rest pose onto the real robot's
+  // zero; modelInvert flips joints whose real servo turns the other way
+  const disp = (modelInvert[name] ? -deg : deg) + (modelZero[name] ?? 0);
   p.pivot.quaternion.setFromAxisAngle(p.axisLocal,
-    THREE.MathUtils.degToRad(deg + (modelZero[name] ?? 0)));
+    THREE.MathUtils.degToRad(disp));
 }
 
 function resetPose() {
@@ -525,6 +546,7 @@ let jointLimits = {};   // joint name -> {min_deg, max_deg, set} from repo confi
 let servoIds = {};      // joint name -> bus ID from hardware/servo_ids.json
 let jointOffsets = {};  // joint name -> mount offset deg (hardware/joint_offsets.json)
 let modelZero = {};     // joint name -> display-only model zero correction (deg)
+let modelInvert = {};   // joint name -> true if the model rig turns inverted
 let availableIds = null; // Set of bus IDs present, or null = unknown (all enabled)
 let connected = false;  // real hardware bus present (from /api/status)
 let running = false;    // a run is in progress (from the SSE stream)
@@ -831,6 +853,16 @@ $('modelZeroAll').onclick = guard(async () => {
   syncPoseUI(0);
   clientMsg(`model zero calibrated from posed model (${n} joints folded in)`);
 });
+$('modelInvertBtn').onclick = guard(async () => {
+  if (!currentJoint) return;
+  const name = currentJoint.name;
+  const r = await api.post('/api/model_invert',
+    { joint: name, invert: !modelInvert[name] });
+  modelInvert = r.invert;
+  setJointAngle(name, jointAngles.get(name) ?? 0);   // re-render with new sign
+  clientMsg(`model direction for ${name}: `
+    + (modelInvert[name] ? 'INVERTED' : 'normal') + ' (display only)');
+});
 $('modelZeroBtn').onclick = guard(async () => {
   if (!currentJoint) return;
   const add = +$('poseSlider').value;      // fold slider into the correction
@@ -1062,6 +1094,7 @@ guard(async () => {
   jointLimits = await api.get('/api/limits');
   jointOffsets = await api.get('/api/offsets');
   modelZero = await api.get('/api/model_zero');
+  modelInvert = await api.get('/api/model_invert');
   servoIds = await api.get('/api/servo_ids');
   renderGroup();
   demos = (await api.get('/api/demos')).demos ?? [];
