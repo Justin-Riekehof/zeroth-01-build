@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 13;
+const EXPECTED_API = 14;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -973,6 +973,14 @@ $('demoAddRobot').onclick = guard(async () => {
     + stepSummary(editSteps.at(-1))
     + (r.missing.length ? ` (missing: ${r.missing.join(', ')})` : ''));
 });
+$('demoAddCenter').onclick = () => {
+  const angles = {};
+  for (const j of Object.keys(servoIds)) angles[j] = 0;
+  editSteps.push({ angles, speed: +$('gSpeed').value || 300,
+    acc: $('gAcc').value === '' ? 30 : +$('gAcc').value, pause_s: 0 });
+  renderDemoSteps();
+  clientMsg(`step #${editSteps.length}: exact center (all joints 0.0°)`);
+};
 $('demoSave').onclick = guard(async () => {
   const name = $('demoName').value.trim();
   if (!name) { clientMsg('give the demo a name first'); return; }

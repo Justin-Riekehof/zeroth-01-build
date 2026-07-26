@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 <script type="importmap">
 {
   "imports": {
@@ -167,8 +167,9 @@
       </div>
       <div id="demoSteps"></div>
       <div class="row">
-        <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ step (model pose)</button>
-        <button id="demoAddRobot" title="Physical teach-in: release torque, hand-pose the robot, then capture its real pose as the next step">+ step (robot pose)</button>
+        <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ model pose</button>
+        <button id="demoAddRobot" title="Physical teach-in: release torque, hand-pose the robot, then capture its real pose as the next step">+ robot pose</button>
+        <button id="demoAddCenter" title="Append an EXACT center step (all joints 0.0°) — better than hand-posing 'roughly center'">+ center</button>
       </div>
       <div class="row">
         <button id="demoSave" title="Save under the given name into demos/ in the repo">save demo</button>
@@ -191,6 +192,6 @@
     </div>
   </main>
 </div>
-<script type="module" src="app.js?v=13"></script>
+<script type="module" src="app.js?v=14"></script>
 </body>
 </html>

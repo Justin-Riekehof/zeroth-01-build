@@ -44,7 +44,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 13
+API_VERSION = 14
 
 
 def _read_offsets() -> dict:
@@ -205,12 +205,19 @@ def _center_body(bus, p):
 # ------------------------------------------------------------ group runs
 
 def _move_all_and_wait(bus, p, plan, targets: dict, label: str,
-                       held: set | None = None):
+                       held: set | None = None, settle: bool = False):
     """Command several servos at once and poll until all reached (or timeout).
     Servos in `held` (parked, holding) are read too, so their live angle is
-    streamed while OTHER joints test — you can watch a hold slipping."""
+    streamed while OTHER joints test — you can watch a hold slipping.
+
+    settle=True adds a load-sag compensation pass: under load the servo's
+    P-controller parks short of the goal (steady-state error); we measure the
+    residual and over-command by it (clamped to the joint limits) so the
+    ACTUAL pose matches the taught pose. Used for demo steps and centering,
+    not for range sweeps."""
     id2joint = {e["id"]: e["joint"] for e in plan}
     id2off = {e["id"]: e.get("offset", 0.0) for e in plan}
+    by_id = {e["id"]: e for e in plan}
     watch = [sid for sid in (held or set())
              if sid in id2joint and sid not in targets]
     starts = {sid: bus.read_pos(sid) for sid in targets}
@@ -220,6 +227,7 @@ def _move_all_and_wait(bus, p, plan, targets: dict, label: str,
     timeout = max(abs(t - starts[sid]) for sid, t in targets.items()) \
         / p.speed + 2.0
     t0 = time.monotonic()
+    reached = False
     while True:
         if S.abort.is_set():
             raise ServoBusError("aborted by user")
@@ -237,13 +245,55 @@ def _move_all_and_wait(bus, p, plan, targets: dict, label: str,
                 pass
         S.set(multi=multi)
         if done:
-            S.log(f"{label}: all targets reached")
-            return
+            reached = True
+            break
         if time.monotonic() - t0 > timeout:
-            S.log(f"WARNING: {label}: not all targets reached "
-                  f"after {timeout:.1f} s")
-            return
+            break
         time.sleep(POLL_S)
+
+    if settle:
+        corrected = False
+        for _ in range(2):                   # at most two trim iterations
+            trims = {}
+            for sid, t in targets.items():
+                err = t - bus.read_pos(sid)
+                if 10 < abs(err) <= 300:     # sag-sized, not a blockage
+                    e = by_id[sid]
+                    lo_t, hi_t = sorted((_to_ticks(e["lo"], e["offset"]),
+                                         _to_ticks(e["hi"], e["offset"])))
+                    cmd = max(lo_t, min(hi_t, t + err))
+                    if cmd != t:
+                        trims[sid] = cmd
+            if not trims:
+                break
+            corrected = True
+            for sid, cmd in trims.items():
+                bus.move(sid, cmd, 150, 30)  # slow trim move
+            t1 = time.monotonic() + 0.45
+            while time.monotonic() < t1:
+                if S.abort.is_set():
+                    raise ServoBusError("aborted by user")
+                time.sleep(POLL_S)
+        resid = []
+        multi = dict(S.snapshot().get("multi") or {})
+        for sid, t in targets.items():
+            pos = bus.read_pos(sid)
+            multi[id2joint[sid]] = _to_rel(pos, id2off[sid])
+            if abs(t - pos) > TOLERANCE:
+                resid.append(f"{id2joint[sid]} "
+                             f"{(pos - t) * 360 / 4096:+.1f} deg")
+        S.set(multi=multi)
+        if corrected:
+            S.log(f"{label}: load sag compensated")
+        if resid:
+            S.log(f"WARNING: {label}: residual pose error: "
+                  + ", ".join(resid))
+
+    if reached:
+        S.log(f"{label}: all targets reached")
+    else:
+        S.log(f"WARNING: {label}: not all targets reached "
+              f"after {timeout:.1f} s")
 
 
 def _hold(bus, e, held: set):
@@ -287,7 +337,7 @@ def _check_held(bus, plan, held: set, center_t: dict):
 def _group_center_body(bus, p, plan, held: set):
     _move_all_and_wait(bus, p, plan,
                        {e["id"]: _to_ticks(0.0, e["offset"]) for e in plan},
-                       "group: to center")
+                       "group: to center", settle=True)
     if p.hold_center:
         for e in plan:
             _hold(bus, e, held)
@@ -306,7 +356,7 @@ def _group_test_body(bus, p, plan, held: set):
             _move_all_and_wait(bus, p, plan, lo_t, "group: sweep down" + tag)
         if p.hold_center:
             _move_all_and_wait(bus, p, plan, center_t,
-                               "group: back to center (hold)")
+                               "group: back to center (hold)", settle=True)
             for e in plan:
                 _hold(bus, e, held)
     else:                                    # sequential, ascending ID
@@ -329,7 +379,8 @@ def _group_test_body(bus, p, plan, held: set):
                 # demo mode: park this joint at center and keep torque ON so
                 # the already-tested chain stays stable while the rest run
                 _move_all_and_wait(bus, p, plan, {e["id"]: center_t[e["id"]]},
-                                   f"{e['joint']}: back to center (hold)", held)
+                                   f"{e['joint']}: back to center (hold)", held,
+                                   settle=True)
                 _hold(bus, e, held)
             else:
                 bus.torque_off(e["id"])
@@ -911,7 +962,8 @@ def demo_play(p: PlayParams):
                 continue
             moved.update(targets)
             _move_all_and_wait(bus, sp, plan, targets,
-                               f"demo '{demo.name}' step {i}/{n}", held)
+                               f"demo '{demo.name}' step {i}/{n}", held,
+                               settle=True)
             if step.pause_s:
                 deadline = time.monotonic() + step.pause_s
                 while time.monotonic() < deadline:

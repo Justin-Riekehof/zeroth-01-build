@@ -124,7 +124,23 @@ uv run server.py        # -> http://127.0.0.1:8451
 | Mount & calibrate | *⌂ Move to center* → mount part → hand-trim → *⊙ set current position as zero* (shifts existing limits automatically) |
 | Teach-in demo | *— new demo —* → pose model (sliders) or robot (*release torque*, hand-pose) → *+ step* → per-step or global spd/acc → *save demo* → play in **simulation first** |
 
-## 9. Safety checklist
+## 9. Pose accuracy under load
+
+Two effects make the ACTUAL pose deviate from the taught pose:
+
+1. **Steady-state sag:** the servo's P-controller parks short of the goal under
+   load (several degrees when lifting body weight, e.g. standing up from a
+   squat). Demo playback and centering runs compensate automatically: after each
+   step the residual error is measured and the goal is over-commanded by it
+   (clamped to the joint limits, max 2 trim iterations — log line
+   `load sag compensated`; uncorrectable rest is logged as
+   `residual pose error`). Range sweeps are not settled on purpose.
+2. **Teach-in capture bias:** *+ robot pose* records the hand-posed robot with
+   torque released — "roughly center by hand" is easily ±10° off true zero.
+   For an exact neutral step use **+ center** (writes true 0.0° for all
+   joints) instead of hand-posing it.
+
+## 10. Safety checklist
 
 1. Output shafts free / limbs clear before sweeps.
 2. Limits before speed: measure & save per-joint limits early — the server clamps
