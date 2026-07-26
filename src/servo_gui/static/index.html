@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 <script type="importmap">
 {
   "imports": {
@@ -158,7 +158,8 @@
       <label>Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
       <div id="demoSteps"></div>
       <div class="row">
-        <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ add step (current pose)</button>
+        <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ step (model pose)</button>
+        <button id="demoAddRobot" title="Physical teach-in: release torque, hand-pose the robot, then capture its real pose as the next step">+ step (robot pose)</button>
       </div>
       <div class="row">
         <button id="demoSave" title="Save under the given name into demos/ in the repo">save demo</button>
@@ -181,6 +182,6 @@
     </div>
   </main>
 </div>
-<script type="module" src="app.js?v=11"></script>
+<script type="module" src="app.js?v=12"></script>
 </body>
 </html>

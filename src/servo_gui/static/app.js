@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 11;
+const EXPECTED_API = 12;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -854,9 +854,18 @@ function renderDemoList() {
   if (demos.some(d => d.name === sel)) $('demoList').value = sel;
 }
 
+const stepSummary = s => {
+  const nz = Object.entries(s.angles).filter(([, d]) => Math.abs(d) > 0.5);
+  return nz.length
+    ? `${nz.length}⌁ ` + nz.slice(0, 3).map(([j, d]) =>
+        `${j.replace(/^(left|right)_/, m => m[0] === 'l' ? 'L·' : 'R·')} ${d > 0 ? '+' : ''}${d}°`
+      ).join(', ') + (nz.length > 3 ? ', …' : '')
+    : 'center pose (all 0°)';
+};
+
 function renderDemoSteps() {
   $('demoSteps').innerHTML = editSteps.map((s, i) => `
-    <div class="step" data-i="${i}">
+    <div class="step" data-i="${i}" title="${stepSummary(s)}">
       <span class="n">#${i + 1}</span>
       <span class="lbl">spd</span><input type="number" data-k="speed" value="${s.speed}" min="1" max="3400">
       <span class="lbl">acc</span><input type="number" data-k="acc" value="${s.acc}" min="0" max="254">
@@ -897,8 +906,20 @@ $('demoAddStep').onclick = () => {
     angles[j] = +((jointAngles.get(j) ?? 0).toFixed(1));
   editSteps.push({ angles, speed: 500, acc: 50, pause_s: 0 });
   renderDemoSteps();
-  clientMsg(`step #${editSteps.length} captured from current model pose`);
+  clientMsg(`step #${editSteps.length} from model pose — ${stepSummary(editSteps.at(-1))}`);
 };
+$('demoAddRobot').onclick = guard(async () => {
+  // physical teach-in: read the real robot's current pose (hand-posed,
+  // torque released) and store it as a step; mirror it onto the 3D model
+  const r = await api.get('/api/robot_pose');
+  editSteps.push({ angles: r.pose, speed: 500, acc: 50, pause_s: 0 });
+  for (const [j, d] of Object.entries(r.pose))
+    if (pivots.has(j)) setJointAngle(j, d);
+  renderDemoSteps();
+  clientMsg(`step #${editSteps.length} from ROBOT pose — `
+    + stepSummary(editSteps.at(-1))
+    + (r.missing.length ? ` (missing: ${r.missing.join(', ')})` : ''));
+});
 $('demoSave').onclick = guard(async () => {
   const name = $('demoName').value.trim();
   if (!name) { clientMsg('give the demo a name first'); return; }

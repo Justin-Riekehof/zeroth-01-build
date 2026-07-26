@@ -43,7 +43,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 11
+API_VERSION = 12
 
 
 def _read_offsets() -> dict:
@@ -839,6 +839,31 @@ def delete_demo(p: DemoNameParams):
         path.unlink()
         S.log(f"demo deleted: '{p.name}'")
     return {"ok": True, "demos": _load_demos()}
+
+
+@app.get("/api/robot_pose")
+def robot_pose():
+    """Current pose of the PHYSICAL robot (all responding configured servos)
+    in CAD-frame degrees — physical teach-in: release torque, hand-pose the
+    robot, capture."""
+    with S.lock:
+        bus = S.bus
+        if S.live["running"]:
+            raise HTTPException(400, "Bus busy — a run is in progress.")
+    if not bus:
+        raise HTTPException(400, "Not connected.")
+    ids = _read_servo_ids()
+    offs = _read_offsets()
+    pose, missing = {}, []
+    for j, sid in ids.items():
+        try:
+            pose[j] = round(_to_rel(bus.read_pos(sid),
+                                    float(offs.get(j, 0.0))), 1)
+        except ServoBusError:
+            missing.append(j)
+    if not pose:
+        raise HTTPException(400, "No servo responds.")
+    return {"pose": pose, "missing": missing}
 
 
 class PlayParams(BaseModel):
