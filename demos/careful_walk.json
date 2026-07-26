@@ -1,0 +1,58 @@
+{
+  "name": "careful_walk",
+  "description": "Very cautious forward shuffle without a balance policy: tiny weight shifts via hip_roll, minimal foot lift (knee/ankle), small steps, slow speeds, settling pauses. Sign convention assumed: +left/-right hip_pitch = leg swings forward; -left/+right knee = foot lifts; ankle compensates to keep the foot level. RUN IN SIMULATION FIRST and verify the directions look right before trying hardware!",
+  "steps": [
+    {
+      "angles": { "left_shoulder_pitch": 0, "left_shoulder_yaw": 0, "left_elbow_yaw": 0, "right_shoulder_pitch": 0, "right_shoulder_yaw": 0, "right_elbow_yaw": 0, "left_hip_pitch": 0, "left_hip_yaw": 0, "left_hip_roll": 0, "left_knee_pitch": 0, "left_ankle_pitch": 0, "right_hip_pitch": 0, "right_hip_yaw": 0, "right_hip_roll": 0, "right_knee_pitch": 0, "right_ankle_pitch": 0 },
+      "speed": 250, "acc": 30, "pause_s": 0.8
+    },
+    {
+      "angles": { "left_hip_roll": -6, "right_hip_roll": -6, "left_hip_pitch": 0, "right_hip_pitch": 0, "left_knee_pitch": 0, "right_knee_pitch": 0, "left_ankle_pitch": 0, "right_ankle_pitch": 0 },
+      "speed": 220, "acc": 25, "pause_s": 0.6
+    },
+    {
+      "angles": { "right_hip_pitch": -8, "right_knee_pitch": 14, "right_ankle_pitch": -6 },
+      "speed": 300, "acc": 30, "pause_s": 0.3
+    },
+    {
+      "angles": { "right_hip_pitch": -11, "right_knee_pitch": 3, "right_ankle_pitch": -1 },
+      "speed": 260, "acc": 25, "pause_s": 0.3
+    },
+    {
+      "angles": { "left_hip_roll": 0, "right_hip_roll": 0, "right_hip_pitch": -5, "left_hip_pitch": -5, "right_knee_pitch": 0, "right_ankle_pitch": 0 },
+      "speed": 220, "acc": 25, "pause_s": 0.6
+    },
+    {
+      "angles": { "left_hip_roll": 6, "right_hip_roll": 6 },
+      "speed": 220, "acc": 25, "pause_s": 0.6
+    },
+    {
+      "angles": { "left_hip_pitch": 8, "left_knee_pitch": -14, "left_ankle_pitch": 6 },
+      "speed": 300, "acc": 30, "pause_s": 0.3
+    },
+    {
+      "angles": { "left_hip_pitch": 11, "left_knee_pitch": -3, "left_ankle_pitch": 1 },
+      "speed": 260, "acc": 25, "pause_s": 0.3
+    },
+    {
+      "angles": { "left_hip_roll": 0, "right_hip_roll": 0, "left_hip_pitch": 5, "right_hip_pitch": 0, "left_knee_pitch": 0, "left_ankle_pitch": 0 },
+      "speed": 220, "acc": 25, "pause_s": 0.6
+    },
+    {
+      "angles": { "left_hip_roll": -6, "right_hip_roll": -6 },
+      "speed": 220, "acc": 25, "pause_s": 0.6
+    },
+    {
+      "angles": { "right_hip_pitch": -6, "right_knee_pitch": 10, "right_ankle_pitch": -4 },
+      "speed": 280, "acc": 25, "pause_s": 0.3
+    },
+    {
+      "angles": { "right_hip_pitch": 0, "right_knee_pitch": 0, "right_ankle_pitch": 0, "left_hip_roll": 0, "right_hip_roll": 0, "left_hip_pitch": 0 },
+      "speed": 220, "acc": 25, "pause_s": 0.6
+    },
+    {
+      "angles": { "left_shoulder_pitch": 0, "left_shoulder_yaw": 0, "left_elbow_yaw": 0, "right_shoulder_pitch": 0, "right_shoulder_yaw": 0, "right_elbow_yaw": 0, "left_hip_pitch": 0, "left_hip_yaw": 0, "left_hip_roll": 0, "left_knee_pitch": 0, "left_ankle_pitch": 0, "right_hip_pitch": 0, "right_hip_yaw": 0, "right_hip_roll": 0, "right_knee_pitch": 0, "right_ankle_pitch": 0 },
+      "speed": 200, "acc": 20, "pause_s": 0.5
+    }
+  ]
+}

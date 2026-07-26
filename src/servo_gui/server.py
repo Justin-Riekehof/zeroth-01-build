@@ -37,13 +37,14 @@ LIMITS_PATH = REPO_ROOT / "hardware" / "joint_limits.json"
 SERVO_IDS_PATH = REPO_ROOT / "hardware" / "servo_ids.json"
 OFFSETS_PATH = REPO_ROOT / "hardware" / "joint_offsets.json"
 DEMOS_DIR = REPO_ROOT / "demos"
+MODEL_ZERO_PATH = REPO_ROOT / "hardware" / "model_zero_offsets.json"
 
 POLL_S = 0.04          # position poll interval during a test
 TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 12
+API_VERSION = 13
 
 
 def _read_offsets() -> dict:
@@ -1118,6 +1119,38 @@ def zero_here(p: ZeroParams):
 
     return {"ok": True, "offset": new_offset, "ticks": ticks, "offsets": offs,
             "limits_shifted": lim_note}
+
+
+# Display-only per-joint corrections so the 3D model's zero pose matches the
+# REAL robot's calibrated zero (the CAD scene pose has bent knees / a raised
+# arm). Servo angles are unaffected — this only rotates the preview rig.
+
+def _read_model_zero() -> dict:
+    if MODEL_ZERO_PATH.exists():
+        return json.loads(MODEL_ZERO_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+@app.get("/api/model_zero")
+def get_model_zero():
+    return _read_model_zero()
+
+
+class ModelZeroEntry(BaseModel):
+    joint: str
+    deg: float = Field(ge=-180, le=180)
+
+
+@app.post("/api/model_zero")
+def set_model_zero(e: ModelZeroEntry):
+    mz = _read_model_zero()
+    if abs(e.deg) < 0.05:
+        mz.pop(e.joint, None)
+    else:
+        mz[e.joint] = round(e.deg, 1)
+    _write_json(MODEL_ZERO_PATH, mz)
+    S.log(f"model zero (display only): {e.joint} -> {e.deg:+.1f} deg")
+    return {"ok": True, "offsets": mz}
 
 
 @app.get("/api/joints")

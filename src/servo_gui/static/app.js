@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 12;
+const EXPECTED_API = 13;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -392,9 +392,11 @@ const jointAngles = new Map();  // joint name -> deg
 function setJointAngle(name, deg) {
   const p = pivots.get(name);
   if (!p) return;
-  jointAngles.set(name, deg);
+  jointAngles.set(name, deg);      // servo-space angle (0 = real robot zero)
+  // modelZero: display-only correction mapping the CAD scene pose onto the
+  // real robot's calibrated zero pose (straight legs, hanging arms)
   p.pivot.quaternion.setFromAxisAngle(p.axisLocal,
-    THREE.MathUtils.degToRad(deg));
+    THREE.MathUtils.degToRad(deg + (modelZero[name] ?? 0)));
 }
 
 function resetPose() {
@@ -506,6 +508,10 @@ function buildRig() {
       progress = true;
     }
   }
+  // apply the model-zero corrections so the resting model matches the REAL
+  // robot's zero pose (standing straight) instead of the CAD scene pose
+  for (const name of pivots.keys())
+    setJointAngle(name, jointAngles.get(name) ?? 0);
   if (pivots.size)
     clientMsg(`pose rig ready: ${pivots.size}/${joints.length} joints articulable`);
 }
@@ -518,6 +524,7 @@ let fastened = [];
 let jointLimits = {};   // joint name -> {min_deg, max_deg, set} from repo config
 let servoIds = {};      // joint name -> bus ID from hardware/servo_ids.json
 let jointOffsets = {};  // joint name -> mount offset deg (hardware/joint_offsets.json)
+let modelZero = {};     // joint name -> display-only model zero correction (deg)
 let availableIds = null; // Set of bus IDs present, or null = unknown (all enabled)
 let connected = false;  // real hardware bus present (from /api/status)
 let running = false;    // a run is in progress (from the SSE stream)
@@ -807,6 +814,18 @@ $('poseReset').onclick = () => {
   resetPose();
   syncPoseUI(0);
 };
+$('modelZeroBtn').onclick = guard(async () => {
+  if (!currentJoint) return;
+  const add = +$('poseSlider').value;      // fold slider into the correction
+  const nz = +(((modelZero[currentJoint.name] ?? 0) + add).toFixed(1));
+  const r = await api.post('/api/model_zero',
+    { joint: currentJoint.name, deg: nz });
+  modelZero = r.offsets;
+  setJointAngle(currentJoint.name, 0);     // same visual, servo-space 0 again
+  syncPoseUI(0);
+  clientMsg(`model zero for ${currentJoint.name}: ${nz >= 0 ? '+' : ''}${nz}° `
+    + `(display only)`);
+});
 $('center').onclick = guard(async () => {
   clientLog.length = 0;
   await api.post('/api/center', {
@@ -991,6 +1010,7 @@ guard(async () => {
   mapping = await api.get('/api/mapping');
   jointLimits = await api.get('/api/limits');
   jointOffsets = await api.get('/api/offsets');
+  modelZero = await api.get('/api/model_zero');
   servoIds = await api.get('/api/servo_ids');
   renderGroup();
   demos = (await api.get('/api/demos')).demos ?? [];
