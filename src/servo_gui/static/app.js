@@ -28,9 +28,12 @@ const api = {
 let serverLog = [];
 const clientLog = [];
 function renderLog() {
-  $('log').textContent =
-    [...serverLog.map(l => l.msg), ...clientLog].join('\n');
-  $('log').scrollTop = $('log').scrollHeight;
+  const el = $('log');
+  // stick to the bottom only if the user is already there — otherwise leave
+  // the scroll position alone so older lines can be read/copied
+  const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.textContent = [...serverLog.map(l => l.msg), ...clientLog].join('\n');
+  if (stick) el.scrollTop = el.scrollHeight;
 }
 function clientMsg(msg) {
   clientLog.push('· ' + msg);
@@ -833,6 +836,11 @@ $('zeroHere').onclick = guard(async () => {
     + ` -> mount offset ${r.offset >= 0 ? '+' : ''}${r.offset}°`);
 });
 $('stop').onclick = guard(() => api.post('/api/stop'));
+$('copyLog').onclick = guard(async () => {
+  const txt = [...serverLog.map(l => l.msg), ...clientLog].join('\n');
+  await navigator.clipboard.writeText(txt);
+  clientMsg(`log copied to clipboard (${serverLog.length + clientLog.length} lines)`);
+});
 
 // ---------------------------------------------------------------- upload
 

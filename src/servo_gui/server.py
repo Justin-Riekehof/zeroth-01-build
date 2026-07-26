@@ -96,7 +96,7 @@ class State:
         with self.lock:
             self.seq += 1
             self.live["log"].append({"seq": self.seq, "msg": msg})
-            self.live["log"] = self.live["log"][-80:]
+            self.live["log"] = self.live["log"][-300:]
 
     def set(self, **kw):
         with self.lock:
