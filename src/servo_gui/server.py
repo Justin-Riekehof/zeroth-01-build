@@ -11,10 +11,12 @@ Run (in src/servo_gui):
 
 import json
 import os
+import re
 import threading
 import time
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -34,13 +36,14 @@ MAP_PATH = HERE / "servo_map.json"
 LIMITS_PATH = REPO_ROOT / "hardware" / "joint_limits.json"
 SERVO_IDS_PATH = REPO_ROOT / "hardware" / "servo_ids.json"
 OFFSETS_PATH = REPO_ROOT / "hardware" / "joint_offsets.json"
+DEMOS_DIR = REPO_ROOT / "demos"
 
 POLL_S = 0.04          # position poll interval during a test
 TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 10
+API_VERSION = 11
 
 
 def _read_offsets() -> dict:
@@ -770,6 +773,155 @@ def release_torque(p: ReleaseParams):
     S.log(f"torque released: IDs {released}" if released
           else "torque release: nothing to do")
     return {"ok": True, "released": released}
+
+
+# ------------------------------------------------------------ demos (teach-in)
+
+class DemoStep(BaseModel):
+    angles: dict[str, float]           # joint name -> target angle (CAD deg)
+    speed: int = Field(500, ge=1, le=3400)
+    acc: int = Field(50, ge=0, le=254)
+    pause_s: float = Field(0.0, ge=0, le=10)
+
+
+class Demo(BaseModel):
+    name: str = Field(min_length=1, max_length=40,
+                      pattern=r"^[A-Za-z0-9_\- ]+$")
+    description: str = ""
+    steps: list[DemoStep] = Field(min_length=1)
+
+
+def _demo_path(name: str) -> Path:
+    slug = re.sub(r"[^a-z0-9_-]+", "_", name.strip().lower()).strip("_")
+    if not slug:
+        raise HTTPException(400, "Invalid demo name.")
+    return DEMOS_DIR / f"{slug}.json"
+
+
+def _load_demos() -> list[dict]:
+    out = []
+    if DEMOS_DIR.exists():
+        for f in sorted(DEMOS_DIR.glob("*.json")):
+            try:
+                out.append(Demo(**json.loads(
+                    f.read_text(encoding="utf-8"))).model_dump())
+            except Exception:                       # skip broken files
+                S.log(f"WARNING: demo file {f.name} is invalid — skipped")
+    return out
+
+
+@app.get("/api/demos")
+def demos():
+    return {"demos": _load_demos()}
+
+
+@app.post("/api/demos")
+def save_demo(d: Demo):
+    for i, step in enumerate(d.steps, 1):
+        for j, deg in step.angles.items():
+            if not -180 <= deg <= 180:
+                raise HTTPException(400, f"Step {i}: angle {deg} for {j} "
+                                         "out of range.")
+    _write_json(_demo_path(d.name), d.model_dump())
+    S.log(f"demo saved: '{d.name}' ({len(d.steps)} steps) -> "
+          f"demos/{_demo_path(d.name).name}")
+    return {"ok": True, "demos": _load_demos()}
+
+
+class DemoNameParams(BaseModel):
+    name: str
+
+
+@app.post("/api/demos/delete")
+def delete_demo(p: DemoNameParams):
+    path = _demo_path(p.name)
+    if path.exists():
+        path.unlink()
+        S.log(f"demo deleted: '{p.name}'")
+    return {"ok": True, "demos": _load_demos()}
+
+
+class PlayParams(BaseModel):
+    name: str
+    simulate: bool = False
+
+
+@app.post("/api/demo/play")
+def demo_play(p: PlayParams):
+    path = _demo_path(p.name)
+    if not path.exists():
+        raise HTTPException(404, f"Demo '{p.name}' not found.")
+    demo = Demo(**json.loads(path.read_text(encoding="utf-8")))
+    ids = _read_servo_ids()
+    used = list(dict.fromkeys(
+        j for s in demo.steps for j in s.angles if j in ids))
+    unknown = sorted({j for s in demo.steps for j in s.angles} - set(used))
+    if not used:
+        raise HTTPException(400, "Demo uses no configured joints.")
+    plan = _build_plan(used)
+
+    def body(bus, bp, plan, held):
+        if unknown:
+            S.log(f"NOTE: unknown joints skipped: {', '.join(unknown)}")
+        by_joint = {e["joint"]: e for e in plan}
+        moved: set[int] = set()
+        n = len(demo.steps)
+        for i, step in enumerate(demo.steps, 1):
+            sp = SimpleNamespace(speed=step.speed, acc=step.acc)
+            targets, clamped = {}, []
+            for j, deg in step.angles.items():
+                e = by_joint.get(j)
+                if not e:
+                    continue
+                d = max(e["lo"], min(e["hi"], deg))
+                if d != deg:
+                    clamped.append(f"{j} {deg:+.1f}->{d:+.1f}")
+                targets[e["id"]] = _to_ticks(d, e["offset"])
+            if clamped:
+                S.log(f"step {i}: clamped to joint limits: "
+                      + ", ".join(clamped))
+            if not targets:
+                S.log(f"step {i}: no responding joints — skipped")
+                continue
+            moved.update(targets)
+            _move_all_and_wait(bus, sp, plan, targets,
+                               f"demo '{demo.name}' step {i}/{n}", held)
+            if step.pause_s:
+                deadline = time.monotonic() + step.pause_s
+                while time.monotonic() < deadline:
+                    if S.abort.is_set():
+                        raise ServoBusError("aborted by user")
+                    time.sleep(0.05)
+        # demos end in a defined pose: hold it (release via release-torque)
+        for e in plan:
+            if e["id"] in moved:
+                _hold(bus, e, held)
+        S.log(f"demo '{demo.name}' finished — holding final pose")
+
+    with S.lock:
+        if S.live["running"]:
+            raise HTTPException(400, "A run is already in progress.")
+        bus = S.bus
+        S.live["running"] = True
+    try:
+        if p.simulate:
+            bus = SimBus(start_ticks=CENTER_TICKS)
+        elif not bus:
+            raise HTTPException(400, "Not connected (or enable simulation).")
+    except Exception:
+        S.set(running=False)
+        raise
+    S.abort.clear()
+    S.set(phase="starting", servo_id=None, error=None, multi={})
+    S.log(f"--- demo '{demo.name}': {len(demo.steps)} steps, "
+          f"{len(plan)} joints, "
+          f"{'SIMULATION' if p.simulate else 'hardware'} ---")
+    t = threading.Thread(target=_run_group, args=(bus, p, plan, body),
+                         daemon=True)
+    with S.lock:
+        S.runner = t
+    t.start()
+    return {"ok": True}
 
 
 @app.post("/api/stop")

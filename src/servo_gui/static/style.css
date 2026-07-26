@@ -42,6 +42,13 @@ button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5
 .hidden { display: none !important; }
 #groupList { margin-bottom: 8px; }
 #groupList .check { margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+#demoSteps { margin-bottom: 8px; }
+.step { display: flex; gap: 4px; align-items: center; margin-bottom: 4px;
+  font-variant-numeric: tabular-nums; }
+.step .n { width: 24px; color: var(--muted); flex: none; }
+.step input { width: 52px; flex: none; padding: 3px 5px; }
+.step .lbl { color: var(--muted); font-size: 11px; flex: none; }
+.step button { flex: none; width: auto; padding: 3px 8px; }
 #groupList .check.absent { opacity: .4; }
 input[type=range] { padding: 0; accent-color: var(--accent); }
 #poseVal { color: var(--accent); font-weight: 600; }

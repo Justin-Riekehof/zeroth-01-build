@@ -84,6 +84,9 @@ tooling refers to one immutable geometry state:
 - **Group runs** — move all selected servos to center, sweep them sequentially
   (ascending ID) or simultaneously; the 3D model is posable (per-joint sliders) and
   animates live during runs via a kinematic tree derived from the CAD mates
+- **Teach-in demos** — pose the 3D model, capture steps (per-step speed/accel/pause),
+  save named sequences to [demos/](demos/) and play them back — clamped to the
+  safety limits, final pose held
 - **Simulation mode** — full GUI works without hardware
 
 ![Joint selected — test-interval gauge at the CAD joint, limits loaded from config](media/servo-gui-joint.png)
@@ -112,7 +115,8 @@ MuJoCo/ksim-based training pipeline: train locomotion policies locally on the GP
 
 ```
 docs/       dated build-log entries & decisions
-hardware/   servo docs & configs (IDs, joint limits), print notes, BOM
+hardware/   servo docs & configs (IDs, joint limits, mount offsets), print notes
+demos/      teach-in motion sequences (JSON, created & played via the GUI)
 src/        servo_gui/ (web GUI) · tests/ (bench scripts) · cpp/ (planned)
 resources/  pinned CAD snapshots (immutable OnShape version pins)
 sim/        training configs, MJCF/URDF, sim-to-real notes

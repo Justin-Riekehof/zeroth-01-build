@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 10;
+const EXPECTED_API = 11;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -534,7 +534,7 @@ new EventSource('/api/stream').onmessage = e => {
   $('center').disabled = live.running;
   $('stop').disabled = !live.running;
   $('groupRun').disabled = $('groupCenter').disabled =
-    $('groupRelease').disabled = live.running;
+    $('groupRelease').disabled = $('demoPlay').disabled = live.running;
   // during a run the SSE stream owns the needle/pose; when idle the 250 ms live
   // poll owns them, so don't fight it here with a stale last-run angle
   if (live.running && needle && live.deg != null)
@@ -835,6 +835,92 @@ $('zeroHere').onclick = guard(async () => {
   clientMsg(`zeroed "${currentJoint.name}" at current position (tick ${r.ticks})`
     + ` -> mount offset ${r.offset >= 0 ? '+' : ''}${r.offset}°`);
 });
+// ---------------------------------------------------------------- demos
+
+let demos = [];        // saved demos from the repo (demos/*.json)
+let editSteps = [];    // steps of the demo currently being edited
+
+function renderDemoList() {
+  const sel = $('demoList').value;
+  $('demoList').innerHTML = demos.length
+    ? demos.map(d =>
+        `<option value="${d.name}">${d.name} (${d.steps.length} steps)</option>`
+      ).join('')
+    : '<option value="">no demos yet — teach one!</option>';
+  if (demos.some(d => d.name === sel)) $('demoList').value = sel;
+}
+
+function renderDemoSteps() {
+  $('demoSteps').innerHTML = editSteps.map((s, i) => `
+    <div class="step" data-i="${i}">
+      <span class="n">#${i + 1}</span>
+      <span class="lbl">spd</span><input type="number" data-k="speed" value="${s.speed}" min="1" max="3400">
+      <span class="lbl">acc</span><input type="number" data-k="acc" value="${s.acc}" min="0" max="254">
+      <span class="lbl">pause</span><input type="number" data-k="pause_s" value="${s.pause_s}" min="0" max="10" step="0.1">
+      <button data-a="pose" title="Preview this step's pose on the 3D model">pose</button>
+      <button data-a="del" title="Remove this step">✕</button>
+    </div>`).join('');
+}
+$('demoSteps').addEventListener('input', e => {
+  const row = e.target.closest('.step');
+  if (!row) return;
+  editSteps[+row.dataset.i][e.target.dataset.k] = +e.target.value;
+});
+$('demoSteps').addEventListener('click', e => {
+  const row = e.target.closest('.step');
+  if (!row || !e.target.dataset.a) return;
+  const i = +row.dataset.i;
+  if (e.target.dataset.a === 'del') {
+    editSteps.splice(i, 1);
+    renderDemoSteps();
+  } else if (e.target.dataset.a === 'pose') {
+    for (const [j, d] of Object.entries(editSteps[i].angles))
+      if (pivots.has(j)) setJointAngle(j, d);
+    clientMsg(`previewing step #${i + 1} on the model`);
+  }
+});
+$('demoList').addEventListener('change', () => {
+  const d = demos.find(x => x.name === $('demoList').value);
+  if (!d) return;
+  $('demoName').value = d.name;
+  editSteps = d.steps.map(s => ({ ...s, angles: { ...s.angles } }));
+  renderDemoSteps();
+});
+$('demoAddStep').onclick = () => {
+  // teach-in: freeze the current 3D pose (pose sliders / rig) as a step
+  const angles = {};
+  for (const j of Object.keys(servoIds))
+    angles[j] = +((jointAngles.get(j) ?? 0).toFixed(1));
+  editSteps.push({ angles, speed: 500, acc: 50, pause_s: 0 });
+  renderDemoSteps();
+  clientMsg(`step #${editSteps.length} captured from current model pose`);
+};
+$('demoSave').onclick = guard(async () => {
+  const name = $('demoName').value.trim();
+  if (!name) { clientMsg('give the demo a name first'); return; }
+  if (!editSteps.length) { clientMsg('no steps — pose the model and "+ add step"'); return; }
+  const r = await api.post('/api/demos', { name, steps: editSteps });
+  demos = r.demos;
+  renderDemoList();
+  $('demoList').value = name;
+  clientMsg(`demo '${name}' saved to the repo (${editSteps.length} steps)`);
+});
+$('demoDelete').onclick = guard(async () => {
+  const name = $('demoList').value;
+  if (!name) return;
+  const r = await api.post('/api/demos/delete', { name });
+  demos = r.demos;
+  renderDemoList();
+  clientMsg(`demo '${name}' deleted`);
+});
+$('demoPlay').onclick = guard(async () => {
+  const name = $('demoList').value;
+  if (!name) { clientMsg('no demo selected'); return; }
+  clientLog.length = 0;
+  await api.post('/api/demo/play',
+    { name, simulate: $('simulate').checked });
+});
+
 $('stop').onclick = guard(() => api.post('/api/stop'));
 $('copyLog').onclick = guard(async () => {
   const txt = [...serverLog.map(l => l.msg), ...clientLog].join('\n');
@@ -867,6 +953,8 @@ guard(async () => {
   jointOffsets = await api.get('/api/offsets');
   servoIds = await api.get('/api/servo_ids');
   renderGroup();
+  demos = (await api.get('/api/demos')).demos ?? [];
+  renderDemoList();
   await refreshPresence();               // no-op if not connected
   const jr = await api.get('/api/joints');
   joints = jr.joints ?? [];

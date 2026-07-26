@@ -73,6 +73,17 @@ joint's 0° and the offset is stored in
 readout (shown when connected) tracks the current angle as you turn. All limits/tests
 stay in CAD-frame degrees; the offset is applied transparently.
 
+## Teach-in demos
+
+Pose the 3D model with the per-joint sliders, then *+ add step (current pose)* in
+the **Demos** section — each step stores the target angles of all configured joints
+plus its own speed/accel/pause. *save demo* writes the sequence as JSON into
+[demos/](../../demos/) in the repo; the dropdown lists all saved demos for playback
+(simulation or hardware). Playback clamps every target to the joint limits, skips
+servos not on the bus, animates the model live, and holds the final pose
+(*✋ release torque* lets go). See [demos/README.md](../../demos/README.md) for the
+file format.
+
 ## Safety
 
 - Output shaft must be free to rotate — same rule as the bench test.
