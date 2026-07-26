@@ -592,6 +592,8 @@ livePoll();
 
 async function refreshStatus() {
   const s = await api.get('/api/status');
+  $('buildTag').textContent =
+    `— GUI v${EXPECTED_API} · backend v${s.api_version ?? '?'}`;
   if ((s.api_version ?? 0) !== EXPECTED_API && !staleWarned) {
     staleWarned = true;
     clientMsg(`⚠ BACKEND OUTDATED (v${s.api_version ?? '<7'}, frontend expects `
