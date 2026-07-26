@@ -597,18 +597,22 @@ async function refreshStatus() {
   const s = await api.get('/api/status');
   $('buildTag').textContent =
     `— GUI v${EXPECTED_API} · backend v${s.api_version ?? '?'}`;
-  if ((s.api_version ?? 0) !== EXPECTED_API && !staleWarned) {
+  const stale = (s.api_version ?? 0) !== EXPECTED_API;
+  $('staleBanner').classList.toggle('hidden', !stale);
+  if (stale && !staleWarned) {
     staleWarned = true;
     clientMsg(`⚠ BACKEND OUTDATED (v${s.api_version ?? '<7'}, frontend expects `
       + `v${EXPECTED_API}) — features WILL misbehave. Restart the server: `
       + `Ctrl+C, then "uv run server.py"`);
   }
+  const wasConnected = connected;
   connected = s.connected;
   $('connState').textContent = s.connected
     ? 'connected: ' + s.port : 'not connected';
   $('connect').disabled = s.connected;
   $('disconnect').disabled = !s.connected;
-  $('simulate').checked = !s.connected;  // connected -> real hardware by default
+  if (s.connected !== wasConnected)      // don't override a manual toggle
+    $('simulate').checked = !s.connected; // connected -> hardware by default
   // bus operations are hardware-only — no point offering them unconnected
   $('scan').disabled = $('setId').disabled = $('zeroHere').disabled = !s.connected;
   if (!s.connected) {
@@ -945,6 +949,10 @@ vp.addEventListener('drop', guard(async e => {
 }));
 
 // ---------------------------------------------------------------- init
+
+// re-check the backend version/connection every 10 s — a server restart with
+// newer code clears the stale banner (and vice versa) without a page reload
+setInterval(() => refreshStatus().catch(() => {}), 10000);
 
 guard(async () => {
   await Promise.all([refreshPorts(), refreshStatus()]);
