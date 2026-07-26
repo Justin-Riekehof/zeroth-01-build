@@ -58,6 +58,13 @@ When connected, the GUI pings every configured ID and **grays out the servos not
 the bus** in the group list (*All* / *run group* skip them). Servos come online as the
 daisy chain is wired up; *scan bus* re-checks.
 
+**Hold-center demo mode** (group section, checkbox on by default): after each joint's
+sequential test it returns to center and **keeps torque ON**, so the already-tested
+chain holds a stable pose while the rest run; at the end all tested servos stand at
+center. *Stop* remains an E-stop (everything goes limp), and *✋ release torque* lets
+go after the demo. Servos holding under load stay energized — don't leave the robot
+holding unattended for long.
+
 ## Joint limits
 
 Mechanically safe angle ranges per joint live in [joint_limits.json](joint_limits.json)

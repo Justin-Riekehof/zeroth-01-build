@@ -211,14 +211,17 @@ def _move_all_and_wait(bus, p, plan, targets: dict, label: str):
         time.sleep(POLL_S)
 
 
-def _group_center_body(bus, p, plan):
+def _group_center_body(bus, p, plan, held: set):
     _move_all_and_wait(bus, p, plan,
                        {e["id"]: _to_ticks(0.0, e["offset"]) for e in plan},
                        "group: to center")
+    if p.hold_center:
+        held.update(e["id"] for e in plan)
     S.log("all selected servos at center (+0.0 deg, mount offsets applied)")
 
 
-def _group_test_body(bus, p, plan):
+def _group_test_body(bus, p, plan, held: set):
+    center_t = {e["id"]: _to_ticks(0.0, e["offset"]) for e in plan}
     if p.mode == "simultaneous":
         lo_t = {e["id"]: _to_ticks(e["lo"], e["offset"]) for e in plan}
         hi_t = {e["id"]: _to_ticks(e["hi"], e["offset"]) for e in plan}
@@ -227,6 +230,10 @@ def _group_test_body(bus, p, plan):
             tag = f" (cycle {i + 1}/{p.cycles})" if p.cycles > 1 else ""
             _move_all_and_wait(bus, p, plan, hi_t, "group: sweep up" + tag)
             _move_all_and_wait(bus, p, plan, lo_t, "group: sweep down" + tag)
+        if p.hold_center:
+            _move_all_and_wait(bus, p, plan, center_t,
+                               "group: back to center (hold)")
+            held.update(e["id"] for e in plan)
     else:                                    # sequential, ascending ID
         for e in plan:
             S.log(f"--- {e['joint']} (ID {e['id']}) "
@@ -241,11 +248,20 @@ def _group_test_body(bus, p, plan):
                                    f"{e['joint']}: sweep up" + tag)
                 _move_all_and_wait(bus, p, plan, lo,
                                    f"{e['joint']}: sweep down" + tag)
-            bus.torque_off(e["id"])
+            if p.hold_center:
+                # demo mode: park this joint at center and keep torque ON so
+                # the already-tested chain stays stable while the rest run
+                _move_all_and_wait(bus, p, plan, {e["id"]: center_t[e["id"]]},
+                                   f"{e['joint']}: back to center (hold)")
+                held.add(e["id"])
+            else:
+                bus.torque_off(e["id"])
     S.log("group test finished")
 
 
 def _run_group(bus, p, plan, body):
+    held: set[int] = set()      # ids parked at center that keep torque ON
+    success = False
     try:
         S.set(phase="ping")
         responding = []
@@ -262,8 +278,9 @@ def _run_group(bus, p, plan, body):
         if not responding:
             raise ServoBusError("none of the selected servos responds")
         plan = responding
-        body(bus, p, plan)
+        body(bus, p, plan, held)
         S.set(phase="done")
+        success = True
     except ServoBusError as e:
         if S.abort.is_set():
             S.set(phase="aborted")
@@ -275,12 +292,21 @@ def _run_group(bus, p, plan, body):
         S.set(phase="error", error=repr(e))
         S.log(f"ERROR: {e!r}")
     finally:
+        # on success, servos parked at center keep holding (demo mode);
+        # on Stop/error everything goes limp — abort stays an E-stop
+        keep = held if success else set()
         for e in plan:
+            if e["id"] in keep:
+                continue
             try:
                 bus.torque_off(e["id"])
             except Exception:
                 pass
-        S.log("torque disabled (all selected)")
+        if keep:
+            S.log(f"holding center with torque ON: IDs {sorted(keep)} — "
+                  "use 'release torque' to let go")
+        else:
+            S.log("torque disabled (all selected)")
         if bus.simulated:
             bus.close()
         S.set(running=False, target=None, multi=None, pos=None, deg=None)
@@ -558,6 +584,9 @@ class GroupParams(BaseModel):
     acc: int = Field(50, ge=0, le=254)
     cycles: int = Field(1, ge=1, le=20)
     simulate: bool = False
+    # demo mode: after each joint's test, return it to center and keep torque
+    # ON so the robot holds a stable pose. Stop/abort still releases everything.
+    hold_center: bool = False
 
 
 def _read_servo_ids() -> dict:
@@ -629,6 +658,36 @@ def group_test(p: GroupParams):
 @app.get("/api/servo_ids")
 def servo_ids():
     return _read_servo_ids()
+
+
+class ReleaseParams(BaseModel):
+    joints: list[str] | None = None    # None/empty -> all configured servos
+
+
+@app.post("/api/release")
+def release_torque(p: ReleaseParams):
+    """Let go after a hold-center demo: disable torque on the given joints
+    (or all configured ones)."""
+    with S.lock:
+        bus = S.bus
+        if S.live["running"]:
+            raise HTTPException(400, "Bus busy — a run is in progress.")
+    if not bus:
+        raise HTTPException(400, "Not connected.")
+    ids = _read_servo_ids()
+    sel = p.joints or sorted(ids, key=lambda j: ids[j])
+    released = []
+    for j in sel:
+        if j not in ids:
+            continue
+        try:
+            bus.torque_off(ids[j])
+            released.append(ids[j])
+        except Exception:
+            pass
+    S.log(f"torque released: IDs {released}" if released
+          else "torque release: nothing to do")
+    return {"ok": True, "released": released}
 
 
 @app.post("/api/stop")

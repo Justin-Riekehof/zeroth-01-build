@@ -78,4 +78,6 @@ stay in CAD-frame degrees; the offset is applied transparently.
 - Output shaft must be free to rotate — same rule as the bench test.
 - Position limits keep distance to the 0/4095 encoder seam
   (see the comment block in `sts3250_test.py` for why).
-- One servo per test run, matching the single-servo bench wiring.
+- Torque is released at the end of every run — except joints parked by the
+  **hold center** demo mode, which keep holding until *✋ release torque*.
+  *Stop* always cuts torque on everything (E-stop).

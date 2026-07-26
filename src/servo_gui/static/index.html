@@ -129,9 +129,14 @@
           <option value="simultaneous">simultaneous</option>
         </select>
       </div>
+      <label class="check"><input type="checkbox" id="holdCenter" checked>
+        hold center after test (demo — torque stays on)</label>
       <div class="row">
         <button id="groupCenter" title="Move all selected servos to center (mount pose)">⌂ center</button>
         <button id="groupRun" class="primary" title="Sweep each selected joint within its configured limits">▶ run group</button>
+      </div>
+      <div class="row">
+        <button id="groupRelease" title="Disable torque on the selected servos (or all, if none selected) — releases a hold-center pose">✋ release torque</button>
       </div>
       <div id="readout">
         <span id="phase">idle</span>

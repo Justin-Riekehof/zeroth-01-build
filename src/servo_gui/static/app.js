@@ -527,7 +527,8 @@ new EventSource('/api/stream').onmessage = e => {
   $('run').disabled = live.running;
   $('center').disabled = live.running;
   $('stop').disabled = !live.running;
-  $('groupRun').disabled = $('groupCenter').disabled = live.running;
+  $('groupRun').disabled = $('groupCenter').disabled =
+    $('groupRelease').disabled = live.running;
   // during a run the SSE stream owns the needle/pose; when idle the 250 ms live
   // poll owns them, so don't fight it here with a stale last-run angle
   if (live.running && needle && live.deg != null)
@@ -677,7 +678,14 @@ $('groupCenter').onclick = guard(async () => {
     speed: Math.min(+$('speed').value, 500),
     acc: +$('acc').value,
     simulate: $('simulate').checked,
+    hold_center: $('holdCenter').checked,
   });
+});
+$('groupRelease').onclick = guard(async () => {
+  const js = selectedJoints();           // empty -> release all configured
+  const r = await api.post('/api/release', { joints: js.length ? js : null });
+  clientMsg(`torque released: ${r.released.length ? 'IDs ' + r.released.join(', ')
+    : 'nothing to do'}`);
 });
 $('groupRun').onclick = guard(async () => {
   const js = selectedJoints();
@@ -690,6 +698,7 @@ $('groupRun').onclick = guard(async () => {
     acc: +$('acc').value,
     cycles: +$('cycles').value,
     simulate: $('simulate').checked,
+    hold_center: $('holdCenter').checked,
   });
 });
 $('scan').onclick = guard(async () => {
