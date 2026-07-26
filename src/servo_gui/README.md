@@ -1,5 +1,7 @@
 # Servo test GUI
 
+> Units, conventions, ID tables and workflows: **[User Manual](../../docs/User_Manual.md)**
+
 Browser GUI to test the Zeroth-01's servos (STS3215 / STS3250) with a 3D view of the
 CAD model — click the servo you are testing, set the position interval, and watch the
 range gauge + live position while the test runs. Joints are posable via sliders, and

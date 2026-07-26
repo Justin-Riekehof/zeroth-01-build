@@ -99,7 +99,9 @@ uv sync
 uv run server.py        # -> http://127.0.0.1:8451
 ```
 
-Details in [src/servo_gui/README.md](src/servo_gui/README.md).
+Details in [src/servo_gui/README.md](src/servo_gui/README.md); all conventions,
+units, IDs and workflows are collected in the
+**[User Manual](docs/User_Manual.md)**.
 
 ### Other
 
