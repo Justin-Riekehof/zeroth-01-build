@@ -71,25 +71,80 @@ function resize() {
 }
 new ResizeObserver(resize).observe(canvas.parentElement);
 
-// ground-contact heuristic ("gravity feel"): every frame, shift the whole
-// model vertically so the LOWEST foot touches the floor plane — kneeling
-// lowers the body instead of pushing feet through the ground. Display only,
-// no physics: feet may still slide horizontally, and with both feet "lifted"
-// the lower one is grounded anyway.
+// ground-contact heuristic ("gravity feel"), display only, no physics:
+// 1) SOLE ALIGNMENT — tilt the whole model (damped, anchored at the stance
+//    foot) so the stance foot's sole lies FLUSH on the floor plane, i.e.
+//    maximum contact area instead of a single corner touching.
+// 2) VERTICAL SNAP — shift the model so the lowest foot rests on the floor.
+// Stance foot = the lower one (with hysteresis). Feet may still slide
+// horizontally and nothing tips over — that's where real physics would start.
 let groundY = 0;
 let footNodes = [];
+let baseQuat = null;               // modelRoot orientation at load
+const soleNormal = new Map();      // foot node -> sole normal in foot frame
+const DOWN = new THREE.Vector3(0, -1, 0);
 const groundBox = new THREE.Box3();
+const _fb = new THREE.Box3();
+const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+const _v1 = new THREE.Vector3();
+const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
+let stance = null;
+
+function captureSoleNormals() {
+  // at the calibrated rest pose both soles are flat on the ground, so the
+  // world down-direction expressed in each foot's frame IS the sole normal
+  soleNormal.clear();
+  for (const f of footNodes) {
+    f.updateWorldMatrix(true, false);
+    soleNormal.set(f,
+      DOWN.clone().applyQuaternion(f.getWorldQuaternion(_q1).invert()));
+  }
+}
+
 renderer.setAnimationLoop(() => {
   controls.update();
-  if (modelRoot && footNodes.length && $('groundSnap').checked) {
+  if (modelRoot && footNodes.length === 2 && $('groundSnap').checked) {
+    // stance foot = lower foot, with 5 mm hysteresis against flip-flopping
+    const mins = footNodes.map(f => {
+      _fb.makeEmpty();
+      _fb.expandByObject(f);
+      return _fb.min.y;
+    });
+    const lower = mins[0] <= mins[1] ? 0 : 1;
+    if (!stance || !footNodes.includes(stance)) stance = footNodes[lower];
+    else {
+      const si = footNodes.indexOf(stance);
+      if (mins[1 - si] < mins[si] - 0.005) stance = footNodes[1 - si];
+    }
+    // tilt so the stance sole's normal points straight down (damped P-step),
+    // rotating about the stance foot's contact point so it stays anchored
+    const n = soleNormal.get(stance);
+    if (n) {
+      const nW = _v1.copy(n).applyQuaternion(stance.getWorldQuaternion(_q1));
+      const delta = _q2.setFromUnitVectors(nW, DOWN);
+      _q1.identity().slerp(delta, 0.25);           // damping
+      _fb.makeEmpty();
+      _fb.expandByObject(stance);
+      const px = (_fb.min.x + _fb.max.x) / 2, py = _fb.min.y,
+            pz = (_fb.min.z + _fb.max.z) / 2;
+      _m1.makeTranslation(-px, -py, -pz);
+      _m2.makeRotationFromQuaternion(_q1).multiply(_m1);
+      _m1.makeTranslation(px, py, pz).multiply(_m2);
+      modelRoot.applyMatrix4(_m1);
+    }
+    // vertical snap: lowest foot point onto the floor plane
     groundBox.makeEmpty();
     footNodes.forEach(f => groundBox.expandByObject(f));
     if (!groundBox.isEmpty()) {
       const dy = groundY - groundBox.min.y;
       if (Math.abs(dy) > 1e-5) modelRoot.position.y += dy;
     }
-  } else if (modelRoot && modelRoot.position.y !== 0) {
-    modelRoot.position.y = 0;          // snap off -> original placement
+  } else if (modelRoot && baseQuat
+             && (modelRoot.position.lengthSq() > 1e-10
+                 || !modelRoot.quaternion.equals(baseQuat))) {
+    modelRoot.position.set(0, 0, 0);   // snap off -> original placement
+    modelRoot.quaternion.copy(baseQuat);
+    stance = null;
   }
   renderer.render(scene, camera);
 });
@@ -126,9 +181,11 @@ async function loadModel() {
   grid.position.y = box.min.y;
   grid.scale.setScalar(Math.max(1, diag * 2));
   groundY = box.min.y;                 // floor plane for the ground snap
+  baseQuat = modelRoot.quaternion.clone();
   clientMsg('CAD model loaded (pinned OnShape version, see resources/cad/VERSION.md)');
   buildRig();
   footNodes = ['foot_left', 'foot_right'].map(findNode).filter(Boolean);
+  captureSoleNormals();                // rest pose = soles flat on the ground
 }
 
 // ---------------------------------------------------------------- selection
