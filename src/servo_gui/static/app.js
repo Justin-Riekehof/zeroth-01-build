@@ -846,11 +846,11 @@ let editSteps = [];    // steps of the demo currently being edited
 
 function renderDemoList() {
   const sel = $('demoList').value;
-  $('demoList').innerHTML = demos.length
-    ? demos.map(d =>
+  $('demoList').innerHTML =
+    '<option value="">— new demo —</option>'
+    + demos.map(d =>
         `<option value="${d.name}">${d.name} (${d.steps.length} steps)</option>`
-      ).join('')
-    : '<option value="">no demos yet — teach one!</option>';
+      ).join('');
   if (demos.some(d => d.name === sel)) $('demoList').value = sel;
 }
 
@@ -893,7 +893,15 @@ $('demoSteps').addEventListener('click', e => {
   }
 });
 $('demoList').addEventListener('change', () => {
-  const d = demos.find(x => x.name === $('demoList').value);
+  const val = $('demoList').value;
+  if (!val) {                      // "— new demo —": fresh, empty editor
+    editSteps = [];
+    $('demoName').value = '';
+    renderDemoSteps();
+    clientMsg('new demo — pose and add steps, then name & save');
+    return;
+  }
+  const d = demos.find(x => x.name === val);
   if (!d) return;
   $('demoName').value = d.name;
   editSteps = d.steps.map(s => ({ ...s, angles: { ...s.angles } }));
