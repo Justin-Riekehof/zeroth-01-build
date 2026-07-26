@@ -1,4 +1,6 @@
 {
+  "left_hip_pitch": true,
   "left_knee_pitch": true,
+  "right_hip_pitch": true,
   "right_knee_pitch": true
 }
