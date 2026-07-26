@@ -111,6 +111,17 @@ S = State()
 app = FastAPI(title="Zeroth-01 servo test GUI")
 
 
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    """The GUI files (index.html/app.js/style.css) must never be served from
+    the browser cache — a stale frontend silently misses features. The big
+    GLB stays cacheable."""
+    resp = await call_next(request)
+    if request.url.path != "/model":
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ---------------------------------------------------------------- test run
 
 class TestParams(BaseModel):
