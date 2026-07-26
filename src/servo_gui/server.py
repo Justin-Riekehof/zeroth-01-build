@@ -44,7 +44,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 14
+API_VERSION = 15
 
 
 def _read_offsets() -> dict:
@@ -1202,6 +1202,29 @@ def set_model_zero(e: ModelZeroEntry):
         mz[e.joint] = round(e.deg, 1)
     _write_json(MODEL_ZERO_PATH, mz)
     S.log(f"model zero (display only): {e.joint} -> {e.deg:+.1f} deg")
+    return {"ok": True, "offsets": mz}
+
+
+class ModelZeroBulk(BaseModel):
+    offsets: dict[str, float]
+
+
+@app.post("/api/model_zero_bulk")
+def set_model_zero_bulk(e: ModelZeroBulk):
+    """Calibrate ALL joints at once: pose the model to match the real robot's
+    zero, then fold every joint's current pose angle into its correction."""
+    mz = _read_model_zero()
+    changed = 0
+    for j, v in e.offsets.items():
+        if not -180 <= v <= 180:
+            raise HTTPException(400, f"Offset {v} for {j} out of range.")
+        if abs(v) < 0.05:
+            changed += 1 if mz.pop(j, None) is not None else 0
+        elif mz.get(j) != round(v, 1):
+            mz[j] = round(v, 1)
+            changed += 1
+    _write_json(MODEL_ZERO_PATH, mz)
+    S.log(f"model zero calibrated from posed model ({changed} joints changed)")
     return {"ok": True, "offsets": mz}
 
 

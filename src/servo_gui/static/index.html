@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 <script type="importmap">
 {
   "imports": {
@@ -88,7 +88,10 @@
         </label>
         <div class="row">
           <button id="poseReset">reset pose (all joints)</button>
-          <button id="modelZeroBtn" title="Display calibration: slide the pose until the MODEL matches the real robot's zero pose, then click — stores a view-only correction (servo angles unaffected)">⌖ model zero</button>
+          <button id="modelZeroBtn" title="Display calibration for THIS joint: slide until the model matches reality, then click (view-only, servo angles unaffected)">⌖ model zero</button>
+        </div>
+        <div class="row">
+          <button id="modelZeroAll" title="Pose ANY number of joints with the sliders until the whole model matches the real robot's zero pose, then click — folds every posed angle into the display corrections at once">⌖ calibrate model zero (all posed joints)</button>
         </div>
       </div>
     </section>
@@ -192,6 +195,6 @@
     </div>
   </main>
 </div>
-<script type="module" src="app.js?v=14"></script>
+<script type="module" src="app.js?v=15"></script>
 </body>
 </html>

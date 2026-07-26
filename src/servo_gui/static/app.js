@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 14;
+const EXPECTED_API = 15;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -814,6 +814,23 @@ $('poseReset').onclick = () => {
   resetPose();
   syncPoseUI(0);
 };
+$('modelZeroAll').onclick = guard(async () => {
+  // fold EVERY joint's current pose angle into its display correction —
+  // the visual pose stays identical, all sliders return to 0
+  const offsets = {};
+  let n = 0;
+  for (const name of pivots.keys()) {
+    const cur = jointAngles.get(name) ?? 0;
+    if (cur) n++;
+    offsets[name] = +(((modelZero[name] ?? 0) + cur).toFixed(1));
+  }
+  if (!n) { clientMsg('no joints posed — slide some joints first'); return; }
+  const r = await api.post('/api/model_zero_bulk', { offsets });
+  modelZero = r.offsets;
+  for (const name of pivots.keys()) setJointAngle(name, 0);
+  syncPoseUI(0);
+  clientMsg(`model zero calibrated from posed model (${n} joints folded in)`);
+});
 $('modelZeroBtn').onclick = guard(async () => {
   if (!currentJoint) return;
   const add = +$('poseSlider').value;      // fold slider into the correction
