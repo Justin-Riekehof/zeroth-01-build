@@ -40,7 +40,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 9
+API_VERSION = 10
 
 
 def _read_offsets() -> dict:
@@ -200,10 +200,15 @@ def _center_body(bus, p):
 
 # ------------------------------------------------------------ group runs
 
-def _move_all_and_wait(bus, p, plan, targets: dict, label: str):
-    """Command several servos at once and poll until all reached (or timeout)."""
+def _move_all_and_wait(bus, p, plan, targets: dict, label: str,
+                       held: set | None = None):
+    """Command several servos at once and poll until all reached (or timeout).
+    Servos in `held` (parked, holding) are read too, so their live angle is
+    streamed while OTHER joints test — you can watch a hold slipping."""
     id2joint = {e["id"]: e["joint"] for e in plan}
     id2off = {e["id"]: e.get("offset", 0.0) for e in plan}
+    watch = [sid for sid in (held or set())
+             if sid in id2joint and sid not in targets]
     starts = {sid: bus.read_pos(sid) for sid in targets}
     for sid, t in targets.items():
         bus.move(sid, t, p.speed, p.acc)
@@ -221,6 +226,11 @@ def _move_all_and_wait(bus, p, plan, targets: dict, label: str):
             multi[id2joint[sid]] = _to_rel(pos, id2off[sid])
             if abs(pos - t) > TOLERANCE:
                 done = False
+        for sid in watch:                    # live view of holding joints
+            try:
+                multi[id2joint[sid]] = _to_rel(bus.read_pos(sid), id2off[sid])
+            except ServoBusError:
+                pass
         S.set(multi=multi)
         if done:
             S.log(f"{label}: all targets reached")
@@ -242,19 +252,28 @@ def _hold(bus, e, held: set):
 
 
 def _check_held(bus, plan, held: set, center_t: dict):
-    """Hold watchdog: a supply brown-out (next servo's inrush) resets a
-    holding servo, which silently drops its torque. Detect that between test
-    phases, re-park the joint and log it — self-healing plus diagnosis."""
+    """Hold watchdog, two failure modes:
+    - torque bit dropped (servo reset / protection kicked in) -> re-park
+    - torque ON but position drifted off center (controller not holding the
+      load, or goal lost) -> log the deviation and re-command the goal
+    Self-healing plus diagnosis: the log tells WHICH mode occurred."""
     for e in plan:
         sid = e["id"]
         if sid not in held:
             continue
         try:
-            if bus.read_torque(sid) == 1:
+            tq = bus.read_torque(sid)
+            pos = bus.read_pos(sid)
+            dev = abs(pos - center_t[sid])
+            if tq == 1 and dev <= 3 * TOLERANCE:
                 continue
-            S.log(f"WARNING: {e['joint']} (ID {sid}) LOST torque "
-                  f"(supply dip / overload?) — re-parking at center. "
-                  f"Consider raising the PSU current limit!")
+            if tq != 1:
+                S.log(f"WARNING: {e['joint']} (ID {sid}) LOST torque "
+                      f"(reg={tq}; reset/protection?) — re-parking at center")
+            else:
+                S.log(f"WARNING: {e['joint']} (ID {sid}) torque ON but "
+                      f"drifted {dev * 360 / 4096:.1f} deg off center "
+                      f"(holding too weak / goal lost?) — re-commanding")
             bus.move(sid, center_t[sid], 300, 50)
             bus.torque_on(sid)
         except ServoBusError:
@@ -293,20 +312,20 @@ def _group_test_body(bus, p, plan, held: set):
             lo = {e["id"]: _to_ticks(e["lo"], e["offset"])}
             hi = {e["id"]: _to_ticks(e["hi"], e["offset"])}
             _move_all_and_wait(bus, p, plan, lo,
-                               f"{e['joint']}: to lower limit")
+                               f"{e['joint']}: to lower limit", held)
             _check_held(bus, plan, held, center_t)
             for i in range(p.cycles):
                 tag = f" (cycle {i + 1}/{p.cycles})" if p.cycles > 1 else ""
                 _move_all_and_wait(bus, p, plan, hi,
-                                   f"{e['joint']}: sweep up" + tag)
+                                   f"{e['joint']}: sweep up" + tag, held)
                 _move_all_and_wait(bus, p, plan, lo,
-                                   f"{e['joint']}: sweep down" + tag)
+                                   f"{e['joint']}: sweep down" + tag, held)
                 _check_held(bus, plan, held, center_t)
             if p.hold_center:
                 # demo mode: park this joint at center and keep torque ON so
                 # the already-tested chain stays stable while the rest run
                 _move_all_and_wait(bus, p, plan, {e["id"]: center_t[e["id"]]},
-                                   f"{e['joint']}: back to center (hold)")
+                                   f"{e['joint']}: back to center (hold)", held)
                 _hold(bus, e, held)
             else:
                 bus.torque_off(e["id"])

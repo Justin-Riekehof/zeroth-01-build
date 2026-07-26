@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 9;
+const EXPECTED_API = 10;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
