@@ -1,10 +1,7 @@
 {
-  "left_ankle_pitch": 10.4,
-  "left_hip_pitch": -36.2,
-  "left_knee_pitch": -9.3,
-  "left_shoulder_pitch": 1.8,
-  "right_ankle_pitch": -12.9,
-  "right_hip_pitch": 32.5,
-  "right_knee_pitch": 4.4,
+  "left_hip_pitch": -12.0,
+  "right_hip_pitch": 12.0,
+  "left_ankle_pitch": -12.0,
+  "right_ankle_pitch": 12.0,
   "right_shoulder_pitch": 63.3
 }
