@@ -68,9 +68,9 @@ Browser-based tool (FastAPI + three.js) used to bring up and test the robot, bui
 around a **pinned OnShape CAD version** ([resources/cad/](resources/cad/)) so all
 tooling refers to one immutable geometry state:
 
-![Servo test GUI demo — select a joint, pose it, run a simulated group sweep](media/servo-gui-demo.gif)
+![Servo test GUI demo — calibrated model posing and playing the taught-in kneeling demo](media/servo-gui-demo.gif)
 
-*Demo (simulation mode): joint selection, pose slider, then a simultaneous group sweep of all six upper-body servos within their configured limits.*
+*Simulation mode with the calibrated model: select a leg joint, pose it with the slider (ground-contact display keeps the soles on the floor), then play the taught-in kneeling demo — the log streams limit clamping and load-sag compensation live (2.5× time-lapse).*
 
 - **3D model, clickable** — select a servo in the CAD view; joint axes, rotation
   centers, zero references and the full kinematic tree are pulled from the OnShape
@@ -100,7 +100,7 @@ tooling refers to one immutable geometry state:
 
 ![Joint selected — test-interval gauge at the CAD joint, limits loaded from config](media/servo-gui-joint.png)
 
-*A clicked joint (`⚙ right_shoulder_pitch`): the gauge ring sits on the CAD joint axis, min/max auto-filled from [hardware/joint_limits.json](hardware/joint_limits.json).*
+*A clicked joint (`⚙ right_hip_roll`): the gauge ring sits on the CAD joint axis, the bus ID and min/max limits are retrieved from the repo configs, and the calibration tools (live position, re-zero, mount offset, model zero) are one click away.*
 
 ```
 cd src/servo_gui
