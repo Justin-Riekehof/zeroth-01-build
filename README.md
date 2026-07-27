@@ -3,21 +3,21 @@
 > Building the open-source Zeroth-01 humanoid — from 3D print to RL policy on real hardware.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/build-upper_body_assembled-yellow.svg)](#build-log)
+[![Status](https://img.shields.io/badge/build-whole_body_assembled-yellowgreen.svg)](#build-log)
 [![Compute](https://img.shields.io/badge/onboard-Raspberry_Pi_4-red.svg)](#this-build)
 
 <!-- ─────────────────────────────────────────────────────────────
 HERO SPOT — own footage only.
-Currently: first calibrated motion of the assembled upper body.
-Upgrade when the full body walks (swap the GIF, keep the caption
-honest).
+Currently: whole body running teach-in demos next to the live CAD
+model. Upgrade when it walks untethered (swap the GIF, keep the
+caption honest).
 ────────────────────────────────────────────────────────────── -->
 
-![Zeroth-01 upper body — first calibrated motion](media/upper-body-motion.gif)
+![Zeroth-01 whole body — kneeling, standing up and waving, with the CAD model in sync](media/whole-body-demo.gif)
 
-*Upper body assembled and calibrated — both arms on the servo bus, driven by the [servo test GUI](src/servo_gui/).*
+*Whole body assembled: kneeling, standing back up and waving via taught-in demo sequences — the [Web GUI](src/servo_gui/)'s CAD model mirrors every move live (3× time-lapse; power & control still tethered to the bench PSU and a laptop).*
 
-> 🚧 **Current status:** upper body assembled & calibrated — servo IDs flashed (daisy chain), per-joint safe limits measured. Next: C++ serial tooling & first manipulation demos.
+> 🚧 **Current status:** whole body assembled & calibrated — all 16 servos on the daisy chain, per-joint limits & mount offsets measured, teach-in motion demos running. Next: onboard the Raspberry Pi, C++ serial tooling, MuJoCo sim.
 
 Based on the **[Zeroth-01 by K-Scale Labs / Zeroth Robotics](https://github.com/zeroth-robotics/zeroth-bot)**. This repo documents my independent build of the platform and the software I write on top of it.
 
@@ -50,8 +50,9 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 ## Build log
 
 - **Phase 0 — Printing** ✅ : all body parts printed in PETG on the Bambu Lab P2S — [print timelapse](media/print-timelapse.gif), print notes in [hardware/](hardware/)
-- **Phase 1 — Arms** (STS3215): *in progress* — upper body **assembled & calibrated**: servos re-ID'd on the daisy chain (11–13 / 21–23), center-calibrated at tick 2048, per-joint safe limits measured on the bench (one torn elbow bracket later) and stored in [hardware/joint_limits.json](hardware/joint_limits.json) — see [docs/](docs/) for the build log. Next: manipulation demos
-- **Servo test GUI** ✅ : browser tool for testing & visualizing the robot ([src/servo_gui/](src/servo_gui/), see [Software](#software))
+- **Phase 1 — Arms** (STS3215) ✅ : assembled, IDs flashed (11–13 / 21–23), center-calibrated, per-joint safe limits measured on the bench (one torn elbow bracket later) — [hardware/joint_limits.json](hardware/joint_limits.json)
+- **Phase 2 — Legs & torso** (STS3250): *in progress* — **whole body assembled & calibrated** (IDs 31–35 / 41–45, mount offsets incl. a +90° hip, hand-trimmed zeros), first **teach-in motion demos** running on the full body ([demos/](demos/)); RL locomotion still ahead
+- **Servo test GUI** ✅ : browser tool for bring-up, testing, teach-in and visualization ([src/servo_gui/](src/servo_gui/), see [Software](#software))
 - **Phase 2 — Legs & torso** (STS3250): planned — RL locomotion
 - **Phase 3 — Full integration**: planned
 
@@ -72,22 +73,30 @@ tooling refers to one immutable geometry state:
 *Demo (simulation mode): joint selection, pose slider, then a simultaneous group sweep of all six upper-body servos within their configured limits.*
 
 - **3D model, clickable** — select a servo in the CAD view; joint axes, rotation
-  centers and zero references are pulled from the OnShape assembly's revolute mates,
-  not guessed
-- **Single-servo sweep tests** with live position gauge; calibration convention:
-  tick 2048 = 0° = assembly pose, all angles relative to it
-- **Safety limits per joint** ([hardware/joint_limits.json](hardware/joint_limits.json)),
-  editable in the GUI with left ↔ right mirroring — and enforced server-side (sweeps
-  are clamped)
-- **Daisy-chain tools** — bus scan, persistent servo ID assignment
-  ([hardware/servo_ids.json](hardware/servo_ids.json))
-- **Group runs** — move all selected servos to center, sweep them sequentially
-  (ascending ID) or simultaneously; the 3D model is posable (per-joint sliders) and
-  animates live during runs via a kinematic tree derived from the CAD mates
-- **Teach-in demos** — pose the 3D model, capture steps (per-step speed/accel/pause),
-  save named sequences to [demos/](demos/) and play them back — clamped to the
-  safety limits, final pose held
-- **Simulation mode** — full GUI works without hardware
+  centers, zero references and the full kinematic tree are pulled from the OnShape
+  assembly's mates, not guessed. Clicking a joint retrieves its configured bus ID;
+  setting an ID auto-selects the matching joint
+- **Bring-up & calibration** — bus scan, persistent ID flashing
+  ([hardware/servo_ids.json](hardware/servo_ids.json)); live position readout of the
+  selected servo; hand-turn the output and *set current position as zero* (mount
+  offsets, e.g. a +90°-mounted hip, applied transparently everywhere)
+- **Safety net** — per-joint limits ([hardware/joint_limits.json](hardware/joint_limits.json)),
+  GUI-editable with left ↔ right mirroring and **enforced server-side** (every sweep
+  and demo is clamped); *Stop* is always an E-stop; a watchdog re-parks holding
+  joints that lose torque
+- **Single & group runs** — sweep tests with a live 3D range gauge; group runs
+  sequential (ascending ID) or simultaneous with presence detection (absent servos
+  grayed out); **hold-center demo mode** keeps tested joints standing at center;
+  load-sag compensation trims steady-state error so poses land where taught
+- **Teach-in demos** — capture steps from the posed 3D model, from the
+  **hand-posed real robot** (torque released) or as exact center; per-step and
+  global speed/accel/pause; named sequences stored in [demos/](demos/), played back
+  on hardware or in simulation (the model plays along live)
+- **Grounded, calibrated visualization** — model zero pose calibrated to the real
+  robot (display corrections + per-joint direction inversion), ground-contact
+  heuristic that keeps the stance foot's sole flush on the floor ("gravity feel")
+- **Simulation mode** — the full GUI works without hardware; version handshake
+  warns loudly when frontend and backend get out of sync
 
 ![Joint selected — test-interval gauge at the CAD joint, limits loaded from config](media/servo-gui-joint.png)
 
@@ -140,9 +149,9 @@ media/      photos, print timelapses, hero GIF
 - [x] Bench bring-up of the arm servos (STS3215): daisy-chain IDs (11–13 / 21–23), comms verified, center calibration at tick 2048
 - [x] Phase 1: assemble the arms → upper body assembled & calibrated, per-joint safe limits measured
 - [x] First arm motion demos → new hero GIF
+- [x] Phase 2 assembly: legs & torso (STS3250, IDs 31–35 / 41–45) → whole body assembled, calibrated (mount offsets, limits) — teach-in demos (kneeling, waving) run on the full body
 - [ ] C++ serial tooling against the bench setup: Feetech packet parser, tick ↔ radian conversion, RAII serial-port wrapper
 - [ ] Simulation setup: MJCF/URDF model running in MuJoCo/ksim
-- [ ] Phase 2: assemble legs & torso (STS3250)
 - [ ] Train a locomotion policy in simulation
 - [ ] Real-time C++ control node (rclcpp) with ONNX Runtime inference on the Pi 4
 - [ ] Sim-to-real: deploy the walking policy on the robot

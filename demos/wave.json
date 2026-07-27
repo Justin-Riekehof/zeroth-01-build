@@ -1,0 +1,190 @@
+{
+  "description": "",
+  "name": "wave",
+  "steps": [
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.1,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.1,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.2,
+        "left_knee_pitch": -0.1,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": -0.1,
+        "right_elbow_yaw": 0.0,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.1,
+        "right_hip_yaw": 0.0,
+        "right_knee_pitch": 0.2,
+        "right_shoulder_pitch": -0.1,
+        "right_shoulder_yaw": 0.2
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    },
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.1,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.1,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.2,
+        "left_knee_pitch": -0.1,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": -0.1,
+        "right_elbow_yaw": 0.0,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.1,
+        "right_hip_yaw": 0.0,
+        "right_knee_pitch": 0.2,
+        "right_shoulder_pitch": -0.1,
+        "right_shoulder_yaw": -56.7
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    },
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.1,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.2,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.1,
+        "left_knee_pitch": 0.0,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": 0.0,
+        "right_elbow_yaw": 112.1,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.0,
+        "right_hip_yaw": 0.0,
+        "right_knee_pitch": 0.1,
+        "right_shoulder_pitch": 0.2,
+        "right_shoulder_yaw": -57.0
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    },
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.1,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.1,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.2,
+        "left_knee_pitch": -0.1,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": -0.1,
+        "right_elbow_yaw": 43.7,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.1,
+        "right_hip_yaw": 0.0,
+        "right_knee_pitch": 0.1,
+        "right_shoulder_pitch": 0.1,
+        "right_shoulder_yaw": -56.8
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    },
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.0,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.1,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.2,
+        "left_knee_pitch": 0.0,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": -0.1,
+        "right_elbow_yaw": 111.6,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.0,
+        "right_hip_yaw": 0.0,
+        "right_knee_pitch": 0.1,
+        "right_shoulder_pitch": 0.4,
+        "right_shoulder_yaw": -57.0
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    },
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.0,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.1,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.1,
+        "left_knee_pitch": 0.0,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": -0.2,
+        "right_elbow_yaw": 52.2,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.0,
+        "right_hip_yaw": -0.1,
+        "right_knee_pitch": 0.2,
+        "right_shoulder_pitch": 0.3,
+        "right_shoulder_yaw": -56.8
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    },
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.1,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.1,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.1,
+        "left_knee_pitch": -0.1,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": -0.1,
+        "right_elbow_yaw": 111.9,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.0,
+        "right_hip_yaw": 0.0,
+        "right_knee_pitch": 0.1,
+        "right_shoulder_pitch": 0.1,
+        "right_shoulder_yaw": -56.9
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    },
+    {
+      "acc": 150,
+      "angles": {
+        "left_ankle_pitch": 0.1,
+        "left_elbow_yaw": 0.3,
+        "left_hip_pitch": 0.1,
+        "left_hip_roll": 0.0,
+        "left_hip_yaw": 0.2,
+        "left_knee_pitch": -0.1,
+        "left_shoulder_pitch": -0.2,
+        "left_shoulder_yaw": -0.1,
+        "right_ankle_pitch": -0.1,
+        "right_elbow_yaw": 0.2,
+        "right_hip_pitch": 0.1,
+        "right_hip_roll": 0.0,
+        "right_hip_yaw": 0.1,
+        "right_knee_pitch": 0.2,
+        "right_shoulder_pitch": -0.1,
+        "right_shoulder_yaw": -0.2
+      },
+      "pause_s": 0.0,
+      "speed": 3400
+    }
+  ]
+}

@@ -33,5 +33,10 @@
     "servo_id": 31,
     "servo_model": "STS3215",
     "axis": "Z"
+  },
+  "right_knee_pitch_motor_<1>": {
+    "servo_id": 44,
+    "servo_model": "STS3215",
+    "axis": "Z"
   }
 }

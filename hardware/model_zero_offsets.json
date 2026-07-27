@@ -1,7 +1,15 @@
 {
-  "left_hip_pitch": -12.0,
-  "right_hip_pitch": 12.0,
-  "left_ankle_pitch": -12.0,
-  "right_ankle_pitch": 12.0,
+  "left_ankle_pitch": 5.0,
+  "left_elbow_yaw": 22.0,
+  "left_hip_pitch": -6.5,
+  "left_hip_roll": -48.0,
+  "left_hip_yaw": -4.0,
+  "left_knee_pitch": -9.0,
+  "left_shoulder_yaw": 36.0,
+  "right_ankle_pitch": -0.5,
+  "right_hip_pitch": 5.5,
+  "right_hip_roll": 45.5,
+  "right_hip_yaw": -5.5,
+  "right_knee_pitch": 5.5,
   "right_shoulder_pitch": 63.3
 }
