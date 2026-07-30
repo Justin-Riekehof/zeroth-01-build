@@ -9,3 +9,13 @@ dependencies = [
     "ftservo-python-sdk>=2.0.0",
     "pyserial>=3.5",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["suites"]
