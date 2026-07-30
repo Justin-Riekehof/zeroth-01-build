@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 import server
-from servo_bus import ticks_to_rel_deg
+from zbot_core.bus import ticks_to_rel_deg
 
 tmp = Path(tempfile.mkdtemp())
 server.OFFSETS_PATH = tmp / "joint_offsets.json"

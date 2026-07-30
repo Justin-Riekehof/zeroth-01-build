@@ -1,12 +1,18 @@
 """Serial access to Feetech STS-series bus servos (STS3215 / STS3250).
 
-Same protocol for both models (scservo_sdk sms_sts). Position scale 0..4095,
-one tick = 360/4096 deg. Limits keep distance to the 0/4095 encoder seam —
-see src/tests/servos/sts3250_test.py for the rationale.
+Same protocol for both models (scservo_sdk sms_sts, protocol 0, 1 Mbaud).
+Position scale 0..4095, one tick = 360/4096 deg. Limits keep distance to the
+0/4095 encoder seam — see src/tests/servos/sts3250_test.py for the rationale.
+
+Platform-neutral: the port string may be a Windows ``COM4`` or a Linux
+``/dev/ttyUSB0`` / ``/dev/serial/by-id/...`` — pyserial handles both.
+``SimBus`` is the hardware mock (same interface, linear motion model) used by
+the test suites and the GUI's simulation mode.
 """
 
 import threading
 import time
+from typing import Protocol, runtime_checkable
 
 from scservo_sdk import COMM_SUCCESS, PortHandler, sms_sts
 from serial.tools import list_ports
@@ -214,3 +220,37 @@ class SimBus:
 
     def set_id(self, old_id: int, new_id: int) -> int:
         return 3250
+
+
+@runtime_checkable
+class Bus(Protocol):
+    """The interface both runners program against — implemented by ServoBus
+    (real hardware, any platform) and SimBus (mock)."""
+
+    simulated: bool
+    port: str
+
+    def close(self) -> None: ...
+    def ping(self, servo_id: int) -> int: ...
+    def read_pos(self, servo_id: int) -> int: ...
+    def move(self, servo_id: int, ticks: int, speed: int, acc: int) -> None: ...
+    def torque_off(self, servo_id: int) -> None: ...
+    def torque_on(self, servo_id: int) -> bool: ...
+    def read_torque(self, servo_id: int) -> int | None: ...
+    def scan(self, id_from: int = ..., id_to: int = ...) -> list[dict]: ...
+    def set_id(self, old_id: int, new_id: int) -> int: ...
+
+
+def open_bus(port: str | None = None, simulate: bool = False,
+             start_ticks: int = CENTER_TICKS) -> "Bus":
+    """Factory: a SimBus (mock), or a ServoBus on an explicit port, or on the
+    single auto-detected USB serial port."""
+    if simulate:
+        return SimBus(start_ticks=start_ticks)
+    if not port:
+        found = serial_ports()
+        if len(found) != 1:
+            raise ServoBusError(f"Cannot auto-select a serial port "
+                                f"({len(found)} candidates found).")
+        port = found[0]["device"]
+    return ServoBus(port)

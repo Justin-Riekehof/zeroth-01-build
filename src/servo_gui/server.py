@@ -24,9 +24,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from servo_bus import (CENTER_TICKS, POS_MAX_SAFE, POS_MIN_SAFE, ServoBus,
-                       ServoBusError, SimBus, rel_deg_to_ticks, serial_ports,
-                       ticks_to_rel_deg)
+from zbot_core.bus import (CENTER_TICKS, POS_MAX_SAFE, POS_MIN_SAFE, ServoBus,
+                           ServoBusError, SimBus, rel_deg_to_ticks,
+                           serial_ports, ticks_to_rel_deg)
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]

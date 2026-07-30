@@ -6,9 +6,11 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.111",
     "uvicorn>=0.30",
-    "ftservo-python-sdk>=2.0.0",
-    "pyserial>=3.5",
+    "zbot-core",
 ]
+
+[tool.uv.sources]
+zbot-core = { path = "../zbot_core", editable = true }
 
 [dependency-groups]
 dev = [
