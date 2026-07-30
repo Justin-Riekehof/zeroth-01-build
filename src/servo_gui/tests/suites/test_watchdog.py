@@ -11,6 +11,7 @@ from zbot_core.config import ConfigStore
 
 tmp = Path(tempfile.mkdtemp())
 server.CFG = ConfigStore(tmp)
+server.ENGINE.cfg = server.CFG
 server.CFG.servo_ids_path.write_text(json.dumps({"a": 11, "b": 12}))
 server.CFG.limits_path.write_text(json.dumps({
     "a": {"min_deg": -20.0, "max_deg": 20.0, "set": "direct", "updated": "x"},

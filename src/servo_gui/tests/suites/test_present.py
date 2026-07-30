@@ -9,6 +9,7 @@ from zbot_core.config import ConfigStore
 
 tmp = Path(tempfile.mkdtemp())
 server.CFG = ConfigStore(tmp)
+server.ENGINE.cfg = server.CFG
 server.CFG.servo_ids_path.write_text(json.dumps(
     {"a": 11, "b": 12, "c": 13, "d": 21, "e": 22, "f": 23}))
 

@@ -16,6 +16,7 @@ from zbot_core.bus import ticks_to_rel_deg
 
 tmp = Path(tempfile.mkdtemp())
 server.CFG = ConfigStore(tmp)
+server.ENGINE.cfg = server.CFG
 
 ok = True
 def check(name, cond):

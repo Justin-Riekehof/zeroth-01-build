@@ -16,6 +16,7 @@ from zbot_core.bus import ticks_to_rel_deg
 # redirect the offsets file to a temp path
 tmp = Path(tempfile.mkdtemp()) / "joint_offsets.json"
 server.CFG = ConfigStore(tmp.parent)
+server.ENGINE.cfg = server.CFG
 server.CFG.offsets_path = tmp
 
 

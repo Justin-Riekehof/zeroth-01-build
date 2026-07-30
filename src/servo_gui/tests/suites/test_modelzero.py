@@ -10,6 +10,7 @@ from zbot_core.config import ConfigStore
 
 tmp = Path(tempfile.mkdtemp())
 server.CFG = ConfigStore(tmp)
+server.ENGINE.cfg = server.CFG
 client = TestClient(server.app)
 ok = True
 def check(n, c):
