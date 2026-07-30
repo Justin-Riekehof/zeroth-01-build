@@ -10,7 +10,6 @@ Run (in src/servo_gui):
 """
 
 import json
-import re
 from datetime import date
 from pathlib import Path
 
@@ -253,16 +252,6 @@ def servo_pos(servo_id: int, joint: str | None = None):
 def start_test(p: TestParams):
     _engine(lambda: ENGINE.start_test(p))
     return {"ok": True}
-
-
-
-    servo_id: int = Field(1, ge=1, le=253)
-    speed: int = Field(300, ge=1, le=3400)
-    acc: int = Field(50, ge=0, le=254)
-    simulate: bool = False
-    joint: str | None = None
-    offset: float = Field(0, ge=-180, le=180)   # resolved server-side
-    hold_center: bool = False                   # keep torque on after centering
 
 
 @app.post("/api/center")

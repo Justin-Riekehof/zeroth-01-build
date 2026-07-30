@@ -667,11 +667,13 @@ class MotionEngine:
                     self._hold(bus, e, held)
             S.log(f"demo '{demo.name}' finished — holding final pose")
 
+        # warn_unlimited=False: the pre-refactor demo launch never warned
+        # about limits-less joints (only group runs do) — log parity matters
         self._launch_group(
             p=SimpleNamespace(simulate=simulate),
             plan=plan, body=body,
             banner=f"--- demo '{demo.name}': {len(demo.steps)} steps, "
                    f"{len(plan)} joints, "
                    f"{'SIMULATION' if simulate else 'hardware'} ---",
-            warn_unlimited=True)
+            warn_unlimited=False)
         return plan
