@@ -11,11 +11,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 import server
+from zbot_core.config import ConfigStore
 from zbot_core.bus import ticks_to_rel_deg
 
 tmp = Path(tempfile.mkdtemp())
-server.OFFSETS_PATH = tmp / "joint_offsets.json"
-server.LIMITS_PATH = tmp / "joint_limits.json"
+server.CFG = ConfigStore(tmp)
 
 ok = True
 def check(name, cond):
@@ -35,14 +35,14 @@ class FakeBus:
 client = TestClient(server.app)
 
 # --- re-zero shifts existing limits by -delta (preserve physical stops) ---
-server.OFFSETS_PATH.write_text(json.dumps({"left_hip_pitch": 90.0}))
-server.LIMITS_PATH.write_text(json.dumps({
+server.CFG.offsets_path.write_text(json.dumps({"left_hip_pitch": 90.0}))
+server.CFG.limits_path.write_text(json.dumps({
     "left_hip_pitch": {"min_deg": -30.0, "max_deg": 0.0,
                        "set": "direct", "updated": "2026-07-20"}}))
 server.S.bus = FakeBus(3072 + 23)   # +2.02 deg past the old center
 r = client.post("/api/zero", json={"servo_id": 31, "joint": "left_hip_pitch"}).json()
 delta = r["offset"] - 90.0
-lim = json.loads(server.LIMITS_PATH.read_text())["left_hip_pitch"]
+lim = json.loads(server.CFG.limits_path.read_text())["left_hip_pitch"]
 check(f"re-zero delta ~+2.02 (got {delta:+.2f})", abs(delta - 2.02) < 0.05)
 check(f"limits shifted by -delta: min {lim['min_deg']:+.2f} (want ~-32.02)",
       abs(lim["min_deg"] - (-30.0 - delta)) < 0.05)
@@ -55,8 +55,8 @@ check(f"forward physical stop preserved (old {old_max_tick} == new {new_max_tick
       abs(old_max_tick - new_max_tick) <= 1)
 
 # --- truncation guard: interval fully outside reachable band -> 400 ---
-server.OFFSETS_PATH.write_text(json.dumps({"j": 170.0}))   # huge offset
-server.LIMITS_PATH.write_text(json.dumps({}))
+server.CFG.offsets_path.write_text(json.dumps({"j": 170.0}))   # huge offset
+server.CFG.limits_path.write_text(json.dumps({}))
 server.S.bus = FakeBus(2048)
 # request +100..+120 with offset 170 -> both clamp to the seam max -> lo_t==hi_t
 rr = client.post("/api/test", json={"servo_id": 5, "min_deg": 100,

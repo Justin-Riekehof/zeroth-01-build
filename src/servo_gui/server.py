@@ -10,7 +10,6 @@ Run (in src/servo_gui):
 """
 
 import json
-import os
 import re
 import threading
 import time
@@ -27,18 +26,17 @@ from pydantic import BaseModel, Field
 from zbot_core.bus import (CENTER_TICKS, POS_MAX_SAFE, POS_MIN_SAFE, ServoBus,
                            ServoBusError, SimBus, rel_deg_to_ticks,
                            serial_ports, ticks_to_rel_deg)
+from zbot_core.config import ConfigStore, Demo
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 GLB_PATH = REPO_ROOT / "resources" / "cad" / "z001-opus-m-93de7567.glb"
 JOINTS_PATH = REPO_ROOT / "resources" / "cad" / "z001-joints-m-93de7567.json"
 MAP_PATH = HERE / "servo_map.json"
-LIMITS_PATH = REPO_ROOT / "hardware" / "joint_limits.json"
-SERVO_IDS_PATH = REPO_ROOT / "hardware" / "servo_ids.json"
-OFFSETS_PATH = REPO_ROOT / "hardware" / "joint_offsets.json"
-DEMOS_DIR = REPO_ROOT / "demos"
-MODEL_ZERO_PATH = REPO_ROOT / "hardware" / "model_zero_offsets.json"
-MODEL_INVERT_PATH = REPO_ROOT / "hardware" / "model_invert.json"
+
+# all calibration/motion configs go through the shared store (repo root here;
+# the Pi service later points it at its synced copy)
+CFG = ConfigStore(REPO_ROOT)
 
 POLL_S = 0.04          # position poll interval during a test
 TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
@@ -49,19 +47,7 @@ API_VERSION = 16
 
 
 def _read_offsets() -> dict:
-    if OFFSETS_PATH.exists():
-        return json.loads(OFFSETS_PATH.read_text(encoding="utf-8"))
-    return {}
-
-
-def _write_json(path: Path, obj) -> None:
-    """Atomic write: a concurrent reader (e.g. the 250 ms live poll) never sees
-    a half-written config file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n",
-                   encoding="utf-8")
-    os.replace(tmp, path)
+    return CFG.offsets()
 
 
 # Mount offsets: a servo mounted e.g. +90 deg off has its CAD zero at
@@ -728,9 +714,7 @@ class GroupParams(BaseModel):
 
 
 def _read_servo_ids() -> dict:
-    if SERVO_IDS_PATH.exists():
-        return json.loads(SERVO_IDS_PATH.read_text(encoding="utf-8"))
-    return {}
+    return CFG.servo_ids()
 
 
 def _build_plan(joints_sel: list[str]) -> list[dict]:
@@ -830,37 +814,16 @@ def release_torque(p: ReleaseParams):
 
 # ------------------------------------------------------------ demos (teach-in)
 
-class DemoStep(BaseModel):
-    angles: dict[str, float]           # joint name -> target angle (CAD deg)
-    speed: int = Field(500, ge=1, le=3400)
-    acc: int = Field(50, ge=0, le=254)
-    pause_s: float = Field(0.0, ge=0, le=10)
-
-
-class Demo(BaseModel):
-    name: str = Field(min_length=1, max_length=40,
-                      pattern=r"^[A-Za-z0-9_\- ]+$")
-    description: str = ""
-    steps: list[DemoStep] = Field(min_length=1)
-
-
 def _demo_path(name: str) -> Path:
-    slug = re.sub(r"[^a-z0-9_-]+", "_", name.strip().lower()).strip("_")
-    if not slug:
-        raise HTTPException(400, "Invalid demo name.")
-    return DEMOS_DIR / f"{slug}.json"
+    try:
+        return CFG.demo_path(name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 def _load_demos() -> list[dict]:
-    out = []
-    if DEMOS_DIR.exists():
-        for f in sorted(DEMOS_DIR.glob("*.json")):
-            try:
-                out.append(Demo(**json.loads(
-                    f.read_text(encoding="utf-8"))).model_dump())
-            except Exception:                       # skip broken files
-                S.log(f"WARNING: demo file {f.name} is invalid — skipped")
-    return out
+    return CFG.load_demos(
+        on_invalid=lambda n: S.log(f"WARNING: demo file {n} is invalid — skipped"))
 
 
 @app.get("/api/demos")
@@ -875,7 +838,8 @@ def save_demo(d: Demo):
             if not -180 <= deg <= 180:
                 raise HTTPException(400, f"Step {i}: angle {deg} for {j} "
                                          "out of range.")
-    _write_json(_demo_path(d.name), d.model_dump())
+    _demo_path(d.name)                 # 400 on unusable name
+    CFG.save_demo(d)
     S.log(f"demo saved: '{d.name}' ({len(d.steps)} steps) -> "
           f"demos/{_demo_path(d.name).name}")
     return {"ok": True, "demos": _load_demos()}
@@ -926,10 +890,11 @@ class PlayParams(BaseModel):
 
 @app.post("/api/demo/play")
 def demo_play(p: PlayParams):
-    path = _demo_path(p.name)
-    if not path.exists():
-        raise HTTPException(404, f"Demo '{p.name}' not found.")
-    demo = Demo(**json.loads(path.read_text(encoding="utf-8")))
+    _demo_path(p.name)                 # 400 on unusable name
+    try:
+        demo = CFG.load_demo(p.name)
+    except KeyError as e:
+        raise HTTPException(404, f"Demo '{p.name}' not found.") from e
     ids = _read_servo_ids()
     used = list(dict.fromkeys(
         j for s in demo.steps for j in s.angles if j in ids))
@@ -1026,9 +991,7 @@ async def stream():
 # ------------------------------------------------------------ joint limits
 
 def _read_limits() -> dict:
-    if LIMITS_PATH.exists():
-        return json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
-    return {}
+    return CFG.limits()
 
 
 def _mirror_name(joint: str) -> str | None:
@@ -1068,7 +1031,7 @@ def set_limits(e: LimitEntry):
         else:
             limits[m] = {**entry, "set": "mirrored"}
             mirrored = m
-    _write_json(LIMITS_PATH, limits)
+    CFG.write_limits(limits)
     S.log(f"joint limits saved: {e.joint} [{e.min_deg:+.1f}, {e.max_deg:+.1f}]"
           + (f" + mirrored to {mirrored}" if mirrored else "")
           + (f" ({skipped} kept its own direct values)" if skipped else ""))
@@ -1087,7 +1050,7 @@ class OffsetEntry(BaseModel):
 
 
 def _write_offsets(offs: dict) -> None:
-    _write_json(OFFSETS_PATH, offs)
+    CFG.write_offsets(offs)
 
 
 @app.post("/api/offsets")
@@ -1156,7 +1119,7 @@ def zero_here(p: ZeroParams):
             if lo < hi:
                 L.update(min_deg=lo, max_deg=hi,
                          updated=date.today().isoformat())
-                _write_json(LIMITS_PATH, lims)
+                CFG.write_limits(lims)
                 lim_note = {"min_deg": lo, "max_deg": hi}
                 S.log(f"limits for {p.joint} shifted to [{lo:+.1f}, {hi:+.1f}] "
                       "deg (same physical range after re-zero)")
@@ -1179,9 +1142,7 @@ def zero_here(p: ZeroParams):
 # arm). Servo angles are unaffected — this only rotates the preview rig.
 
 def _read_model_zero() -> dict:
-    if MODEL_ZERO_PATH.exists():
-        return json.loads(MODEL_ZERO_PATH.read_text(encoding="utf-8"))
-    return {}
+    return CFG.model_zero()
 
 
 @app.get("/api/model_zero")
@@ -1201,15 +1162,13 @@ def set_model_zero(e: ModelZeroEntry):
         mz.pop(e.joint, None)
     else:
         mz[e.joint] = round(e.deg, 1)
-    _write_json(MODEL_ZERO_PATH, mz)
+    CFG.write_model_zero(mz)
     S.log(f"model zero (display only): {e.joint} -> {e.deg:+.1f} deg")
     return {"ok": True, "offsets": mz}
 
 
 def _read_model_invert() -> dict:
-    if MODEL_INVERT_PATH.exists():
-        return json.loads(MODEL_INVERT_PATH.read_text(encoding="utf-8"))
-    return {}
+    return CFG.model_invert()
 
 
 @app.get("/api/model_invert")
@@ -1232,7 +1191,7 @@ def set_model_invert(e: ModelInvertEntry):
         inv[e.joint] = True
     else:
         inv.pop(e.joint, None)
-    _write_json(MODEL_INVERT_PATH, inv)
+    CFG.write_model_invert(inv)
     S.log(f"model direction (display only): {e.joint} -> "
           + ("inverted" if e.invert else "normal"))
     return {"ok": True, "invert": inv}
@@ -1256,7 +1215,7 @@ def set_model_zero_bulk(e: ModelZeroBulk):
         elif mz.get(j) != round(v, 1):
             mz[j] = round(v, 1)
             changed += 1
-    _write_json(MODEL_ZERO_PATH, mz)
+    CFG.write_model_zero(mz)
     S.log(f"model zero calibrated from posed model ({changed} joints changed)")
     return {"ok": True, "offsets": mz}
 
@@ -1296,7 +1255,7 @@ def set_mapping(e: MapEntry):
     if e.joint:
         old = ids.get(e.joint)
         ids[e.joint] = e.servo_id
-        _write_json(SERVO_IDS_PATH, ids)
+        CFG.write_servo_ids(ids)
         S.log(f"servo ID config: {e.joint} -> ID {e.servo_id}"
               + (f" (was {old})" if old not in (None, e.servo_id) else ""))
     return {"ok": True, "servo_ids": ids}

@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "ftservo-python-sdk>=2.0.0",
     "pyserial>=3.5",
+    "pydantic>=2",
 ]
 
 [build-system]

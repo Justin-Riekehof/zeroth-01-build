@@ -10,11 +10,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import server
+from zbot_core.config import ConfigStore
 from zbot_core.bus import ticks_to_rel_deg
 
 # redirect the offsets file to a temp path
 tmp = Path(tempfile.mkdtemp()) / "joint_offsets.json"
-server.OFFSETS_PATH = tmp
+server.CFG = ConfigStore(tmp.parent)
+server.CFG.offsets_path = tmp
 
 
 class FakeBus:

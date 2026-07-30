@@ -8,17 +8,15 @@ import json, tempfile, time
 from pathlib import Path
 from fastapi.testclient import TestClient
 import server
+from zbot_core.config import ConfigStore
 
 tmp = Path(tempfile.mkdtemp())
-server.SERVO_IDS_PATH = tmp / "servo_ids.json"
-server.LIMITS_PATH = tmp / "joint_limits.json"
-server.OFFSETS_PATH = tmp / "joint_offsets.json"
-server.DEMOS_DIR = tmp / "demos"
-server.SERVO_IDS_PATH.write_text(json.dumps({"a": 11, "b": 12}))
-server.LIMITS_PATH.write_text(json.dumps({
+server.CFG = ConfigStore(tmp)
+server.CFG.servo_ids_path.write_text(json.dumps({"a": 11, "b": 12}))
+server.CFG.limits_path.write_text(json.dumps({
     "a": {"min_deg": -90.0, "max_deg": 90.0, "set": "direct", "updated": "x"},
     "b": {"min_deg": -90.0, "max_deg": 90.0, "set": "direct", "updated": "x"}}))
-server.OFFSETS_PATH.write_text(json.dumps({}))
+server.CFG.offsets_path.write_text(json.dumps({}))
 
 ok = True
 def check(n, c):

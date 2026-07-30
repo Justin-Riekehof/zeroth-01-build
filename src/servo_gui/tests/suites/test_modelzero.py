@@ -6,9 +6,10 @@ import json, tempfile
 from pathlib import Path
 from fastapi.testclient import TestClient
 import server
+from zbot_core.config import ConfigStore
 
 tmp = Path(tempfile.mkdtemp())
-server.MODEL_ZERO_PATH = tmp / "model_zero_offsets.json"
+server.CFG = ConfigStore(tmp)
 client = TestClient(server.app)
 ok = True
 def check(n, c):
@@ -18,7 +19,7 @@ def check(n, c):
 r = client.post("/api/model_zero", json={"joint": "left_knee_pitch",
                                          "deg": -9.3}).json()
 check("set model zero", r["offsets"] == {"left_knee_pitch": -9.3})
-check("persisted", json.loads(server.MODEL_ZERO_PATH.read_text())
+check("persisted", json.loads(server.CFG.model_zero_path.read_text())
       == {"left_knee_pitch": -9.3})
 r = client.post("/api/model_zero", json={"joint": "left_knee_pitch",
                                          "deg": 0}).json()
@@ -26,7 +27,7 @@ check("zero removes entry", r["offsets"] == {})
 check("GET works", client.get("/api/model_zero").json() == {})
 
 # real repo demos must validate against the Demo model (real DEMOS_DIR)
-server.DEMOS_DIR = Path(__file__).resolve().parents[4] / "demos"
+server.CFG.demos_dir = Path(__file__).resolve().parents[4] / "demos"
 names = [d["name"] for d in server._load_demos()]
 check(f"repo demos valid & listed: {names}", "careful_walk" in names)
 

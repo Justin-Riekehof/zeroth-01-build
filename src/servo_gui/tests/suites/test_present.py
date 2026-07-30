@@ -5,10 +5,11 @@ import json, tempfile
 from pathlib import Path
 from fastapi.testclient import TestClient
 import server
+from zbot_core.config import ConfigStore
 
 tmp = Path(tempfile.mkdtemp())
-server.SERVO_IDS_PATH = tmp / "servo_ids.json"
-server.SERVO_IDS_PATH.write_text(json.dumps(
+server.CFG = ConfigStore(tmp)
+server.CFG.servo_ids_path.write_text(json.dumps(
     {"a": 11, "b": 12, "c": 13, "d": 21, "e": 22, "f": 23}))
 
 
