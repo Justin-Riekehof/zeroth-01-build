@@ -25,7 +25,9 @@ def write_json_atomic(path: Path, obj) -> None:
 
 def read_json(path: Path, default):
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: tolerate a UTF-8 BOM — Windows editors/redirects
+        # (PowerShell!) routinely prepend one to hand-edited configs
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     return default
 
 

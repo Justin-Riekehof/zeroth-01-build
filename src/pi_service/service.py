@@ -62,8 +62,10 @@ def _connect_bus() -> str | None:
     try:
         port = CFG.connection().get("port", "auto")
         bus = open_bus(None if port == "auto" else port, simulate=SIMULATE)
-    except ServoBusError as e:
-        return str(e)
+    except (ServoBusError, ValueError) as e:
+        # ValueError covers a malformed connection.json (JSONDecodeError):
+        # never let a broken config file turn startup into a restart loop
+        return f"{type(e).__name__}: {e}"
     with S.lock:
         S.bus = bus
     S.log(f"bus connected: {bus.port}"

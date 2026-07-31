@@ -158,6 +158,33 @@ def test_corrupt_limits_rejected(client):
     assert r.status_code == 400
 
 
+def test_bom_config_tolerated(client):
+    # PowerShell redirects prepend a UTF-8 BOM; configs must still parse
+    # (this took the service down on the very first real deploy)
+    service.CFG.connection_path.write_bytes(
+        b'\xef\xbb\xbf{"port": "/dev/serial/by-id/usb-test"}')
+    try:
+        assert service.CFG.connection()["port"] == "/dev/serial/by-id/usb-test"
+    finally:
+        service.CFG.connection_path.unlink()
+
+
+def test_malformed_config_degrades_to_warning():
+    # a broken connection.json must not brick startup (systemd restart loop):
+    # _connect_bus reports instead of raising
+    service.CFG.connection_path.write_text("{not json", encoding="utf-8")
+    saved = service.S.bus
+    try:
+        with service.S.lock:
+            service.S.bus = None
+        err = service._connect_bus()
+        assert err is not None and "JSONDecodeError" in err
+    finally:
+        with service.S.lock:
+            service.S.bus = saved
+        service.CFG.connection_path.unlink()
+
+
 def test_watchdog_soft_hold(client):
     save_pause_demo()
     service.WATCHDOG.timeout_s = 0.12
