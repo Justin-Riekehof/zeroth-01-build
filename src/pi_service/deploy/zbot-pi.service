@@ -1,0 +1,14 @@
+[Unit]
+Description=Zeroth-01 Pi intent service (servo bus)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=justin
+Environment=ZBOT_ROOT=/home/justin/zbot
+ExecStart=/home/justin/venv/bin/python /home/justin/zbot/src/pi_service/service.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

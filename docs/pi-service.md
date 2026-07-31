@@ -1,0 +1,80 @@
+# Pi intent service — deploy & bring-up
+
+The wireless-mode backend: a FastAPI service on the Raspberry Pi
+(`justin@pixel.local`) that executes demos **locally** against the servo bus
+through the same `zbot_core` engine the desktop GUI uses. Clients send
+high-level intents only — per-cycle setpoints never cross Wi-Fi
+(see [robot-context.md](robot-context.md)). Limits, mount offsets and the
+corrupt-calibration guard are enforced on the Pi, never trusted from clients.
+
+## API (port 8460)
+
+| Endpoint | Effect |
+|---|---|
+| `GET /status` | bus state, watchdog state, live engine snapshot (phase, poses, log) |
+| `GET /demos` | demos available on the robot |
+| `POST /demo/{name}` | play a taught-in demo, hold the final pose |
+| `POST /center` | all configured servos to center (`{"hold": true, "speed": 300}`) |
+| `POST /release` | torque off — all, or `{"joints": ["right_elbow"]}` |
+| `POST /stop` | **E-stop**: abort the run, everything goes limp |
+| `POST /connect` | (re)open the serial bus after an error |
+| `POST /heartbeat` | feeds the streaming watchdog (future teleop; demos don't need it) |
+
+Environment: `ZBOT_ROOT` (config root, default `~/zbot`), `ZBOT_SIMULATE=1`
+(SimBus, no hardware), `ZBOT_PORT` (default 8460).
+
+## Deploy (one command, from the repo root on the laptop)
+
+```powershell
+.\src\pi_service\deploy\deploy_pi.ps1
+```
+
+What it does:
+
+1. Stages `zbot_core` + `pi_service` + calibration
+   (`servo_ids/joint_limits/joint_offsets.json`) + `demos/` — teach-in
+   happens on the laptop in USB mode; every deploy syncs the results to the
+   robot. `connection.json` is host-specific and never shipped.
+2. Copies the bundle to `~/zbot` on the Pi and installs both packages
+   editable into the existing `~/venv`.
+3. Installs/refreshes the systemd unit `zbot-pi` (the only step that needs
+   sudo; `-SkipService` deploys code only) and health-checks `/status`.
+
+## First bring-up on the real bus
+
+1. Plug the Waveshare adapter (jumper **B**) into the Pi's USB, servo power on.
+2. On the laptop: ProtonVPN → **"Allow LAN connections"** (or disconnect),
+   otherwise `pixel.local` is unreachable.
+3. Run the deploy script. The health check should print JSON with
+   `"bus": {"connected": true, ...}`.
+4. Pin the serial port (recommended — survives re-enumeration):
+   ```bash
+   ssh justin@pixel.local
+   ls /dev/serial/by-id/          # -> usb-1a86_USB_Single_Serial-...
+   nano ~/zbot/hardware/connection.json   # {"port": "/dev/serial/by-id/usb-..."}
+   sudo systemctl restart zbot-pi
+   ```
+   Later deploys preserve this file.
+5. Smoke test from the laptop (PowerShell):
+   ```powershell
+   curl.exe -s http://pixel.local:8460/status
+   curl.exe -s http://pixel.local:8460/demos
+   curl.exe -s -X POST http://pixel.local:8460/demo/wave
+   curl.exe -s -X POST http://pixel.local:8460/stop      # mid-run: E-stop
+   curl.exe -s -X POST http://pixel.local:8460/release
+   ```
+   Expected: wave plays exactly as in USB mode; stop aborts instantly and
+   releases all torque; release lets the held pose go limp.
+
+## Troubleshooting
+
+- **Host unreachable** → ProtonVPN LAN setting (see above), or use the
+  FritzBox IP directly instead of `pixel.local`.
+- **Service logs** → `ssh justin@pixel.local journalctl -u zbot-pi -f`
+- **`Permission denied: /dev/ttyUSB0`** → `sudo usermod -aG dialout justin`,
+  then re-login (default Pi user already has it).
+- **Bus not connected at startup** (adapter plugged in later) →
+  `curl -X POST http://pixel.local:8460/connect`
+- The serial port is exclusive: stop the service
+  (`sudo systemctl stop zbot-pi`) before running any manual bus script on
+  the Pi, and vice versa.
