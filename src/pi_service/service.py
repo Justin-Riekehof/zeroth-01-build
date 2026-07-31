@@ -43,7 +43,7 @@ from zbot_core.bus import ServoBusError, open_bus
 from zbot_core.config import ConfigStore
 from zbot_core.motion import GroupParams, MotionEngine, MotionError
 
-API_VERSION = 1
+API_VERSION = 2
 
 ROOT = Path(os.environ.get("ZBOT_ROOT", Path.home() / "zbot"))
 SIMULATE = os.environ.get("ZBOT_SIMULATE", "0") == "1"
@@ -230,10 +230,27 @@ def release(p: ReleaseIntent = ReleaseIntent()):
 
 @app.post("/stop")
 def stop():
-    """E-stop: always available, aborts any run, everything goes limp."""
+    """E-stop: always available, everything goes limp. During a run the
+    aborted runner thread releases all torque; when idle-HOLDING (demos and
+    centering park with torque on) there is no runner to do that, so the
+    release happens right here — Stop must never be a silent no-op."""
     ENGINE.stop()
     WATCHDOG.disarm()
-    return {"ok": True}
+    with S.lock:
+        bus = S.bus
+        running = S.live["running"]
+    released = []
+    if bus and not running:
+        ids = CFG.servo_ids()
+        for j in sorted(ids, key=lambda k: ids[k]):
+            try:
+                bus.torque_off(ids[j])
+                released.append(ids[j])
+            except Exception:
+                pass
+        if released:
+            S.log(f"E-STOP: torque released: IDs {released}")
+    return {"ok": True, "released": released}
 
 
 @app.post("/heartbeat")

@@ -116,6 +116,29 @@ uv run server.py        # -> http://127.0.0.1:8451
 - **Simulation checkbox:** full GUI without hardware; group/demo runs animate the
   3D model.
 
+### Operating modes: USB (local) ↔ Wireless (Pi)
+
+Switch at the top of the *Connection* section; the choice persists in
+[hardware/connection.json](../hardware/connection.json) and is restored on reload.
+
+| | **USB (local)** — default | **Wireless (Pi)** |
+| --- | --- | --- |
+| Servo adapter | laptop USB (`COMx`) | Raspberry Pi USB (`pixel.local`) |
+| Execution | on the laptop | **on the Pi** — the browser only sends intents (never per-cycle setpoints; Wi-Fi jitter stays out of the control loop) |
+| Available | everything below | demo list/▶ play, **■ STOP**, ⌂ center, ✋ release, live log/phase + 3D pose |
+| Hidden | — | all bench tooling (scan/IDs, limits, offsets, teach-in, calibration) |
+
+- Both modes run the same `zbot_core` engine — limits, offsets, sag
+  compensation and hold behave identically; in wireless mode they are enforced
+  **on the Pi** and never trusted from the browser.
+- **Stop is an E-stop in both modes** (USB: *■ Stop*; wireless: *■ STOP* in the
+  Demos section).
+- Teach-in/calibration stay USB-mode features. Deploying to the robot syncs
+  demos + calibration: `.\src\pi_service\deploy\deploy_pi.ps1`
+  (details/troubleshooting: [pi-service.md](pi-service.md)).
+- Robot unreachable in wireless mode? ProtonVPN blocks LAN by default —
+  enable *"Allow LAN connections"*.
+
 ### Standard workflows
 
 | Task | Steps |
@@ -123,6 +146,7 @@ uv run server.py        # -> http://127.0.0.1:8451
 | New servo bring-up | chain it in alone → *scan bus* → *set ID* (auto-selects the joint) → *save mapping* → probe range → *save limits* |
 | Mount & calibrate | *⌂ Move to center* → mount part → hand-trim → *⊙ set current position as zero* (shifts existing limits automatically) |
 | Teach-in demo | *— new demo —* → pose model (sliders) or robot (*release torque*, hand-pose) → *+ step* → per-step or global spd/acc → *save demo* → play in **simulation first** |
+| Run on the robot (wireless) | teach & verify in USB mode → `deploy_pi.ps1` → switch to *Wireless (Pi)* → select demo → *▶ play* (*■ STOP* aborts instantly) |
 
 ## 9. Pose accuracy under load
 
@@ -148,3 +172,26 @@ Two effects make the ACTUAL pose deviate from the taught pose:
 3. Keep amplitudes and accel small for whole-body demos (no balance policy).
 4. Don't leave servos holding under load unattended (heat/current).
 5. PSU current limit generous enough — brown-outs reset servos mid-motion.
+
+## 11. Pi camera (Camera Module 3, IMX708)
+
+SSH to the Pi is passwordless since 2026-07-31 (laptop key in `~/.ssh/authorized_keys`).
+
+```bash
+# on the Pi — quick checks
+rpicam-hello --list-cameras    # must list imx708 (autodetected)
+rpicam-still -n -o ~/test.jpg  # still capture (-n = headless, no preview)
+vcgencmd get_throttled         # 0x0 = power supply OK
+
+# on the Pi — live stream (waits for one viewer)
+rpicam-vid -t 0 -n --width 1280 --height 720 --framerate 30 --inline --listen -o tcp://0.0.0.0:8888
+```
+
+```powershell
+# on the laptop — viewer (ffplay via `winget install Gyan.FFmpeg`)
+ffplay -fflags nobuffer -flags low_delay -framedrop tcp://pixel.local:8888
+```
+
+`--listen` serves exactly one client: closing the viewer window ends the Pi-side
+process too (`failed to send data on socket` is the normal teardown) — restart
+both commands for a new session.

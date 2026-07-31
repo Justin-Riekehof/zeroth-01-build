@@ -116,6 +116,10 @@ class ConfigStore:
     def write_model_invert(self, d: dict) -> None:
         write_json_atomic(self.model_invert_path, d)
 
+    def write_connection(self, d: dict) -> None:
+        # persist only the overrides; connection() re-merges the defaults
+        write_json_atomic(self.connection_path, d)
+
     # -- demos
     def demo_path(self, name: str) -> Path:
         return self.demos_dir / f"{demo_slug(name)}.json"

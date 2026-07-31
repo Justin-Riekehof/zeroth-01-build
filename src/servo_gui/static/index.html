@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 <script type="importmap">
 {
   "imports": {
@@ -24,20 +24,26 @@
 
     <section>
       <h2>Connection</h2>
-      <div class="row">
+      <div class="row" id="modeRow">
+        <label class="check" title="Servo adapter on this computer's USB port — full bench tooling"><input type="radio" name="connMode" id="modeUsb" checked>
+          USB (local)</label>
+        <label class="check" title="Servo adapter on the Raspberry Pi — this page sends intents (demos, stop) to the Pi service"><input type="radio" name="connMode" id="modeWifi">
+          Wireless (Pi)</label>
+      </div>
+      <div class="row usb-only">
         <select id="port"></select>
         <button id="refreshPorts" class="icon" title="Rescan serial ports">⟳</button>
       </div>
-      <div class="row">
+      <div class="row usb-only">
         <button id="connect">Connect</button>
         <button id="disconnect" disabled>Disconnect</button>
       </div>
-      <label class="check"><input type="checkbox" id="simulate" checked>
+      <label class="check usb-only"><input type="checkbox" id="simulate" checked>
         Simulation (no hardware needed)</label>
       <div id="connState" class="muted">not connected</div>
     </section>
 
-    <section>
+    <section class="usb-only">
       <h2>Bus IDs <span class="hint">— daisy chain setup</span></h2>
       <div class="row">
         <button id="scan" title="Ping IDs 1–60 and list every servo on the bus">scan bus</button>
@@ -52,7 +58,7 @@
       </div>
     </section>
 
-    <section>
+    <section class="usb-only">
       <h2>Servo <span class="hint">— click a part in the model</span></h2>
       <div id="selName" class="selname">nothing selected</div>
       <div class="row">
@@ -99,7 +105,7 @@
         ground contact (gravity feel — lowest foot stays on the floor)</label>
     </section>
 
-    <section>
+    <section class="usb-only">
       <h2>Test interval <span class="hint">— 0° = center (mount pos.)</span></h2>
       <div class="grid2">
         <label>Min [°] <input type="number" id="minDeg" value="-90" min="-176.5" max="176.5" step="0.5"></label>
@@ -132,24 +138,25 @@
     </section>
 
     <section>
-      <h2>Group <span class="hint">— test several servos</span></h2>
-      <div id="groupList"></div>
-      <div class="row">
+      <h2 class="usb-only">Group <span class="hint">— test several servos</span></h2>
+      <div id="groupList" class="usb-only"></div>
+      <div class="row usb-only">
         <button id="groupAll" title="Select all / none">All</button>
         <select id="groupMode">
           <option value="sequential">sequential (asc. ID)</option>
           <option value="simultaneous">simultaneous</option>
         </select>
       </div>
-      <label class="check"><input type="checkbox" id="holdCenter" checked>
+      <label class="check usb-only"><input type="checkbox" id="holdCenter" checked>
         hold center after test (demo — torque stays on)</label>
-      <div class="row">
+      <div class="row usb-only">
         <button id="groupCenter" title="Move all selected servos to center (mount pose)">⌂ center</button>
         <button id="groupRun" class="primary" title="Sweep each selected joint within its configured limits">▶ run group</button>
       </div>
-      <div class="row">
+      <div class="row usb-only">
         <button id="groupRelease" title="Disable torque on the selected servos (or all, if none selected) — releases a hold-center pose">✋ release torque</button>
       </div>
+      <h2 class="pi-only">Robot <span class="hint">— executed on the Pi</span></h2>
       <div id="readout">
         <span id="phase">idle</span>
         <button id="copyLog" class="icon" title="Copy the full log to the clipboard">⧉ copy</button>
@@ -164,20 +171,25 @@
         <select id="demoList"></select>
         <button id="demoPlay" class="primary" title="Play the selected demo — clamped to joint limits; final pose is held (release via release torque)">▶ play</button>
       </div>
-      <label>Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
-      <div class="step" id="demoGlobals" title="Global speed/accel — typing here applies the value to every step; per-step fields can still fine-tune afterwards. Empty = steps have mixed values.">
+      <div class="row pi-only">
+        <button id="piStop" class="danger" title="E-stop on the Pi: abort the run, all torque off">■ STOP</button>
+        <button id="piCenter" title="All servos to center on the Pi (pose is held)">⌂ center</button>
+        <button id="piRelease" title="Torque off on the Pi — the robot goes limp">✋ release</button>
+      </div>
+      <label class="usb-only">Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
+      <div class="step usb-only" id="demoGlobals" title="Global speed/accel — typing here applies the value to every step; per-step fields can still fine-tune afterwards. Empty = steps have mixed values.">
         <span class="n">all</span>
         <span class="lbl">spd</span><input type="number" id="gSpeed" min="1" max="3400" placeholder="mix">
         <span class="lbl">acc</span><input type="number" id="gAcc" min="0" max="254" placeholder="mix">
         <span class="lbl">→ every step</span>
       </div>
-      <div id="demoSteps"></div>
-      <div class="row">
+      <div id="demoSteps" class="usb-only"></div>
+      <div class="row usb-only">
         <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ model pose</button>
         <button id="demoAddRobot" title="Physical teach-in: release torque, hand-pose the robot, then capture its real pose as the next step">+ robot pose</button>
         <button id="demoAddCenter" title="Append an EXACT center step (all joints 0.0°) — better than hand-posing 'roughly center'">+ center</button>
       </div>
-      <div class="row">
+      <div class="row usb-only">
         <button id="demoSave" title="Save under the given name into demos/ in the repo">save demo</button>
         <button id="demoDelete" title="Delete the selected demo file">delete</button>
       </div>
@@ -198,6 +210,6 @@
     </div>
   </main>
 </div>
-<script type="module" src="app.js?v=16"></script>
+<script type="module" src="app.js?v=17"></script>
 </body>
 </html>

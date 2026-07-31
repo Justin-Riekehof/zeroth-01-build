@@ -9,12 +9,30 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 16;
+const EXPECTED_API = 17;
+// must match the Pi service's API_VERSION (wireless mode)
+const EXPECTED_PI_API = 2;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
   post: async (p, body) => {
     const r = await fetch(p, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail ?? r.statusText);
+    return data;
+  },
+};
+
+// wireless mode: this page talks straight to the Pi intent service (CORS
+// is open there); base URL comes from hardware/connection.json via /api/status
+let conn = { mode: 'usb', port: 'auto', pi_url: 'http://pixel.local:8460' };
+const wireless = () => conn.mode === 'wireless';
+const pi = {
+  get: p => fetch(conn.pi_url + p).then(r => r.json()),
+  post: async (p, body) => {
+    const r = await fetch(conn.pi_url + p, { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body ?? {}) });
     const data = await r.json().catch(() => ({}));
@@ -609,6 +627,7 @@ let connected = false;  // real hardware bus present (from /api/status)
 let running = false;    // a run is in progress (from the SSE stream)
 
 new EventSource('/api/stream').onmessage = e => {
+  if (wireless()) return;    // the Pi status poll owns the UI in wireless mode
   const live = JSON.parse(e.data);
   running = live.running;
   serverLog = live.log ?? [];
@@ -621,6 +640,8 @@ new EventSource('/api/stream').onmessage = e => {
   $('stop').disabled = !live.running;
   $('groupRun').disabled = $('groupCenter').disabled =
     $('groupRelease').disabled = $('demoPlay').disabled = live.running;
+  // switching modes mid-run would hide the STOP that controls this machine
+  $('modeUsb').disabled = $('modeWifi').disabled = live.running;
   // during a run the SSE stream owns the needle/pose; when idle the 250 ms live
   // poll owns them, so don't fight it here with a stale last-run angle
   if (live.running && needle && live.deg != null)
@@ -656,7 +677,7 @@ const fmtDeg = d => (d >= 0 ? '+' : '') + (+d).toFixed(1) + '°';
 async function livePoll() {
   try {
     const j = currentJoint;                 // capture: selection may change mid-await
-    if (connected && !running && j) {
+    if (connected && !running && j && !wireless()) {
       const r = await api.get(`/api/servo_pos?servo_id=${+$('servoId').value}`
         + `&joint=${encodeURIComponent(j.name)}`);
       // discard if the selection changed or a run started while awaiting
@@ -691,6 +712,12 @@ async function refreshStatus() {
       + `v${EXPECTED_API}) — features WILL misbehave. Restart the server: `
       + `Ctrl+C, then "uv run server.py"`);
   }
+  // pick up the persisted mode (connection.json) — also catches edits made
+  // in another tab or directly in the file
+  const prevMode = conn.mode;
+  if (s.connection) conn = s.connection;
+  if (conn.mode !== prevMode) applyMode();
+  if (wireless()) return;      // the Pi poll owns the connection UI below
   const wasConnected = connected;
   connected = s.connected;
   $('connState').textContent = s.connected
@@ -718,6 +745,118 @@ async function refreshPorts() {
 const guard = fn => async (...args) => {
   try { await fn(...args); } catch (err) { clientMsg('ERROR: ' + err.message); }
 };
+
+// ------------------------------------------------------- operating mode
+// USB (local): everything as before — bench tooling against the local bus.
+// Wireless: this page is a pure client of the Pi intent service; bench
+// sections are hidden, demos/stop/center/release go to the Pi, and a status
+// poll (below) drives log/phase/3D pose instead of the local SSE stream.
+
+function applyMode() {
+  const wifi = wireless();
+  document.body.classList.toggle('wireless', wifi);
+  $('modeUsb').checked = !wifi;
+  $('modeWifi').checked = wifi;
+  refreshDemos().catch(() => {});
+  if (wifi) {
+    $('phase').textContent = 'idle';
+    $('posDeg').textContent = '–';
+    $('connState').textContent = `Pi ${conn.pi_url} — connecting …`;
+    piApiWarned = false;
+  }
+}
+
+$('modeUsb').onchange = $('modeWifi').onchange = async () => {
+  const mode = $('modeWifi').checked ? 'wireless' : 'usb';
+  try {
+    // never switch away from a machine that is still moving — the STOP for
+    // it would vanish. Covers Pi runs (piPoll sets `running`); the server
+    // guards local runs authoritatively (POST below -> 400).
+    if (running)
+      throw new Error('a run is active — press STOP first, then switch');
+    const r = await api.post('/api/connection', { mode });   // persist default
+    conn = r.connection;
+    applyMode();
+    clientMsg(mode === 'wireless'
+      ? `wireless mode — intents go to the Pi at ${conn.pi_url}`
+      : 'USB mode — local bench tooling active');
+    if (mode === 'usb') await refreshStatus();
+  } catch (err) {
+    clientMsg('ERROR: mode not switched — ' + err.message);
+    $('modeUsb').checked = conn.mode !== 'wireless';    // revert the radios
+    $('modeWifi').checked = conn.mode === 'wireless';
+  }
+};
+
+// demo list source follows the mode: repo (USB) vs. robot (wireless) — after
+// a deploy both hold the same demos, but the robot's list is the truth there
+let demoSeq = 0;    // discard out-of-order responses (a dead-Pi fetch can
+                    // resolve seconds after the user already switched back)
+async function refreshDemos() {
+  const seq = ++demoSeq;
+  const wifi = wireless();
+  try {
+    const r = wifi ? await pi.get('/demos') : await api.get('/api/demos');
+    if (seq !== demoSeq || wifi !== wireless()) return;   // stale response
+    demos = r.demos ?? [];
+  } catch (e) {
+    if (seq !== demoSeq || wifi !== wireless()) return;
+    demos = [];
+    clientMsg('demo list unavailable: ' + e.message);
+  }
+  renderDemoList();
+}
+
+// wireless status poll (~2.5 Hz): log, phase, bus state, live rig pose.
+// Intents only ever cross the network — per-cycle setpoints never do.
+let piApiWarned = false;
+async function piPoll() {
+  try {
+    if (wireless()) {
+      const s = await pi.get('/status');
+      if (wireless()) {              // mode may have flipped mid-await
+        running = s.live.running;
+        serverLog = s.live.log ?? [];
+        renderLog();
+        $('phase').textContent = s.live.phase;
+        $('connState').textContent = `Pi ${conn.pi_url} — bus `
+          + (s.bus.connected
+             ? (s.bus.simulated ? 'SIMULATED' : `connected (${s.bus.port})`)
+             : 'NOT connected');
+        $('demoPlay').disabled = s.live.running;
+        $('piCenter').disabled = s.live.running;
+        // same rule as USB: no mode switch while the robot is moving
+        $('modeUsb').disabled = $('modeWifi').disabled = s.live.running;
+        if (s.api_version !== EXPECTED_PI_API && !piApiWarned) {
+          piApiWarned = true;
+          clientMsg(`⚠ Pi service v${s.api_version} — GUI expects `
+            + `v${EXPECTED_PI_API}. Redeploy: src\\pi_service\\deploy\\deploy_pi.ps1`);
+        }
+        if (s.live.multi)
+          for (const [j, deg] of Object.entries(s.live.multi))
+            if (pivots.has(j)) setJointAngle(j, deg);
+      }
+    }
+  } catch (_) {
+    if (wireless())
+      $('connState').textContent = `Pi ${conn.pi_url} — UNREACHABLE `
+        + '(service running? ProtonVPN "Allow LAN connections"?)';
+  } finally {
+    setTimeout(piPoll, 400);
+  }
+}
+piPoll();
+
+$('piStop').onclick = guard(() => pi.post('/stop'));
+$('piCenter').onclick = guard(async () => {
+  clientLog.length = 0;
+  await pi.post('/center', { hold: true, speed: 300 });
+});
+$('piRelease').onclick = guard(async () => {
+  const r = await pi.post('/release');
+  clientMsg(`torque released: ${r.released.length
+    ? 'IDs ' + r.released.join(', ') : 'nothing to do'}`);
+});
 
 $('refreshPorts').onclick = guard(refreshPorts);
 $('connect').onclick = guard(async () => {
@@ -1112,8 +1251,11 @@ $('demoPlay').onclick = guard(async () => {
   const name = $('demoList').value;
   if (!name) { clientMsg('no demo selected'); return; }
   clientLog.length = 0;
-  await api.post('/api/demo/play',
-    { name, simulate: $('simulate').checked });
+  if (wireless())
+    await pi.post('/demo/' + encodeURIComponent(name));
+  else
+    await api.post('/api/demo/play',
+      { name, simulate: $('simulate').checked });
 });
 
 $('stop').onclick = guard(() => api.post('/api/stop'));
@@ -1154,8 +1296,7 @@ guard(async () => {
   modelInvert = await api.get('/api/model_invert');
   servoIds = await api.get('/api/servo_ids');
   renderGroup();
-  demos = (await api.get('/api/demos')).demos ?? [];
-  renderDemoList();
+  applyMode();                 // hide/show mode sections + load the demo list
   await refreshPresence();               // no-op if not connected
   const jr = await api.get('/api/joints');
   joints = jr.joints ?? [];

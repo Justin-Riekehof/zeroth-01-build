@@ -58,4 +58,35 @@ check("partial file merges defaults (mode/pi_url present)",
       conn["mode"] == "usb" and conn["port"] == "COM9"
       and conn["pi_url"].startswith("http"))
 
+# M4 mode switch: POST /api/connection persists into connection.json and
+# leaves untouched fields alone
+r = client.post("/api/connection", json={"mode": "wireless"})
+stored = json.loads(server.CFG.connection_path.read_text())
+check(f"mode switch persisted ({r.json()})",
+      r.status_code == 200
+      and r.json()["connection"]["mode"] == "wireless"
+      and stored["mode"] == "wireless"
+      and r.json()["connection"]["port"] == "COM9")
+check("status reflects the switched mode",
+      client.get("/api/status").json()["connection"]["mode"] == "wireless")
+r = client.post("/api/connection", json={"mode": "teleport"})
+check("invalid mode rejected (422)", r.status_code == 422)
+r = client.post("/api/connection", json={"pi_url": "http://10.0.0.5:8460"})
+check("pi_url update keeps mode",
+      r.status_code == 200
+      and r.json()["connection"]["mode"] == "wireless"
+      and r.json()["connection"]["pi_url"] == "http://10.0.0.5:8460")
+
+# switching modes mid-run would hide the STOP of the still-moving machine —
+# must be refused like /api/disconnect (review finding)
+server.S.live["running"] = True
+r = client.post("/api/connection", json={"mode": "usb"})
+check(f"mode switch refused during a run ({r.status_code})",
+      r.status_code == 400 and "stop" in r.json()["detail"].lower())
+r = client.post("/api/connection", json={"pi_url": "http://10.0.0.6:8460"})
+check("non-mode fields still writable during a run", r.status_code == 200)
+server.S.live["running"] = False
+check("mode unchanged after refused switch",
+      client.get("/api/status").json()["connection"]["mode"] == "wireless")
+
 print("\nALL PASS" if ok else "\nSOME FAILED")

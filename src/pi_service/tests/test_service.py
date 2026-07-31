@@ -95,12 +95,26 @@ def test_stop_is_estop(client):
     save_pause_demo()
     assert client.post("/demo/slow").status_code == 200
     time.sleep(0.15)                      # let the run start
-    assert client.post("/stop").status_code == 200
+    r = client.post("/stop")
+    assert r.status_code == 200
+    assert r.json()["released"] == []     # the aborted runner does the release
     live = wait_idle(client, timeout=3.0)  # must NOT wait out the 8 s pause
     assert live["phase"] == "aborted"
     out = logs(client)
     assert "group run aborted" in out
     assert "torque disabled (all selected)" in out
+
+
+def test_stop_releases_held_pose(client):
+    # after a demo the robot HOLDS the final pose with torque on and
+    # running=False — Stop must still be an E-stop, not a silent no-op
+    save_wave()
+    assert client.post("/demo/wave").status_code == 200
+    wait_idle(client)
+    r = client.post("/stop")
+    assert r.status_code == 200
+    assert r.json()["released"] == [11, 13]
+    assert "E-STOP: torque released: IDs [11, 13]" in logs(client)
 
 
 def test_second_run_rejected_while_busy(client):

@@ -17,7 +17,7 @@ caption honest).
 
 *Whole body assembled: kneeling, standing back up and waving via taught-in demo sequences — the [Web GUI](src/servo_gui/)'s CAD model mirrors every move live (3× time-lapse; power & control still tethered to the bench PSU and a laptop).*
 
-> 🚧 **Current status:** whole body assembled & calibrated — all 16 servos on the daisy chain, per-joint limits & mount offsets measured, teach-in motion demos running. Next: onboard the Raspberry Pi, C++ serial tooling, MuJoCo sim.
+> 🚧 **Current status:** whole body assembled & calibrated — all 16 servos on the daisy chain, per-joint limits & mount offsets measured, teach-in motion demos running. **Wireless mode is live:** the onboard Raspberry Pi executes demos locally, the browser only sends intents. Next: C++ serial tooling, MuJoCo sim.
 
 Based on the **[Zeroth-01 by K-Scale Labs / Zeroth Robotics](https://github.com/zeroth-robotics/zeroth-bot)**. This repo documents my independent build of the platform and the software I write on top of it.
 
@@ -53,6 +53,7 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 - **Phase 1 — Arms** (STS3215) ✅ : assembled, IDs flashed (11–13 / 21–23), center-calibrated, per-joint safe limits measured on the bench (one torn elbow bracket later) — [hardware/joint_limits.json](hardware/joint_limits.json)
 - **Phase 2 — Legs & torso** (STS3250): *in progress* — **whole body assembled & calibrated** (IDs 31–35 / 41–45, mount offsets incl. a +90° hip, hand-trimmed zeros), first **teach-in motion demos** running on the full body ([demos/](demos/)); RL locomotion still ahead
 - **Servo test GUI** ✅ : browser tool for bring-up, testing, teach-in and visualization ([src/servo_gui/](src/servo_gui/), see [Software](#software))
+- **Onboard compute / wireless mode** ✅ : shared motion core ([src/zbot_core/](src/zbot_core/)) + intent service on the Raspberry Pi ([src/pi_service/](src/pi_service/)) — demos execute on the robot, the GUI switches between USB (bench) and wireless (Pi) mode; one-command deploy ([docs/pi-service.md](docs/pi-service.md))
 - **Phase 2 — Legs & torso** (STS3250): planned — RL locomotion
 - **Phase 3 — Full integration**: planned
 
@@ -97,6 +98,12 @@ tooling refers to one immutable geometry state:
   heuristic that keeps the stance foot's sole flush on the floor ("gravity feel")
 - **Simulation mode** — the full GUI works without hardware; version handshake
   warns loudly when frontend and backend get out of sync
+- **Two operating modes** — *USB (local)*: adapter on the laptop, full bench
+  tooling. *Wireless (Pi)*: adapter on the robot's Raspberry Pi; the browser
+  sends **intents only** (play demo, stop, center, release) to a Pi-side
+  FastAPI service running the same shared motion core ([src/zbot_core/](src/zbot_core/)) —
+  Wi-Fi jitter never sits inside a control loop, limits are enforced on the
+  robot, and Stop is an E-stop in both modes
 
 ![Joint selected — test-interval gauge at the CAD joint, limits loaded from config](media/servo-gui-joint.png)
 
@@ -128,7 +135,8 @@ MuJoCo/ksim-based training pipeline: train locomotion policies locally on the GP
 docs/       dated build-log entries & decisions
 hardware/   servo docs & configs (IDs, joint limits, mount offsets), print notes
 demos/      teach-in motion sequences (JSON, created & played via the GUI)
-src/        servo_gui/ (web GUI) · tests/ (bench scripts) · cpp/ (planned)
+src/        servo_gui/ (web GUI) · zbot_core/ (shared motion core) ·
+            pi_service/ (onboard intent API) · tests/ (bench scripts) · cpp/ (planned)
 resources/  pinned CAD snapshots (immutable OnShape version pins)
 sim/        training configs, MJCF/URDF, sim-to-real notes
 policies/   exported ONNX policies
@@ -150,6 +158,7 @@ media/      photos, print timelapses, hero GIF
 - [x] Phase 1: assemble the arms → upper body assembled & calibrated, per-joint safe limits measured
 - [x] First arm motion demos → new hero GIF
 - [x] Phase 2 assembly: legs & torso (STS3250, IDs 31–35 / 41–45) → whole body assembled, calibrated (mount offsets, limits) — teach-in demos (kneeling, waving) run on the full body
+- [x] Onboard the Raspberry Pi: shared motion core (`zbot_core`), Pi intent service with watchdog scaffold + one-command deploy, GUI wireless mode — demos run untethered from the laptop's USB port
 - [ ] C++ serial tooling against the bench setup: Feetech packet parser, tick ↔ radian conversion, RAII serial-port wrapper
 - [ ] Simulation setup: MJCF/URDF model running in MuJoCo/ksim
 - [ ] Train a locomotion policy in simulation

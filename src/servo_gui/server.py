@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from zbot_core.bus import (POS_MAX_SAFE, POS_MIN_SAFE, ServoBus,
                            ServoBusError, rel_deg_to_ticks,
                            serial_ports, ticks_to_rel_deg)
-from zbot_core.config import ConfigStore, Demo
+from zbot_core.config import ConfigStore, Demo, read_json
 from zbot_core.motion import (CenterParams, GroupParams, MotionEngine,
                               MotionError, TestParams)
 
@@ -40,7 +40,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 16
+API_VERSION = 17
 
 
 def _read_offsets() -> dict:
@@ -139,6 +139,34 @@ def connect(p: ConnectParams):
         S.bus = bus
     S.log(f"connected to {port}")
     return {"ok": True, "port": port}
+
+
+class ConnectionParams(BaseModel):
+    mode: str | None = Field(None, pattern="^(usb|wireless)$")
+    pi_url: str | None = None
+    port: str | None = None
+
+
+@app.post("/api/connection")
+def set_connection(p: ConnectionParams):
+    """Persist connection settings (hardware/connection.json) — the GUI's
+    mode switch. Only the provided fields are updated. Switching modes
+    mid-run would swap the visible STOP away from the machine that is
+    still moving, so it is refused like /api/disconnect."""
+    with S.lock:
+        if p.mode is not None and S.live["running"]:
+            raise HTTPException(400, "Run in progress — stop it first.")
+    stored = read_json(CFG.connection_path, {})
+    for k in ("mode", "pi_url", "port"):
+        v = getattr(p, k)
+        if v is not None:
+            stored[k] = v
+    CFG.write_connection(stored)
+    merged = CFG.connection()
+    S.log(f"connection mode: {merged['mode']}"
+          + (f" (Pi: {merged['pi_url']})" if merged["mode"] == "wireless"
+             else ""))
+    return {"ok": True, "connection": merged}
 
 
 @app.post("/api/disconnect")
