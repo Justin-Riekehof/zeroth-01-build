@@ -545,6 +545,21 @@ class MotionEngine:
                                   "(hardware/servo_ids.json).")
             L = lims.get(j)
             lo, hi = (L["min_deg"], L["max_deg"]) if L else (-30.0, 30.0)
+            # calibration sanity: the limit band must contain the joint's own
+            # zero (= center/mount pose). A band like [+90, +176] is almost
+            # certainly corrupt (e.g. a re-zero shifted the limits and a
+            # manual offset edit didn't shift them back) — clamping a taught
+            # ~0 deg pose against it would SLAM the joint to the band edge.
+            if lo > hi:
+                raise MotionError(f"Corrupt limits for {j}: min {lo:+.1f} > "
+                                  f"max {hi:+.1f} — fix "
+                                  "hardware/joint_limits.json first.")
+            if lo > 0 or hi < 0:
+                raise MotionError(
+                    f"Limits of {j} [{lo:+.1f}, {hi:+.1f}] exclude its zero "
+                    "position — calibration looks corrupt (re-zero vs manual "
+                    "offset edit?). Re-measure and save limits before "
+                    "running.")
             plan.append({"joint": j, "id": ids[j], "lo": lo, "hi": hi,
                          "limited": bool(L),
                          "offset": float(offs.get(j, 0.0))})
