@@ -54,6 +54,15 @@ def demo_slug(name: str) -> str:
 
 # ------------------------------------------------------------ config store
 
+# Connection defaults: how a host reaches the servo bus / the Pi service.
+# "port": "auto" = pick the single USB serial adapter (works for COMx and
+# /dev/tty*); an explicit value pins it (prefer /dev/serial/by-id/... on Pi).
+DEFAULT_CONNECTION = {
+    "mode": "usb",                          # "usb" (local) | "wireless" (Pi)
+    "port": "auto",
+    "pi_url": "http://pixel.local:8460",
+}
+
 class ConfigStore:
     """Paths + typed accessors for the build's JSON configs under one root."""
 
@@ -65,6 +74,7 @@ class ConfigStore:
         self.offsets_path = hw / "joint_offsets.json"
         self.model_zero_path = hw / "model_zero_offsets.json"
         self.model_invert_path = hw / "model_invert.json"
+        self.connection_path = hw / "connection.json"
         self.demos_dir = self.root / "demos"
         hw.mkdir(parents=True, exist_ok=True)
         self.demos_dir.mkdir(parents=True, exist_ok=True)
@@ -84,6 +94,9 @@ class ConfigStore:
 
     def model_invert(self) -> dict:
         return read_json(self.model_invert_path, {})
+
+    def connection(self) -> dict:
+        return {**DEFAULT_CONNECTION, **read_json(self.connection_path, {})}
 
     # -- writes (atomic)
     def write_servo_ids(self, d: dict) -> None:

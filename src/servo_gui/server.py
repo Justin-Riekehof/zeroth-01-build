@@ -101,6 +101,7 @@ def status():
         port = S.bus.port if S.bus else None
     return {"model_present": GLB_PATH.exists(), "connected": connected,
             "port": port, "live": S.snapshot(), "api_version": API_VERSION,
+            "connection": CFG.connection(),
             "limits": {"min_deg": ticks_to_rel_deg(POS_MIN_SAFE),
                        "max_deg": ticks_to_rel_deg(POS_MAX_SAFE)}}
 
@@ -116,13 +117,17 @@ class ConnectParams(BaseModel):
 
 @app.post("/api/connect")
 def connect(p: ConnectParams):
-    port = p.port
+    port = p.port                     # explicit UI choice always wins
     if not port:
-        found = serial_ports()
-        if len(found) != 1:
-            raise HTTPException(400, "Select a port "
-                                     f"({len(found)} candidates found).")
-        port = found[0]["device"]
+        configured = CFG.connection().get("port", "auto")
+        if configured and configured != "auto":
+            port = configured         # pinned in hardware/connection.json
+        else:
+            found = serial_ports()
+            if len(found) != 1:
+                raise HTTPException(400, "Select a port "
+                                         f"({len(found)} candidates found).")
+            port = found[0]["device"]
     with S.lock:
         if S.bus:
             raise HTTPException(400, "Already connected.")

@@ -1,0 +1,5 @@
+{
+  "mode": "usb",
+  "port": "auto",
+  "pi_url": "http://pixel.local:8460"
+}
