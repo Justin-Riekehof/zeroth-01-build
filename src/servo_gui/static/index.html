@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 <script type="importmap">
 {
   "imports": {
@@ -58,14 +58,14 @@
       </div>
     </section>
 
-    <section class="usb-only">
+    <section>
       <h2>Servo <span class="hint">— click a part in the model</span></h2>
       <div id="selName" class="selname">nothing selected</div>
       <div class="row">
         <button id="selParent" disabled title="Widen selection to parent group">⬆ parent</button>
         <button id="selClear" disabled>clear</button>
       </div>
-      <div class="grid2">
+      <div class="grid2 usb-only">
         <label>Servo ID <input type="number" id="servoId" value="1" min="1" max="253"></label>
         <label>Model
           <select id="servoModel">
@@ -74,11 +74,11 @@
           </select>
         </label>
       </div>
-      <div class="row">
+      <div class="row usb-only">
         <button id="saveMap" disabled title="Remember servo ID + model for the selected part">save mapping</button>
         <button id="ping">ping</button>
       </div>
-      <div id="offsetRow" class="hidden">
+      <div id="offsetRow" class="hidden usb-only">
         <div class="livepos">live position <span id="livePos">–</span></div>
         <div class="row">
           <button id="zeroHere" title="Capture the servo's current physical position as this joint's zero (CAD pose). Hand-turn the output to where you want zero, then click.">⊙ set current position as zero</button>
@@ -94,11 +94,11 @@
         </label>
         <div class="row">
           <button id="poseReset">reset pose (all joints)</button>
-          <button id="modelZeroBtn" title="Display calibration for THIS joint: slide until the model matches reality, then click (view-only, servo angles unaffected)">⌖ model zero</button>
-          <button id="modelInvertBtn" title="Flip the model's rotation direction for this joint (display only) — use when the model turns opposite to the real servo">↔ invert</button>
+          <button id="modelZeroBtn" class="usb-only" title="Display calibration for THIS joint: slide until the model matches reality, then click (view-only, servo angles unaffected)">⌖ model zero</button>
+          <button id="modelInvertBtn" class="usb-only" title="Flip the model's rotation direction for this joint (display only) — use when the model turns opposite to the real servo">↔ invert</button>
         </div>
       </div>
-      <div class="row">
+      <div class="row usb-only">
         <button id="modelZeroAll" title="Model-zero calibration: click joints and pose them with the slider until the whole model matches the real robot's zero pose, then click here — folds every posed angle into the display corrections at once (view-only)">⌖ calibrate model zero (all posed joints)</button>
       </div>
       <label class="check"><input type="checkbox" id="groundSnap" checked>
@@ -176,22 +176,22 @@
         <button id="piCenter" title="All servos to center on the Pi (pose is held)">⌂ center</button>
         <button id="piRelease" title="Torque off on the Pi — the robot goes limp">✋ release</button>
       </div>
-      <label class="usb-only">Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
-      <div class="step usb-only" id="demoGlobals" title="Global speed/accel — typing here applies the value to every step; per-step fields can still fine-tune afterwards. Empty = steps have mixed values.">
+      <label>Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
+      <div class="step" id="demoGlobals" title="Global speed/accel — typing here applies the value to every step; per-step fields can still fine-tune afterwards. Empty = steps have mixed values.">
         <span class="n">all</span>
         <span class="lbl">spd</span><input type="number" id="gSpeed" min="1" max="3400" placeholder="mix">
         <span class="lbl">acc</span><input type="number" id="gAcc" min="0" max="254" placeholder="mix">
         <span class="lbl">→ every step</span>
       </div>
-      <div id="demoSteps" class="usb-only"></div>
-      <div class="row usb-only">
+      <div id="demoSteps"></div>
+      <div class="row">
         <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ model pose</button>
         <button id="demoAddRobot" title="Physical teach-in: release torque, hand-pose the robot, then capture its real pose as the next step">+ robot pose</button>
         <button id="demoAddCenter" title="Append an EXACT center step (all joints 0.0°) — better than hand-posing 'roughly center'">+ center</button>
       </div>
-      <div class="row usb-only">
-        <button id="demoSave" title="Save under the given name into demos/ in the repo">save demo</button>
-        <button id="demoDelete" title="Delete the selected demo file">delete</button>
+      <div class="row">
+        <button id="demoSave" title="Save under the given name into demos/ in the repo (wireless: also onto the robot)">save demo</button>
+        <button id="demoDelete" title="Delete the selected demo file (wireless: also from the robot)">delete</button>
       </div>
     </section>
   </aside>
@@ -210,6 +210,6 @@
     </div>
   </main>
 </div>
-<script type="module" src="app.js?v=17"></script>
+<script type="module" src="app.js?v=18"></script>
 </body>
 </html>

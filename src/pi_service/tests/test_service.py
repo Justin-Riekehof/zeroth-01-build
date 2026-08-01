@@ -159,6 +159,58 @@ def test_release_rejected_during_run(client):
     wait_idle(client, timeout=3.0)
 
 
+# ------------------------------------------------------------ teach-in
+
+def test_save_demo_and_play(client):
+    body = {"name": "taught", "steps": [
+        {"angles": {"right_elbow": 15.0}, "speed": 3400, "acc": 100,
+         "pause_s": 0.0}]}
+    r = client.post("/demos", json=body)
+    assert r.status_code == 200
+    assert [d["name"] for d in r.json()["demos"]] == ["taught"]
+    assert "demo saved: 'taught' (1 steps)" in logs(client)
+    assert client.post("/demo/taught").status_code == 200
+    live = wait_idle(client)
+    assert live["phase"] == "done"
+    r = client.post("/demos/delete", json={"name": "taught"})
+    assert r.status_code == 200 and r.json()["demos"] == []
+    assert "demo deleted: 'taught'" in logs(client)
+
+
+def test_save_demo_rejects_bad_input(client):
+    r = client.post("/demos", json={"name": "bad", "steps": [
+        {"angles": {"right_elbow": 500.0}, "speed": 100, "acc": 50}]})
+    assert r.status_code == 400 and "out of range" in r.json()["detail"]
+    r = client.post("/demos", json={"name": "x", "steps": []})
+    assert r.status_code == 422          # pydantic: steps min_length=1
+
+
+def test_robot_pose_reads_cad_frame(client):
+    # park the sim servos at known ticks: 2048 -> 0 deg; with a +90 deg
+    # mount offset, tick 3072 must ALSO read as 0 deg (offset applied)
+    service.CFG.write_offsets({"right_elbow": 90.0})
+    bus = service.S.bus
+    bus.move(11, 2048, 3400, 50)
+    bus.move(13, 3072, 3400, 50)
+    time.sleep(0.6)
+    r = client.get("/robot_pose")
+    assert r.status_code == 200
+    pose = r.json()["pose"]
+    assert abs(pose["right_shoulder_pitch"]) <= 0.2
+    assert abs(pose["right_elbow"]) <= 0.2
+    assert r.json()["missing"] == []
+
+
+def test_robot_pose_rejected_during_run(client):
+    save_pause_demo()
+    assert client.post("/demo/slow").status_code == 200
+    time.sleep(0.15)
+    r = client.get("/robot_pose")
+    assert r.status_code == 400 and "busy" in r.json()["detail"].lower()
+    client.post("/stop")
+    wait_idle(client, timeout=3.0)
+
+
 # ------------------------------------------------------------ safety guards
 
 def test_corrupt_limits_rejected(client):

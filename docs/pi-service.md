@@ -13,10 +13,13 @@ corrupt-calibration guard are enforced on the Pi, never trusted from clients.
 |---|---|
 | `GET /status` | bus state, watchdog state, live engine snapshot (phase, poses, log) |
 | `GET /demos` | demos available on the robot |
+| `POST /demos` | save a demo onto the robot (wireless teach-in; the GUI also saves to the repo, which stays canonical) |
+| `POST /demos/delete` | remove a demo from the robot (`{"name": "..."}`) |
+| `GET /robot_pose` | hand-posed robot pose in CAD-frame degrees (wireless teach-in capture) |
 | `POST /demo/{name}` | play a taught-in demo, hold the final pose |
 | `POST /center` | all configured servos to center (`{"hold": true, "speed": 300}`) |
 | `POST /release` | torque off — all, or `{"joints": ["right_elbow"]}` |
-| `POST /stop` | **E-stop**: abort the run, everything goes limp |
+| `POST /stop` | **E-stop**: aborts a run; when idle-holding a pose it releases all torque directly |
 | `POST /connect` | (re)open the serial bus after an error |
 | `POST /heartbeat` | feeds the streaming watchdog (future teleop; demos don't need it) |
 

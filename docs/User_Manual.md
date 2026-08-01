@@ -125,16 +125,21 @@ Switch at the top of the *Connection* section; the choice persists in
 | --- | --- | --- |
 | Servo adapter | laptop USB (`COMx`) | Raspberry Pi USB (`pixel.local`) |
 | Execution | on the laptop | **on the Pi** — the browser only sends intents (never per-cycle setpoints; Wi-Fi jitter stays out of the control loop) |
-| Available | everything below | demo list/▶ play, **■ STOP**, ⌂ center, ✋ release, live log/phase + 3D pose |
-| Hidden | — | all bench tooling (scan/IDs, limits, offsets, teach-in, calibration) |
+| Available | everything below | demo list/▶ play, **■ STOP**, ⌂ center, ✋ release, live log/phase + 3D pose, **full teach-in** (model posing, *+ robot pose* via the Pi, save/delete) |
+| Hidden | — | bus/bench tooling (scan/IDs, mapping, limits, offsets, sweep tests, group runs, model-zero calibration) |
 
 - Both modes run the same `zbot_core` engine — limits, offsets, sag
   compensation and hold behave identically; in wireless mode they are enforced
   **on the Pi** and never trusted from the browser.
 - **Stop is an E-stop in both modes** (USB: *■ Stop*; wireless: *■ STOP* in the
   Demos section).
-- Teach-in/calibration stay USB-mode features. Deploying to the robot syncs
-  demos + calibration: `.\src\pi_service\deploy\deploy_pi.ps1`
+- **Teach-in works in both modes.** Demos always save to the repo (canonical,
+  git-tracked); in wireless mode the robot additionally gets its own copy, so
+  *▶ play* works immediately without a deploy. *+ robot pose* reads the
+  hand-posed robot through the Pi (release torque first via *✋ release*).
+  Calibration (zero/offsets/limits/model zero) stays a USB-mode feature.
+- Deploying to the robot syncs demos + calibration:
+  `.\src\pi_service\deploy\deploy_pi.ps1`
   (details/troubleshooting: [pi-service.md](pi-service.md)).
 - Robot unreachable in wireless mode? ProtonVPN blocks LAN by default —
   enable *"Allow LAN connections"*.
@@ -146,7 +151,8 @@ Switch at the top of the *Connection* section; the choice persists in
 | New servo bring-up | chain it in alone → *scan bus* → *set ID* (auto-selects the joint) → *save mapping* → probe range → *save limits* |
 | Mount & calibrate | *⌂ Move to center* → mount part → hand-trim → *⊙ set current position as zero* (shifts existing limits automatically) |
 | Teach-in demo | *— new demo —* → pose model (sliders) or robot (*release torque*, hand-pose) → *+ step* → per-step or global spd/acc → *save demo* → play in **simulation first** |
-| Run on the robot (wireless) | teach & verify in USB mode → `deploy_pi.ps1` → switch to *Wireless (Pi)* → select demo → *▶ play* (*■ STOP* aborts instantly) |
+| Run on the robot (wireless) | `deploy_pi.ps1` once → switch to *Wireless (Pi)* → select demo → *▶ play* (*■ STOP* aborts instantly) |
+| Teach-in via Wi-Fi | wireless mode → *✋ release* → hand-pose the robot → *+ robot pose* (or pose the model with the slider → *+ model pose*) → *save demo* (lands in the repo **and** on the robot) → *▶ play* |
 
 ## 9. Pose accuracy under load
 

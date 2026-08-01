@@ -100,10 +100,12 @@ tooling refers to one immutable geometry state:
   warns loudly when frontend and backend get out of sync
 - **Two operating modes** — *USB (local)*: adapter on the laptop, full bench
   tooling. *Wireless (Pi)*: adapter on the robot's Raspberry Pi; the browser
-  sends **intents only** (play demo, stop, center, release) to a Pi-side
-  FastAPI service running the same shared motion core ([src/zbot_core/](src/zbot_core/)) —
-  Wi-Fi jitter never sits inside a control loop, limits are enforced on the
-  robot, and Stop is an E-stop in both modes
+  sends **intents only** (play demo, stop, center, release, teach-in capture)
+  to a Pi-side FastAPI service running the same shared motion core
+  ([src/zbot_core/](src/zbot_core/)) — Wi-Fi jitter never sits inside a
+  control loop, limits are enforced on the robot, and Stop is an E-stop in
+  both modes. Teach-in works wirelessly too: hand-pose the robot, capture via
+  the Pi, save — the repo stays canonical, the robot plays it immediately
 
 ![Joint selected — test-interval gauge at the CAD joint, limits loaded from config](media/servo-gui-joint.png)
 

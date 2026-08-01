@@ -9,9 +9,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 17;
+const EXPECTED_API = 18;
 // must match the Pi service's API_VERSION (wireless mode)
-const EXPECTED_PI_API = 2;
+const EXPECTED_PI_API = 3;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -1207,8 +1207,11 @@ $('demoAddStep').onclick = () => {
 };
 $('demoAddRobot').onclick = guard(async () => {
   // physical teach-in: read the real robot's current pose (hand-posed,
-  // torque released) and store it as a step; mirror it onto the 3D model
-  const r = await api.get('/api/robot_pose');
+  // torque released) and store it as a step; mirror it onto the 3D model.
+  // In wireless mode the robot hangs off the Pi — ask the Pi service.
+  const r = wireless() ? await pi.get('/robot_pose')
+                       : await api.get('/api/robot_pose');
+  if (!r.pose) throw new Error(r.detail ?? 'no pose available');
   editSteps.push({ angles: r.pose, speed: +$('gSpeed').value || 500,
     acc: $('gAcc').value === '' ? 50 : +$('gAcc').value, pause_s: 0 });
   for (const [j, d] of Object.entries(r.pose))
@@ -1230,17 +1233,42 @@ $('demoSave').onclick = guard(async () => {
   const name = $('demoName').value.trim();
   if (!name) { clientMsg('give the demo a name first'); return; }
   if (!editSteps.length) { clientMsg('no steps — pose the model and "+ add step"'); return; }
+  // the repo copy is canonical in BOTH modes (git-tracked, deploys sync it)
   const r = await api.post('/api/demos', { name, steps: editSteps });
-  demos = r.demos;
+  if (wireless()) {
+    // ...and the robot gets its own copy so ▶ play works without a deploy.
+    // The picker keeps showing the ROBOT's list: on failure leave it alone —
+    // swapping in the repo list would offer demos the Pi will 404 on.
+    try {
+      demos = (await pi.post('/demos', { name, steps: editSteps })).demos;
+      clientMsg(`demo '${name}' saved to the repo AND the robot `
+        + `(${editSteps.length} steps)`);
+    } catch (e) {
+      clientMsg(`WARNING: '${name}' saved to the repo but NOT to the robot `
+        + `(${e.message}) — retry or deploy`);
+    }
+  } else {
+    demos = r.demos;
+    clientMsg(`demo '${name}' saved to the repo (${editSteps.length} steps)`);
+  }
   renderDemoList();
   $('demoList').value = name;
-  clientMsg(`demo '${name}' saved to the repo (${editSteps.length} steps)`);
 });
 $('demoDelete').onclick = guard(async () => {
   const name = $('demoList').value;
   if (!name) return;
-  const r = await api.post('/api/demos/delete', { name });
-  demos = r.demos;
+  const r = await api.post('/api/demos/delete', { name });   // repo (canonical)
+  if (wireless()) {
+    // picker stays the robot's list; on failure keep it (see demoSave)
+    try {
+      demos = (await pi.post('/demos/delete', { name })).demos;
+    } catch (e) {
+      clientMsg(`WARNING: '${name}' deleted from the repo but NOT from the `
+        + `robot (${e.message})`);
+    }
+  } else {
+    demos = r.demos;
+  }
   renderDemoList();
   editSteps = [];                 // clear the editor along with the demo
   $('demoName').value = '';

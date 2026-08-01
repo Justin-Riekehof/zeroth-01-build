@@ -10,10 +10,13 @@ high-level intents over HTTP; per-cycle setpoints never cross Wi-Fi
 Endpoints (intents only, no static files, no calibration editing):
     GET  /status            engine live state + bus + service info
     GET  /demos             taught-in demos available on this robot
+    POST /demos             save a demo (wireless teach-in; repo stays canonical)
+    POST /demos/delete      remove a demo from the robot
+    GET  /robot_pose        hand-posed pose in CAD deg (wireless teach-in)
     POST /demo/{name}       play a demo (limits/offsets enforced locally)
     POST /center            all configured servos to center (hold optional)
     POST /release           torque off (all or selected joints)
-    POST /stop              E-stop: abort run, everything goes limp
+    POST /stop              E-stop: run aborted OR held pose released
     POST /connect           (re)open the serial bus
     POST /heartbeat         arms/feeds the streaming watchdog (future teleop)
 
@@ -40,10 +43,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from zbot_core.bus import ServoBusError, open_bus
-from zbot_core.config import ConfigStore
-from zbot_core.motion import GroupParams, MotionEngine, MotionError
+from zbot_core.config import ConfigStore, Demo
+from zbot_core.motion import GroupParams, MotionEngine, MotionError, to_rel
 
-API_VERSION = 2
+API_VERSION = 3
 
 ROOT = Path(os.environ.get("ZBOT_ROOT", Path.home() / "zbot"))
 SIMULATE = os.environ.get("ZBOT_SIMULATE", "0") == "1"
@@ -161,10 +164,72 @@ def status():
             "live": S.snapshot()}
 
 
+def _demos_list():
+    return CFG.load_demos(
+        on_invalid=lambda n: S.log(f"WARNING: demo file {n} invalid"))
+
+
 @app.get("/demos")
 def demos():
-    return {"demos": CFG.load_demos(
-        on_invalid=lambda n: S.log(f"WARNING: demo file {n} invalid"))}
+    return {"demos": _demos_list()}
+
+
+@app.post("/demos")
+def save_demo(d: Demo):
+    """Wireless teach-in: store a demo on the robot (the GUI also saves it
+    to the repo — the repo stays canonical, this copy is what /demo/{name}
+    plays without a redeploy)."""
+    for i, step in enumerate(d.steps, 1):
+        for j, deg in step.angles.items():
+            if not -180 <= deg <= 180:
+                raise HTTPException(400, f"Step {i}: angle {deg} for {j} "
+                                         "out of range.")
+    try:
+        path = CFG.demo_path(d.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    CFG.save_demo(d)
+    S.log(f"demo saved: '{d.name}' ({len(d.steps)} steps) -> "
+          f"demos/{path.name}")
+    return {"ok": True, "demos": _demos_list()}
+
+
+class DemoName(BaseModel):
+    name: str
+
+
+@app.post("/demos/delete")
+def delete_demo(p: DemoName):
+    try:
+        if CFG.delete_demo(p.name):
+            S.log(f"demo deleted: '{p.name}'")
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "demos": _demos_list()}
+
+
+@app.get("/robot_pose")
+def robot_pose():
+    """Current pose of the PHYSICAL robot in CAD-frame degrees — wireless
+    teach-in: release torque, hand-pose the robot, capture."""
+    with S.lock:
+        bus = S.bus
+        if S.live["running"]:
+            raise HTTPException(400, "Bus busy — a run is in progress.")
+    if not bus:
+        raise HTTPException(400, "Bus not connected.")
+    ids = CFG.servo_ids()
+    offs = CFG.offsets()
+    pose, missing = {}, []
+    for j, sid in ids.items():
+        try:
+            pose[j] = round(to_rel(bus.read_pos(sid),
+                                   float(offs.get(j, 0.0))), 1)
+        except ServoBusError:
+            missing.append(j)
+    if not pose:
+        raise HTTPException(400, "No servo responds.")
+    return {"pose": pose, "missing": missing}
 
 
 @app.post("/connect")

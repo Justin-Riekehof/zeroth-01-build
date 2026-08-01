@@ -40,7 +40,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 17
+API_VERSION = 18
 
 
 def _read_offsets() -> dict:
