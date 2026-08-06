@@ -25,12 +25,14 @@ Bash (Ubuntu/macOS):
 cd src/servo_gui && uv sync && uv run server.py
 ```
 
-Open <http://127.0.0.1:8451>. (The 3D libraries load from a CDN — internet required.)
+Open <http://127.0.0.1:8451>. Fully offline-capable: the 3D libraries (three.js
+0.160.1) are vendored in `static/vendor/` and the CAD model is served from the repo —
+no internet needed.
 
 ## CAD model
 
 The viewer loads the **pinned OnShape version** from
-`resources/cad/zeroth01-opus-v-cbb18739.glb` (see [resources/cad/VERSION.md](../../resources/cad/VERSION.md)).
+`resources/cad/z001-opus-m-93de7567.glb` (see [resources/cad/VERSION.md](../../resources/cad/VERSION.md)).
 If the file is missing, the GUI shows instructions — either run
 `python resources/cad/download_model.py` (needs free OnShape API keys) or export the
 GLB manually from the pinned URL and drag & drop it into the GUI window.
