@@ -27,10 +27,16 @@ Distilled from hardware bring-up sessions (last updated 2026-07-30). The facts b
 
 ## Robot computer
 
-- Raspberry Pi 4B 4 GB, Raspberry Pi OS Lite 64-bit (Debian Trixie), `aarch64`
-- Reachable as `justin@pixel.local` (mDNS works; FritzBox network `192.168.178.0/24`,
-  DHCP reservation recommended so the IP stays stable)
-- Python venv at `~/venv` (feetech-servo-sdk / scservo_sdk and pyserial installed)
+- Raspberry Pi (hostname `pixel2` since 2026-08-21, fresh install; predecessor was
+  `pixel`), Raspberry Pi OS Lite 64-bit (Debian Trixie), `aarch64`, ~2 GB RAM
+- Reachable as `justin@192.168.178.147` (FritzBox network `192.168.178.0/24`;
+  set a DHCP reservation so this IP stays stable). `pixel2.local` resolves
+  correctly again since the 2026-08-21 reboot, but configs deliberately use the
+  IP — mDNS served a stale ghost entry once and `pixel2.fritz.box` is
+  IPv6-only while the service binds IPv4
+- Python venv at `~/venv` (ftservo-python-sdk and pyserial installed via the
+  deploy script). Scoped NOPASSWD sudoers rule `/etc/sudoers.d/zbot-deploy`
+  allows non-interactive service deploys (see docs/pi-service.md)
 - Pitfall: **ProtonVPN on the dev laptop blocks LAN access** — enable "Allow LAN
   connections" or disconnect the VPN, otherwise SSH/HTTP to the robot fail with
   unresolvable hostnames / unreachable IPs.
@@ -67,5 +73,5 @@ Distilled from hardware bring-up sessions (last updated 2026-07-30). The facts b
 
 ## Deployment
 
-- Laptop (Windows 11) → Pi via ssh/scp/rsync to `justin@pixel.local`.
+- Laptop (Windows 11) or Linux workstation → Pi via ssh/scp/rsync to `justin@192.168.178.147`.
 - Target: one-command deploy; later a systemd unit so the Pi service starts on boot.

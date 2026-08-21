@@ -6,13 +6,13 @@ One-command deploy of the Pi intent service to the robot.
     .\src\pi_service\deploy\deploy_pi.ps1 -SkipService    # code only, no sudo
 
 Ships zbot_core + pi_service + calibration (servo_ids/joint_limits/
-joint_offsets) + demos to justin@pixel.local:~/zbot, installs both packages
+joint_offsets) + demos to justin@192.168.178.147:~/zbot, installs both packages
 editable into ~/venv, refreshes the systemd unit and health-checks /status.
 connection.json is deliberately NOT shipped: it is host-specific — the Pi
 falls back to port "auto" until you pin /dev/serial/by-id/... there.
 #>
 param(
-    [string]$PiHost = "justin@pixel.local",
+    [string]$PiHost = "justin@192.168.178.147",
     [switch]$SkipService
 )
 
@@ -78,4 +78,4 @@ if ($LASTEXITCODE -ne 0) {
     Fail "service not answering - inspect: ssh $PiHost journalctl -u zbot-pi -n 50"
 }
 Write-Host ""
-Step "done - service at http://pixel.local:8460 (GET /status)"
+Step "done - service at http://192.168.178.147:8460 (GET /status)"

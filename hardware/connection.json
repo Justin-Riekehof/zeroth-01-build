@@ -1,5 +1,5 @@
 {
   "mode": "wireless",
-  "pi_url": "http://pixel.local:8460",
+  "pi_url": "http://192.168.178.147:8460",
   "port": "auto"
 }

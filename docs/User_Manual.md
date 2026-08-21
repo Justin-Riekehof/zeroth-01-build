@@ -123,7 +123,7 @@ Switch at the top of the *Connection* section; the choice persists in
 
 | | **USB (local)** — default | **Wireless (Pi)** |
 | --- | --- | --- |
-| Servo adapter | laptop USB (`COMx`) | Raspberry Pi USB (`pixel.local`) |
+| Servo adapter | laptop USB (`COMx`) | Raspberry Pi USB (`pixel2`, 192.168.178.147) |
 | Execution | on the laptop | **on the Pi** — the browser only sends intents (never per-cycle setpoints; Wi-Fi jitter stays out of the control loop) |
 | Available | everything below | demo list/▶ play, **■ STOP**, ⌂ center, ✋ release, live log/phase + 3D pose, **full teach-in** (model posing, *+ robot pose* via the Pi, save/delete) |
 | Hidden | — | bus/bench tooling (scan/IDs, mapping, limits, offsets, sweep tests, group runs, model-zero calibration) |
@@ -195,7 +195,7 @@ rpicam-vid -t 0 -n --width 1280 --height 720 --framerate 30 --inline --listen -o
 
 ```powershell
 # on the laptop — viewer (ffplay via `winget install Gyan.FFmpeg`)
-ffplay -fflags nobuffer -flags low_delay -framedrop tcp://pixel.local:8888
+ffplay -fflags nobuffer -flags low_delay -framedrop tcp://192.168.178.147:8888
 ```
 
 `--listen` serves exactly one client: closing the viewer window ends the Pi-side

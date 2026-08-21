@@ -62,7 +62,7 @@ def demo_slug(name: str) -> str:
 DEFAULT_CONNECTION = {
     "mode": "usb",                          # "usb" (local) | "wireless" (Pi)
     "port": "auto",
-    "pi_url": "http://pixel.local:8460",
+    "pi_url": "http://192.168.178.147:8460",
 }
 
 class ConfigStore:
