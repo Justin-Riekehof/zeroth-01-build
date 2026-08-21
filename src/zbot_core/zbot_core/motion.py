@@ -48,6 +48,46 @@ def to_rel(ticks: float, offset: float = 0.0) -> float:
     return ticks_to_rel_deg(ticks) - offset
 
 
+def release_joints(bus, ids: dict[str, int],
+                   joints: list[str] | None) -> list[int]:
+    """Torque off for the given joints (None/empty -> all configured).
+    Shared by the local GUI backend and the Pi intent service — one torque
+    path for both modes. Returns the servo IDs actually released."""
+    sel = joints or sorted(ids, key=lambda j: ids[j])
+    released = []
+    for j in sel:
+        if j not in ids:
+            continue
+        try:
+            bus.torque_off(ids[j])
+            released.append(ids[j])
+        except Exception:
+            pass
+    return released
+
+
+def lock_joints(bus, ids: dict[str, int],
+                joints: list[str] | None) -> list[int]:
+    """Freeze joints at their CURRENT physical position (teach-in: fix an
+    already hand-posed limb while posing the next one). The present position
+    is re-commanded as the goal before enabling torque — enabling torque
+    alone could snap the servo back to a stale goal from an earlier move.
+    Returns the servo IDs actually locked (torque verified ON)."""
+    sel = joints or sorted(ids, key=lambda j: ids[j])
+    locked = []
+    for j in sel:
+        if j not in ids:
+            continue
+        sid = ids[j]
+        try:
+            bus.move(sid, bus.read_pos(sid), 200, 30)   # goal := here
+            if bus.torque_on(sid):
+                locked.append(sid)
+        except Exception:
+            pass
+    return locked
+
+
 class MotionError(Exception):
     """Engine-level rejection; hosts map it to a client error (HTTP 400)."""
 

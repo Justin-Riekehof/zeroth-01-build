@@ -47,8 +47,19 @@ button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5
 #groupList { margin-bottom: 8px; }
 #groupList .check { margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 #demoSteps { margin-bottom: 8px; }
+#shutdownBanner { position: fixed; inset: 0; z-index: 40; display: flex;
+  align-items: center; justify-content: center; background: rgba(8, 10, 14, .78); }
+#shutdownBanner.hidden { display: none; }
+#shutdownBanner .box { background: #1a2030; border: 1px solid var(--accent);
+  border-radius: 8px; padding: 20px 26px; max-width: 400px; text-align: center; }
+#shutdownBanner h2 { margin-top: 0; }
+#shutdownBanner button { margin-top: 10px; min-width: 120px; }
+
 .step { display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
-  margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  margin-bottom: 4px; font-variant-numeric: tabular-nums;
+  border: 1px solid transparent; border-radius: 5px; padding: 2px; }
+.step.sel { border-color: var(--accent); background: #241c10; }
+.step.sel .n { color: var(--accent); font-weight: 600; }
 .step .n { width: 24px; color: var(--muted); flex: none; }
 .step input { width: 46px; flex: none; padding: 3px 5px; }
 .step .lbl { color: var(--muted); font-size: 11px; flex: none; }

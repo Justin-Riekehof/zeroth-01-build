@@ -16,6 +16,9 @@ Endpoints (intents only, no static files, no calibration editing):
     POST /demo/{name}       play a demo (limits/offsets enforced locally)
     POST /center            all configured servos to center (hold optional)
     POST /release           torque off (all or selected joints)
+    POST /lock              freeze joints at their current position (teach-in)
+    POST /shutdown          clean OS shutdown (protects the SD card; cut power
+                            after the ACT LED stops — servos keep holding)
     POST /stop              E-stop: run aborted OR held pose released
     POST /connect           (re)open the serial bus
     POST /heartbeat         arms/feeds the streaming watchdog (future teleop)
@@ -33,6 +36,7 @@ Run:  uvicorn service:app --host 0.0.0.0 --port 8460
 """
 
 import os
+import subprocess
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -44,9 +48,14 @@ from pydantic import BaseModel, Field
 
 from zbot_core.bus import ServoBusError, open_bus
 from zbot_core.config import ConfigStore, Demo
-from zbot_core.motion import GroupParams, MotionEngine, MotionError, to_rel
+from zbot_core.motion import (GroupParams, MotionEngine, MotionError,
+                              lock_joints, release_joints, to_rel)
 
-API_VERSION = 3
+API_VERSION = 5
+
+# Needs the matching NOPASSWD line in /etc/sudoers.d/zbot-deploy on the Pi.
+# Kept as one exact command so the sudoers rule can stay maximally narrow.
+SHUTDOWN_CMD = ["sudo", "-n", "/usr/sbin/shutdown", "-h", "now"]
 
 ROOT = Path(os.environ.get("ZBOT_ROOT", Path.home() / "zbot"))
 SIMULATE = os.environ.get("ZBOT_SIMULATE", "0") == "1"
@@ -270,27 +279,32 @@ class ReleaseIntent(BaseModel):
     joints: list[str] | None = None    # None -> all configured
 
 
-@app.post("/release")
-def release(p: ReleaseIntent = ReleaseIntent()):
+def _idle_bus_or_400():
     with S.lock:
         bus = S.bus
         if S.live["running"]:
             raise HTTPException(400, "Run in progress — POST /stop first.")
     if not bus:
         raise HTTPException(400, "Bus not connected.")
-    ids = CFG.servo_ids()
-    sel = p.joints or sorted(ids, key=lambda j: ids[j])
-    released = []
-    for j in sel:
-        if j not in ids:
-            continue
-        try:
-            bus.torque_off(ids[j])
-            released.append(ids[j])
-        except Exception:
-            pass
+    return bus
+
+
+@app.post("/release")
+def release(p: ReleaseIntent = ReleaseIntent()):
+    bus = _idle_bus_or_400()
+    released = release_joints(bus, CFG.servo_ids(), p.joints)
     S.log(f"torque released: IDs {released}")
     return {"ok": True, "released": released}
+
+
+@app.post("/lock")
+def lock(p: ReleaseIntent = ReleaseIntent()):
+    """Teach-in: freeze the given joints (or all) at their current physical
+    position — hand-pose a limb, lock it, pose the next one."""
+    bus = _idle_bus_or_400()
+    locked = lock_joints(bus, CFG.servo_ids(), p.joints)
+    S.log(f"torque locked at current position: IDs {locked}")
+    return {"ok": True, "locked": locked}
 
 
 @app.post("/stop")
@@ -322,6 +336,30 @@ def stop():
 def heartbeat():
     WATCHDOG.beat()
     return {"ok": True, "armed": WATCHDOG.armed}
+
+
+def _do_shutdown() -> subprocess.CompletedProcess:
+    """Isolated so tests can patch it — never run the real command in CI."""
+    return subprocess.run(SHUTDOWN_CMD, capture_output=True, text=True,
+                          timeout=10)
+
+
+@app.post("/shutdown")
+def shutdown():
+    """Clean OS shutdown (SD-card-safe power-off). Rejected during a run —
+    stop first. Servos keep their last goal and torque (they are powered
+    from the servo rail, not the Pi): the robot holds its pose until the
+    main switch is cut. Cut power only after the green ACT LED stops."""
+    with S.lock:
+        if S.live["running"]:
+            raise HTTPException(400, "Run in progress — POST /stop first.")
+    r = _do_shutdown()
+    if r.returncode != 0:
+        raise HTTPException(500, "shutdown failed — sudoers rule for "
+                                 f"'{' '.join(SHUTDOWN_CMD[1:])}' missing? "
+                                 f"({(r.stderr or '').strip()})")
+    S.log("SHUTDOWN: OS halting — cut power after the ACT LED stops")
+    return {"ok": True}
 
 
 if __name__ == "__main__":

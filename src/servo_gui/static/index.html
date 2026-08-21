@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=20">
 <script type="importmap">
 {
   "imports": {
@@ -78,8 +78,8 @@
         <button id="saveMap" disabled title="Remember servo ID + model for the selected part">save mapping</button>
         <button id="ping">ping</button>
       </div>
+      <div id="livePosRow" class="livepos hidden">live position <span id="livePos">–</span></div>
       <div id="offsetRow" class="hidden usb-only">
-        <div class="livepos">live position <span id="livePos">–</span></div>
         <div class="row">
           <button id="zeroHere" title="Capture the servo's current physical position as this joint's zero (CAD pose). Hand-turn the output to where you want zero, then click.">⊙ set current position as zero</button>
         </div>
@@ -138,11 +138,11 @@
     </section>
 
     <section>
-      <h2 class="usb-only">Group <span class="hint">— test several servos</span></h2>
-      <div id="groupList" class="usb-only"></div>
-      <div class="row usb-only">
+      <h2>Servos <span class="hint">— select for torque &amp; group ops</span></h2>
+      <div id="groupList"></div>
+      <div class="row">
         <button id="groupAll" title="Select all / none">All</button>
-        <select id="groupMode">
+        <select id="groupMode" class="usb-only">
           <option value="sequential">sequential (asc. ID)</option>
           <option value="simultaneous">simultaneous</option>
         </select>
@@ -153,8 +153,9 @@
         <button id="groupCenter" title="Move all selected servos to center (mount pose)">⌂ center</button>
         <button id="groupRun" class="primary" title="Sweep each selected joint within its configured limits">▶ run group</button>
       </div>
-      <div class="row usb-only">
-        <button id="groupRelease" title="Disable torque on the selected servos (or all, if none selected) — releases a hold-center pose">✋ release torque</button>
+      <div class="row">
+        <button id="groupRelease" title="Disable torque: checked servos — else the clicked model joint — else all. Teach-in: release, hand-pose, capture">✋ release torque</button>
+        <button id="groupLock" title="Freeze at the CURRENT position (torque on): checked servos — else the clicked model joint — else all. Teach-in: pose a limb, lock it, pose the next">🔒 lock torque</button>
       </div>
       <h2 class="pi-only">Robot <span class="hint">— executed on the Pi</span></h2>
       <div id="readout">
@@ -174,7 +175,7 @@
       <div class="row pi-only">
         <button id="piStop" class="danger" title="E-stop on the Pi: abort the run, all torque off">■ STOP</button>
         <button id="piCenter" title="All servos to center on the Pi (pose is held)">⌂ center</button>
-        <button id="piRelease" title="Torque off on the Pi — the robot goes limp">✋ release</button>
+        <button id="piShutdown" title="Clean OS shutdown of the Pi (SD-card-safe). Servos keep holding their pose; cut the main switch only after the green ACT LED stops (~15 s)">⏻ shutdown Pi</button>
       </div>
       <label>Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
       <div class="step" id="demoGlobals" title="Global speed/accel — typing here applies the value to every step; per-step fields can still fine-tune afterwards. Empty = steps have mixed values.">
@@ -210,6 +211,16 @@
     </div>
   </main>
 </div>
-<script type="module" src="app.js?v=18"></script>
+<div id="shutdownBanner" class="hidden">
+  <div class="box">
+    <h2>✅ Pi ist heruntergefahren</h2>
+    <p>Der Pi antwortet nicht mehr. Wenn die grüne <strong>ACT-LED aus</strong> ist,
+      kann der Hauptschalter jetzt <strong>sicher ausgeschaltet</strong> werden.</p>
+    <p class="hint">Die Servos halten ihre letzte Pose, bis die Versorgung
+      getrennt wird.</p>
+    <button id="shutdownBannerOk" class="primary">OK</button>
+  </div>
+</div>
+<script type="module" src="app.js?v=25"></script>
 </body>
 </html>

@@ -73,6 +73,20 @@ check(f"explicit torque_on for held servos (got {sorted(set(bus.ons))})",
 r = client.post("/api/release", json={"joints": None}).json()
 check(f"release all -> IDs {r['released']}", sorted(r["released"]) == [11, 12])
 
+# --- 2b) lock endpoint freezes at the CURRENT position (teach-in) ---
+bus = RecBus()
+server.S.bus = bus
+server.S.live["running"] = False
+bus.pos = {11: 2500, 12: 1800}          # hand-posed somewhere off-center
+r = client.post("/api/lock", json={"joints": None}).json()
+check(f"lock all -> IDs {r['locked']}", sorted(r["locked"]) == [11, 12])
+check(f"lock re-commands the current pos (got {bus.moves})",
+      set(bus.moves) == {(11, 2500), (12, 1800)})
+check(f"lock verifies torque_on (got {sorted(set(bus.ons))})",
+      sorted(set(bus.ons)) == [11, 12])
+r = client.post("/api/lock", json={"joints": ["b"]}).json()
+check(f"lock subset -> [12] (got {r['locked']})", r["locked"] == [12])
+
 # --- 3) sequential without hold: old behavior (torque_off per joint, ends at min) ---
 bus = run_group({"joints": ["a", "b"], "mode": "sequential", "speed": 3000,
                  "hold_center": False})

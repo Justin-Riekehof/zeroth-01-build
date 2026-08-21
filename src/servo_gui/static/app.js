@@ -9,9 +9,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 18;
+const EXPECTED_API = 19;
 // must match the Pi service's API_VERSION (wireless mode)
-const EXPECTED_PI_API = 3;
+const EXPECTED_PI_API = 5;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -27,14 +27,19 @@ const api = {
 
 // wireless mode: this page talks straight to the Pi intent service (CORS
 // is open there); base URL comes from hardware/connection.json via /api/status
-let conn = { mode: 'usb', port: 'auto', pi_url: 'http://pixel.local:8460' };
+let conn = { mode: 'usb', port: 'auto', pi_url: 'http://192.168.178.147:8460' };
 const wireless = () => conn.mode === 'wireless';
+// Timeouts are essential here: a halting/unplugged Pi leaves TCP connects
+// hanging in SYN retries for MINUTES — without an abort, the status poll
+// stalls and the UI never notices the Pi is gone (e.g. no shutdown banner).
 const pi = {
-  get: p => fetch(conn.pi_url + p).then(r => r.json()),
-  post: async (p, body) => {
+  get: (p, timeoutMs = 4000) => fetch(conn.pi_url + p,
+    { signal: AbortSignal.timeout(timeoutMs) }).then(r => r.json()),
+  post: async (p, body, timeoutMs = 8000) => {
     const r = await fetch(conn.pi_url + p, { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body ?? {}) });
+      body: JSON.stringify(body ?? {}),
+      signal: AbortSignal.timeout(timeoutMs) });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.detail ?? r.statusText);
     return data;
@@ -284,6 +289,7 @@ function select(obj) {
   $('poseRow').classList.toggle('hidden', !hasPivot);
   if (hasPivot) syncPoseUI(jointAngles.get(currentJoint.name) ?? 0);
   $('offsetRow').classList.toggle('hidden', !currentJoint);
+  $('livePosRow').classList.toggle('hidden', !currentJoint);
   if (currentJoint) {
     $('offsetDeg').value = jointOffsets[currentJoint.name] ?? 0;
     $('zeroHere').disabled = !connected;
@@ -651,8 +657,11 @@ new EventSource('/api/stream').onmessage = e => {
     setJointAngle(currentJoint.name, live.deg);
     syncPoseUI(live.deg);
   }
+  // a run always re-attaches the model to the live twin
+  if (live.running) exitStepPreview(false);
   // group runs stream all joint positions — animate the whole rig
-  if (live.multi) {
+  // (suppressed while a waypoint preview owns the model)
+  if (live.multi && previewI === null) {
     for (const [j, deg] of Object.entries(live.multi)) {
       if (pivots.has(j)) setJointAngle(j, deg);
       if (currentJoint?.name === j) {
@@ -670,12 +679,50 @@ function syncPoseUI(deg) {
 
 const fmtDeg = d => (d >= 0 ? '+' : '') + (+d).toFixed(1) + '°';
 
+// Idle digital twin: mirror ONLY joints whose REAL position moved since the
+// last sweep (hand-posing a released joint). Untouched joints keep their
+// virtual slider pose (model-pose teach-in), and the ±1-encoder-count idle
+// flicker (~0.1°) stays below the threshold — no ground-contact wobble.
+let lastRealPose = null;
+function mirrorMovedJoints(pose) {
+  if (!pose) return;
+  if (!lastRealPose) {
+    // first sweep after (re)connect: FULL sync — the twin starts at reality,
+    // not at the model's default center pose
+    for (const [j, d] of Object.entries(pose)) {
+      if (!pivots.has(j)) continue;
+      setJointAngle(j, d);
+      if (currentJoint?.name === j) syncPoseUI(d);
+    }
+  } else {
+    for (const [j, d] of Object.entries(pose)) {
+      if (!pivots.has(j) || lastRealPose[j] === undefined) continue;
+      if (Math.abs(d - lastRealPose[j]) >= 0.15) {
+        setJointAngle(j, d);
+        if (currentJoint?.name === j) syncPoseUI(d);
+      }
+    }
+  }
+  lastRealPose = { ...(lastRealPose ?? {}), ...pose };
+}
+
 // Idle live position: while connected + not running + a joint is selected,
 // poll the selected servo a few times a second. Shows the current angle (in
 // CAD-frame, offset applied) and drives the gauge needle — so you can hand-turn
 // the output and watch it, then "set current position as zero".
+let usbPollN = 0;
 async function livePoll() {
   try {
+    // idle digital twin (USB): every 2nd tick, sweep the real pose and
+    // mirror hand-moved joints (see mirrorMovedJoints for the rules)
+    if (!wireless() && !connected) lastRealPose = null;  // next connect: full sync
+    usbPollN = (usbPollN + 1) % 2;
+    if (usbPollN === 0 && connected && !running && !wireless()
+        && previewI === null) {
+      const rp = await api.get('/api/robot_pose').catch(() => null);
+      if (rp?.pose && connected && !running && previewI === null)
+        mirrorMovedJoints(rp.pose);
+    }
     const j = currentJoint;                 // capture: selection may change mid-await
     if (connected && !running && j && !wireless()) {
       const r = await api.get(`/api/servo_pos?servo_id=${+$('servoId').value}`
@@ -815,6 +862,10 @@ async function piPoll() {
     if (wireless()) {
       const s = await pi.get('/status');
       if (wireless()) {              // mode may have flipped mid-await
+        if (shutdownAt && Date.now() - shutdownAt > 45000) {
+          shutdownAt = null;         // still answering -> halt never happened
+          clientMsg('⚠ shutdown did not take effect — the Pi is still up');
+        }
         running = s.live.running;
         serverLog = s.live.log ?? [];
         renderLog();
@@ -832,15 +883,40 @@ async function piPoll() {
           clientMsg(`⚠ Pi service v${s.api_version} — GUI expects `
             + `v${EXPECTED_PI_API}. Redeploy: src\\pi_service\\deploy\\deploy_pi.ps1`);
         }
-        if (s.live.multi)
+        if (s.live.running) exitStepPreview(false);
+        if (s.live.multi && previewI === null)
           for (const [j, deg] of Object.entries(s.live.multi))
             if (pivots.has(j)) setJointAngle(j, deg);
+        // idle digital twin: sweep the real pose and mirror hand-moved
+        // joints (suppressed during runs and while a step preview owns the
+        // model; /robot_pose rejects during runs anyway)
+        if (!s.bus.connected) lastRealPose = null;   // next connect: full sync
+        if (!s.live.running && s.bus.connected && previewI === null) {
+          const rp = await pi.get('/robot_pose').catch(() => null);
+          if (rp?.pose && wireless() && !running && previewI === null) {
+            mirrorMovedJoints(rp.pose);
+            if (currentJoint && rp.pose[currentJoint.name] !== undefined)
+              $('livePos').textContent = fmtDeg(rp.pose[currentJoint.name]);
+          }
+        }
       }
     }
   } catch (_) {
-    if (wireless())
-      $('connState').textContent = `Pi ${conn.pi_url} — UNREACHABLE `
-        + '(service running? ProtonVPN "Allow LAN connections"?)';
+    if (wireless()) {
+      lastRealPose = null;                       // next contact: full sync
+      if (shutdownAt) {
+        const safe = Date.now() - shutdownAt >= SHUTDOWN_GRACE_MS;
+        $('connState').textContent = `Pi ${conn.pi_url} — shutting down …`;
+        if (safe && $('shutdownBanner').classList.contains('hidden')) {
+          $('shutdownBanner').classList.remove('hidden');
+          clientMsg('Pi is down — safe to cut the main switch (check the '
+            + 'ACT LED).');
+        }
+      } else {
+        $('connState').textContent = `Pi ${conn.pi_url} — UNREACHABLE `
+          + '(service running? ProtonVPN "Allow LAN connections"?)';
+      }
+    }
   } finally {
     setTimeout(piPoll, 400);
   }
@@ -848,14 +924,28 @@ async function piPoll() {
 piPoll();
 
 $('piStop').onclick = guard(() => pi.post('/stop'));
+// After a confirmed /shutdown, the poll watches for the Pi going silent and
+// then shows the "safe to cut power" banner. NOT immediately on unreachable:
+// the HTTP service dies at the START of the halt sequence — flushing and
+// unmounting happen after it, so we wait SHUTDOWN_GRACE_MS from the click.
+const SHUTDOWN_GRACE_MS = 15000;
+let shutdownAt = null;
+$('piShutdown').onclick = guard(async () => {
+  if (!confirm('Pi wirklich herunterfahren?\n\nDie Servos halten ihre Pose '
+      + 'weiter (eigene Versorgung). Hauptschalter erst ausschalten, wenn '
+      + 'die grüne ACT-LED aufgehört hat zu blinken (~15 s).')) return;
+  await pi.post('/shutdown');
+  shutdownAt = Date.now();
+  clientMsg('Pi is shutting down — the banner appears once it is safe to '
+    + 'cut the main switch.');
+});
+$('shutdownBannerOk').onclick = () => {
+  $('shutdownBanner').classList.add('hidden');
+  shutdownAt = null;
+};
 $('piCenter').onclick = guard(async () => {
   clientLog.length = 0;
   await pi.post('/center', { hold: true, speed: 300 });
-});
-$('piRelease').onclick = guard(async () => {
-  const r = await pi.post('/release');
-  clientMsg(`torque released: ${r.released.length
-    ? 'IDs ' + r.released.join(', ') : 'nothing to do'}`);
 });
 
 $('refreshPorts').onclick = guard(refreshPorts);
@@ -924,12 +1014,28 @@ $('groupCenter').onclick = guard(async () => {
     hold_center: $('holdCenter').checked,
   });
 });
-$('groupRelease').onclick = guard(async () => {
-  const js = selectedJoints();           // empty -> release all configured
-  const r = await api.post('/api/release', { joints: js.length ? js : null });
-  clientMsg(`torque released: ${r.released.length ? 'IDs ' + r.released.join(', ')
-    : 'nothing to do'}`);
-});
+// Torque targets, identical in both modes: checked servos in the list win;
+// otherwise the joint clicked in the model; otherwise all configured servos.
+const torqueTargets = () => {
+  const js = selectedJoints();
+  if (js.length) return js;
+  if (currentJoint && servoIds[currentJoint.name] !== undefined)
+    return [currentJoint.name];
+  return [];                             // empty -> all configured
+};
+// One torque path for both modes — USB hits the local backend, wireless the
+// Pi intent service (same zbot_core helper on either end).
+const torqueCall = async (action) => {   // 'release' | 'lock'
+  const js = torqueTargets();
+  const body = { joints: js.length ? js : null };
+  const r = wireless() ? await pi.post('/' + action, body)
+                       : await api.post('/api/' + action, body);
+  const ids = r.released ?? r.locked;
+  clientMsg(`torque ${action === 'lock' ? 'locked at current position'
+    : 'released'}: ${ids.length ? 'IDs ' + ids.join(', ') : 'nothing to do'}`);
+};
+$('groupRelease').onclick = guard(() => torqueCall('release'));
+$('groupLock').onclick = guard(() => torqueCall('lock'));
 $('groupRun').onclick = guard(async () => {
   const js = selectedJoints();
   if (!js.length) { clientMsg('no servos selected'); return; }
@@ -1150,15 +1256,43 @@ $('gAcc').addEventListener('input', () => {
   renderDemoSteps();
 });
 
+// --- waypoint preview: while a step is selected the model shows THAT pose and
+// is deliberately detached from the live twin (live updates are suppressed);
+// playing a demo / any run re-attaches automatically. previewI = step index.
+let previewI = null;
+
+function exitStepPreview(msg = true) {
+  if (previewI === null) return;
+  previewI = null;
+  renderDemoSteps();
+  if (lastRealPose)        // snap the rig back to the robot's last known pose
+    for (const [j, d] of Object.entries(lastRealPose))
+      if (pivots.has(j)) setJointAngle(j, d);
+  if (msg) clientMsg('preview ended — model mirrors the robot again');
+}
+
+function applyStepPose(i) {
+  for (const [j, d] of Object.entries(editSteps[i].angles))
+    if (pivots.has(j)) setJointAngle(j, d);
+  previewI = i;
+  renderDemoSteps();
+  clientMsg(`PREVIEW step #${i + 1} — model detached from live. Click joints `
+    + '& use the pose slider to adjust, then "⟳ update"; "↩ live" returns');
+}
+
 function renderDemoSteps() {
   syncGlobalFields();
+  if (previewI !== null && previewI >= editSteps.length) previewI = null;
   $('demoSteps').innerHTML = editSteps.map((s, i) => `
-    <div class="step" data-i="${i}" title="${stepSummary(s)}">
+    <div class="step${i === previewI ? ' sel' : ''}" data-i="${i}" title="${stepSummary(s)}">
       <span class="n">#${i + 1}</span>
       <span class="lbl">spd</span><input type="number" data-k="speed" value="${s.speed}" min="1" max="3400">
       <span class="lbl">acc</span><input type="number" data-k="acc" value="${s.acc}" min="0" max="254">
       <span class="lbl">pause</span><input type="number" data-k="pause_s" value="${s.pause_s}" min="0" max="10" step="0.1">
-      <button data-a="pose" title="Preview this step's pose on the 3D model">pose</button>
+      ${i === previewI
+        ? '<button data-a="upd" title="Replace this step\'s angles with the current model pose (only joints already in the step)">⟳ update</button>'
+          + '<button data-a="pose" title="End the preview — the model follows the robot again">↩ live</button>'
+        : '<button data-a="pose" title="Show this step\'s pose on the 3D model (detaches the model from the live robot while previewing)">▣ pose</button>'}
       <button data-a="del" title="Remove this step">✕</button>
     </div>`).join('');
 }
@@ -1171,16 +1305,27 @@ $('demoSteps').addEventListener('click', e => {
   const row = e.target.closest('.step');
   if (!row || !e.target.dataset.a) return;
   const i = +row.dataset.i;
-  if (e.target.dataset.a === 'del') {
+  const a = e.target.dataset.a;
+  if (a === 'del') {
     editSteps.splice(i, 1);
+    if (previewI !== null) {
+      if (i === previewI) previewI = null;
+      else if (i < previewI) previewI--;
+    }
     renderDemoSteps();
-  } else if (e.target.dataset.a === 'pose') {
-    for (const [j, d] of Object.entries(editSteps[i].angles))
-      if (pivots.has(j)) setJointAngle(j, d);
-    clientMsg(`previewing step #${i + 1} on the model`);
+  } else if (a === 'pose') {
+    if (previewI === i) exitStepPreview();
+    else applyStepPose(i);
+  } else if (a === 'upd') {
+    const st = editSteps[i];
+    for (const j of Object.keys(st.angles))
+      st.angles[j] = +((jointAngles.get(j) ?? 0).toFixed(1));
+    renderDemoSteps();
+    clientMsg(`step #${i + 1} updated from model pose — ${stepSummary(st)}`);
   }
 });
 $('demoList').addEventListener('change', () => {
+  exitStepPreview(false);          // different demo -> stale preview index
   const val = $('demoList').value;
   if (!val) {                      // "— new demo —": fresh, empty editor
     editSteps = [];
@@ -1214,6 +1359,7 @@ $('demoAddRobot').onclick = guard(async () => {
   if (!r.pose) throw new Error(r.detail ?? 'no pose available');
   editSteps.push({ angles: r.pose, speed: +$('gSpeed').value || 500,
     acc: $('gAcc').value === '' ? 50 : +$('gAcc').value, pause_s: 0 });
+  exitStepPreview(false);      // mirroring the robot = the twin is back
   for (const [j, d] of Object.entries(r.pose))
     if (pivots.has(j)) setJointAngle(j, d);
   renderDemoSteps();

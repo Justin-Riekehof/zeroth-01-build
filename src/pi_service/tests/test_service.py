@@ -149,6 +149,59 @@ def test_release_all_and_subset(client):
     assert r.json()["released"] == [13]
 
 
+def test_lock_all_and_subset(client):
+    r = client.post("/lock")
+    assert r.status_code == 200 and r.json()["locked"] == [11, 13]
+    assert "torque locked at current position: IDs [11, 13]" in logs(client)
+    r = client.post("/lock", json={"joints": ["right_elbow"]})
+    assert r.json()["locked"] == [13]
+    # unknown joints are ignored, not an error
+    r = client.post("/lock", json={"joints": ["no_such_joint"]})
+    assert r.status_code == 200 and r.json()["locked"] == []
+
+
+def test_lock_rejected_during_run(client):
+    save_pause_demo()
+    assert client.post("/demo/slow").status_code == 200
+    time.sleep(0.15)
+    r = client.post("/lock")
+    assert r.status_code == 400 and "stop" in r.json()["detail"].lower()
+    client.post("/stop")
+    wait_idle(client, timeout=3.0)
+
+
+def test_shutdown_runs_command_and_logs(client, monkeypatch):
+    import subprocess as sp
+    calls = []
+    monkeypatch.setattr(service, "_do_shutdown", lambda: (
+        calls.append(1),
+        sp.CompletedProcess(service.SHUTDOWN_CMD, 0, "", ""))[-1])
+    r = client.post("/shutdown")
+    assert r.status_code == 200 and r.json()["ok"] and calls
+    assert "SHUTDOWN: OS halting" in logs(client)
+
+
+def test_shutdown_reports_missing_sudoers(client, monkeypatch):
+    import subprocess as sp
+    monkeypatch.setattr(service, "_do_shutdown", lambda: sp.CompletedProcess(
+        service.SHUTDOWN_CMD, 1, "", "sudo: a password is required"))
+    r = client.post("/shutdown")
+    assert r.status_code == 500 and "sudoers" in r.json()["detail"]
+
+
+def test_shutdown_rejected_during_run(client, monkeypatch):
+    monkeypatch.setattr(service, "_do_shutdown",
+                        lambda: (_ for _ in ()).throw(AssertionError(
+                            "shutdown must not run during a run")))
+    save_pause_demo()
+    assert client.post("/demo/slow").status_code == 200
+    time.sleep(0.15)
+    r = client.post("/shutdown")
+    assert r.status_code == 400 and "stop" in r.json()["detail"].lower()
+    client.post("/stop")
+    wait_idle(client, timeout=3.0)
+
+
 def test_release_rejected_during_run(client):
     save_pause_demo()
     assert client.post("/demo/slow").status_code == 200

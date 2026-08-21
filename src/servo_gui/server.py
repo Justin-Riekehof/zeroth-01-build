@@ -24,7 +24,8 @@ from zbot_core.bus import (POS_MAX_SAFE, POS_MIN_SAFE, ServoBus,
                            serial_ports, ticks_to_rel_deg)
 from zbot_core.config import ConfigStore, Demo, read_json
 from zbot_core.motion import (CenterParams, GroupParams, MotionEngine,
-                              MotionError, TestParams)
+                              MotionError, TestParams, lock_joints,
+                              release_joints)
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
@@ -40,7 +41,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 18
+API_VERSION = 19
 
 
 def _read_offsets() -> dict:
@@ -319,30 +320,36 @@ class ReleaseParams(BaseModel):
     joints: list[str] | None = None    # None/empty -> all configured servos
 
 
-@app.post("/api/release")
-def release_torque(p: ReleaseParams):
-    """Let go after a hold-center demo: disable torque on the given joints
-    (or all configured ones)."""
+def _idle_bus_or_400():
     with S.lock:
         bus = S.bus
         if S.live["running"]:
             raise HTTPException(400, "Bus busy — a run is in progress.")
     if not bus:
         raise HTTPException(400, "Not connected.")
-    ids = _read_servo_ids()
-    sel = p.joints or sorted(ids, key=lambda j: ids[j])
-    released = []
-    for j in sel:
-        if j not in ids:
-            continue
-        try:
-            bus.torque_off(ids[j])
-            released.append(ids[j])
-        except Exception:
-            pass
+    return bus
+
+
+@app.post("/api/release")
+def release_torque(p: ReleaseParams):
+    """Let go after a hold-center demo: disable torque on the given joints
+    (or all configured ones)."""
+    bus = _idle_bus_or_400()
+    released = release_joints(bus, _read_servo_ids(), p.joints)
     S.log(f"torque released: IDs {released}" if released
           else "torque release: nothing to do")
     return {"ok": True, "released": released}
+
+
+@app.post("/api/lock")
+def lock_torque(p: ReleaseParams):
+    """Teach-in: freeze the given joints (or all) at their current physical
+    position — hand-pose a limb, lock it, pose the next one."""
+    bus = _idle_bus_or_400()
+    locked = lock_joints(bus, _read_servo_ids(), p.joints)
+    S.log(f"torque locked at current position: IDs {locked}" if locked
+          else "torque lock: nothing to do")
+    return {"ok": True, "locked": locked}
 
 
 # ------------------------------------------------------------ demos (teach-in)
