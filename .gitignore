@@ -1,3 +1,4 @@
 raw/
 .claude/settings.local.json
 __pycache__/
+sim/train/zbot_walking_task/

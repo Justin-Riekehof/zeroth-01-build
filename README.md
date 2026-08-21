@@ -129,7 +129,7 @@ units, IDs and workflows are collected in the
 
 ## Simulation & RL
 
-MuJoCo/ksim-based training pipeline: train locomotion policies locally on the GPU rig, export to ONNX, run inference on the robot. Configs, reward notes, and sim-to-real findings live in [sim/](sim/).
+MuJoCo/ksim-based training pipeline: train locomotion policies locally on the GPU rig, export to ONNX, run inference on the robot. The build-specific MuJoCo model (16 DoF, real servo IDs, sys-ID'd STS3250/STS3215 actuator split) is generated from the upstream CAD assets by [sim/tools/build_model.py](sim/tools/build_model.py); the walking task runs on the GPU rig via `python -m sim.train.walking`. Setup, stack decision (post-K-Scale-shutdown state of the ecosystem) and sim-to-real notes live in [sim/README.md](sim/README.md).
 
 ## Repository structure
 
@@ -162,7 +162,7 @@ media/      photos, print timelapses, hero GIF
 - [x] Phase 2 assembly: legs & torso (STS3250, IDs 31–35 / 41–45) → whole body assembled, calibrated (mount offsets, limits) — teach-in demos (kneeling, waving) run on the full body
 - [x] Onboard the Raspberry Pi: shared motion core (`zbot_core`), Pi intent service with watchdog scaffold + one-command deploy, GUI wireless mode — demos run untethered from the laptop's USB port
 - [ ] C++ serial tooling against the bench setup: Feetech packet parser, tick ↔ radian conversion, RAII serial-port wrapper
-- [ ] Simulation setup: MJCF/URDF model running in MuJoCo/ksim
+- [x] Simulation setup: build-specific MJCF model (16 DoF, sys-ID'd Feetech actuators) running in MuJoCo/ksim — GPU training pipeline verified end-to-end ([sim/](sim/README.md))
 - [ ] Train a locomotion policy in simulation
 - [ ] Real-time C++ control node (rclcpp) with ONNX Runtime inference on the Pi 4
 - [ ] Sim-to-real: deploy the walking policy on the robot
