@@ -959,20 +959,45 @@ $('disconnect').onclick = guard(async () => {
   await refreshStatus();
   await refreshPresence();               // -> all enabled again (simulation)
 });
+// Body regions fall out of the joint names, so there is no second list to keep
+// in sync: the `left_`/`right_` prefix gives the side, shoulder/elbow vs.
+// hip/knee/ankle gives upper vs. lower body.
+const SECTION = j => /_(shoulder|elbow)_/.test(j) ? 'upper' : 'lower';
+const SIDE = j => j.startsWith('left_') ? 'left'
+  : j.startsWith('right_') ? 'right' : 'center';
+const SECTIONS = [
+  ['upper', 'upper body', 'shoulders · elbows'],
+  ['lower', 'lower body', 'hips · knees · ankles'],
+];
+
 function renderGroup() {
   const wasChecked = new Set(selectedJoints());   // preserve selection across re-render
   const entries = Object.entries(servoIds).sort((a, b) => a[1] - b[1]);
+  const check = ([j, id]) => {
+    const lim = jointLimits[j];
+    const range = lim ? ` [${lim.min_deg}, ${lim.max_deg}]°` : ' (no limits!)';
+    const absent = availableIds && !availableIds.has(id);   // not on the bus
+    return `<label class="check${absent ? ' absent' : ''}">`
+      + `<input type="checkbox" class="gsel" value="${j}"`
+      + `${absent ? ' disabled' : ''}> `
+      + `${String(id).padStart(2)} · ${j}${range}`
+      + `${absent ? ' — not found' : ''}</label>`;
+  };
+  // ID order already lays each section out left-limb-then-right (11..13 / 21..23,
+  // 31..35 / 41..45), so the blocks read the way the robot is built.
+  const block = ([key, label, hint]) => {
+    const mine = entries.filter(([j]) => SECTION(j) === key);
+    if (!mine.length) return '';
+    return '<div class="grpblock"><div class="grphead">'
+      + `<span>${label} <span class="hint">— ${hint}</span></span>`
+      + '<span class="chips">'
+      + `<button data-sel="${key}:left" title="Select/clear the left ${label}">L</button>`
+      + `<button data-sel="${key}:right" title="Select/clear the right ${label}">R</button>`
+      + `<button data-sel="${key}" title="Select/clear the whole ${label}">both</button>`
+      + `</span></div>${mine.map(check).join('')}</div>`;
+  };
   $('groupList').innerHTML = entries.length
-    ? entries.map(([j, id]) => {
-        const lim = jointLimits[j];
-        const range = lim ? ` [${lim.min_deg}, ${lim.max_deg}]°` : ' (no limits!)';
-        const absent = availableIds && !availableIds.has(id);   // not on the bus
-        return `<label class="check${absent ? ' absent' : ''}">`
-          + `<input type="checkbox" class="gsel" value="${j}"`
-          + `${absent ? ' disabled' : ''}> `
-          + `${String(id).padStart(2)} · ${j}${range}`
-          + `${absent ? ' — not found' : ''}</label>`;
-      }).join('')
+    ? SECTIONS.map(block).join('')
     : '<span class="muted">no servo IDs configured (hardware/servo_ids.json)</span>';
   document.querySelectorAll('.gsel').forEach(c => {
     if (wasChecked.has(c.value) && !c.disabled) c.checked = true;
@@ -997,11 +1022,24 @@ async function refreshPresence() {
   renderGroup();
 }
 
-$('groupAll').onclick = () => {
-  const boxes = [...document.querySelectorAll('.gsel:not(:disabled)')];
-  const all = boxes.length && boxes.every(b => b.checked);
-  boxes.forEach(b => { b.checked = !all; });
-};
+// One rule for every region chip ("all", "upper", "left", "upper:left", ...):
+// a region that is already fully selected gets cleared, otherwise it gets
+// selected whole. Servos missing from the bus (disabled) are never touched.
+function selectRegion(spec) {
+  const parts = spec.split(':');
+  const boxes = [...document.querySelectorAll('.gsel:not(:disabled)')]
+    .filter(b => parts.every(p =>
+      p === 'all' || p === SECTION(b.value) || p === SIDE(b.value)));
+  if (!boxes.length) { clientMsg(`${spec}: no servos available`); return; }
+  const on = boxes.every(b => b.checked);
+  boxes.forEach(b => { b.checked = !on; });
+  clientMsg(`${spec.replace(':', ' ')} — `
+    + (on ? 'cleared' : `${boxes.length} servo${boxes.length > 1 ? 's' : ''} selected`));
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button[data-sel]');
+  if (b) selectRegion(b.dataset.sel);
+});
 $('groupCenter').onclick = guard(async () => {
   const js = selectedJoints();
   if (!js.length) { clientMsg('no servos selected'); return; }
@@ -1233,28 +1271,43 @@ const stepSummary = s => {
     : 'center pose (all 0°)';
 };
 
-// global speed/acc row: shows the common value of all steps (empty = mixed);
-// typing there stamps the value onto every step
+// Numeric fields: an <input type=number> reports value === '' the moment the
+// control considers the typed text invalid, and typing a comma as the decimal
+// separator is the usual way in. Plain `+value` turns that into 0 — which is
+// exactly why every typed pause silently became "no pause" while the
+// integer-only speed/acc fields kept working. Parse leniently, take either
+// separator, and never write 0 or NaN back into a step.
+const parseNum = txt => {
+  const v = parseFloat(String(txt).replace(',', '.'));
+  return Number.isFinite(v) ? v : null;
+};
+
+// global speed/acc/pause row: shows the common value of all steps (empty =
+// mixed); typing there stamps the value onto every step
 function syncGlobalFields() {
-  if (document.activeElement === $('gSpeed')
-      || document.activeElement === $('gAcc')) return;
-  const sp = new Set(editSteps.map(s => s.speed));
-  const ac = new Set(editSteps.map(s => s.acc));
-  $('gSpeed').value = sp.size === 1 ? [...sp][0] : '';
-  $('gAcc').value = ac.size === 1 ? [...ac][0] : '';
+  const live = document.activeElement;
+  if (live === $('gSpeed') || live === $('gAcc') || live === $('gPause')) return;
+  const one = pick => {
+    const v = new Set(editSteps.map(pick));
+    return v.size === 1 ? [...v][0] : '';
+  };
+  $('gSpeed').value = one(s => s.speed);
+  $('gAcc').value = one(s => s.acc);
+  $('gPause').value = one(s => s.pause_s);
 }
-$('gSpeed').addEventListener('input', () => {
-  if ($('gSpeed').value === '') return;
-  const v = Math.max(1, Math.min(3400, +$('gSpeed').value));
-  editSteps.forEach(s => { s.speed = v; });
+// stamp one global field onto every step
+const stampAll = (el, key, lo, hi) => el.addEventListener('input', () => {
+  if (el.value.trim() === '') return;
+  const v = parseNum(el.value);
+  el.classList.toggle('bad', v === null);
+  if (v === null) return;
+  const c = Math.max(lo, Math.min(hi, v));
+  editSteps.forEach(s => { s[key] = c; });
   renderDemoSteps();
 });
-$('gAcc').addEventListener('input', () => {
-  if ($('gAcc').value === '') return;
-  const v = Math.max(0, Math.min(254, +$('gAcc').value));
-  editSteps.forEach(s => { s.acc = v; });
-  renderDemoSteps();
-});
+stampAll($('gSpeed'), 'speed', 1, 3400);
+stampAll($('gAcc'), 'acc', 0, 254);
+stampAll($('gPause'), 'pause_s', 0, 10);
 
 // --- waypoint preview: while a step is selected the model shows THAT pose and
 // is deliberately detached from the live twin (live updates are suppressed);
@@ -1286,20 +1339,36 @@ function renderDemoSteps() {
   $('demoSteps').innerHTML = editSteps.map((s, i) => `
     <div class="step${i === previewI ? ' sel' : ''}" data-i="${i}" title="${stepSummary(s)}">
       <span class="n">#${i + 1}</span>
-      <span class="lbl">spd</span><input type="number" data-k="speed" value="${s.speed}" min="1" max="3400">
-      <span class="lbl">acc</span><input type="number" data-k="acc" value="${s.acc}" min="0" max="254">
-      <span class="lbl">pause</span><input type="number" data-k="pause_s" value="${s.pause_s}" min="0" max="10" step="0.1">
-      ${i === previewI
+      <input type="number" data-k="speed" data-lo="1" data-hi="3400" value="${s.speed}" min="1" max="3400" title="Speed into this step [ticks/s] — 1…3400">
+      <input type="number" data-k="acc" data-lo="0" data-hi="254" value="${s.acc}" min="0" max="254" title="Acceleration into this step — 0…254">
+      <input type="text" inputmode="decimal" data-k="pause_s" data-lo="0" data-hi="10" value="${s.pause_s}" title="Pause AFTER this step [s] — 0…10; comma or dot both work">
+      <span class="acts">${i === previewI
         ? '<button data-a="upd" title="Replace this step\'s angles with the current model pose (only joints already in the step)">⟳ update</button>'
           + '<button data-a="pose" title="End the preview — the model follows the robot again">↩ live</button>'
         : '<button data-a="pose" title="Show this step\'s pose on the 3D model (detaches the model from the live robot while previewing)">▣ pose</button>'}
-      <button data-a="del" title="Remove this step">✕</button>
+      <button data-a="del" title="Remove this step">✕</button></span>
     </div>`).join('');
 }
 $('demoSteps').addEventListener('input', e => {
   const row = e.target.closest('.step');
-  if (!row) return;
-  editSteps[+row.dataset.i][e.target.dataset.k] = +e.target.value;
+  if (!row || !e.target.dataset.k) return;
+  const v = parseNum(e.target.value);
+  e.target.classList.toggle('bad', v === null && e.target.value.trim() !== '');
+  if (v === null) return;          // mid-edit or unparseable: keep the old value
+  editSteps[+row.dataset.i][e.target.dataset.k] = v;
+});
+// clamp and normalise on blur, not while typing — otherwise "12" on the way to
+// "120" gets fought by the lower bound
+$('demoSteps').addEventListener('change', e => {
+  const row = e.target.closest('.step');
+  if (!row || !e.target.dataset.k) return;
+  const step = editSteps[+row.dataset.i], k = e.target.dataset.k;
+  const v = parseNum(e.target.value);
+  const out = Math.max(+e.target.dataset.lo,
+                       Math.min(+e.target.dataset.hi, v === null ? +step[k] : v));
+  step[k] = out;
+  e.target.value = out;
+  e.target.classList.remove('bad');
 });
 $('demoSteps').addEventListener('click', e => {
   const row = e.target.closest('.step');

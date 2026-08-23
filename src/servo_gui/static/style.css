@@ -55,15 +55,36 @@ button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5
 #shutdownBanner h2 { margin-top: 0; }
 #shutdownBanner button { margin-top: 10px; min-width: 120px; }
 
-.step { display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
-  margin-bottom: 4px; font-variant-numeric: tabular-nums;
-  border: 1px solid transparent; border-radius: 5px; padding: 2px; }
+/* Demo step rows are a 4-column grid, not a wrapping flex row: each number
+   gets a full column, so a 4-digit speed or a decimal pause stays readable
+   (46px-wide fields used to cut them off). Buttons take their own row. */
+.step { display: grid; grid-template-columns: 26px 1fr 1fr 1fr; gap: 4px 5px;
+  align-items: center; margin-bottom: 4px; font-variant-numeric: tabular-nums;
+  border: 1px solid transparent; border-radius: 5px; padding: 2px 3px; }
 .step.sel { border-color: var(--accent); background: #241c10; }
 .step.sel .n { color: var(--accent); font-weight: 600; }
-.step .n { width: 24px; color: var(--muted); flex: none; }
-.step input { width: 46px; flex: none; padding: 3px 5px; }
-.step .lbl { color: var(--muted); font-size: 11px; flex: none; }
-.step button { flex: none; width: auto; padding: 3px 8px; }
+.step .n { color: var(--muted); }
+.step input { width: 100%; padding: 3px 5px; }
+.step input.bad { border-color: var(--danger); background: #2e1e20; }
+.step .lbl { color: var(--muted); font-size: 11px; }
+.step .acts { grid-column: 1 / -1; display: flex; gap: 4px; }
+.step .acts button { flex: none; width: auto; padding: 3px 8px; }
+.stephead { margin-bottom: 2px; color: var(--muted); font-size: 11px; }
+.steplegend { color: var(--muted); font-size: 11px; margin: -4px 0 8px; }
+.steplegend b { color: var(--fg); font-weight: 600; }
+
+/* Region quick-select: one row of chips above the servo list, plus L/R/all
+   chips per body section. Same toggle rule everywhere (see selectRegion). */
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.chips button { flex: none; width: auto; padding: 3px 9px; font-size: 11px;
+  color: var(--muted); }
+.chips button:hover:not(:disabled) { color: var(--fg); }
+.grpblock { margin-bottom: 10px; }
+.grphead { display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; margin-bottom: 4px; color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; }
+.grphead .chips { margin-bottom: 0; }
+.grphead .chips button { padding: 1px 7px; }
 #groupList .check.absent { opacity: .4; }
 input[type=range] { padding: 0; accent-color: var(--accent); }
 #poseVal { color: var(--accent); font-weight: 600; }

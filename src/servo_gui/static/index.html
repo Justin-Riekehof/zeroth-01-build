@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 <script type="importmap">
 {
   "imports": {
@@ -139,9 +139,15 @@
 
     <section>
       <h2>Servos <span class="hint">— select for torque &amp; group ops</span></h2>
+      <div id="groupQuick" class="chips">
+        <button data-sel="all" title="Select / deselect every servo">all</button>
+        <button data-sel="upper" title="Shoulders + elbows, both sides">upper</button>
+        <button data-sel="lower" title="Hips, knees + ankles, both sides">lower</button>
+        <button data-sel="left" title="Every joint on the left side">left</button>
+        <button data-sel="right" title="Every joint on the right side">right</button>
+      </div>
       <div id="groupList"></div>
       <div class="row">
-        <button id="groupAll" title="Select all / none">All</button>
         <select id="groupMode" class="usb-only">
           <option value="sequential">sequential (asc. ID)</option>
           <option value="simultaneous">simultaneous</option>
@@ -178,13 +184,22 @@
         <button id="piShutdown" title="Clean OS shutdown of the Pi (SD-card-safe). Servos keep holding their pose; cut the main switch only after the green ACT LED stops (~15 s)">⏻ shutdown Pi</button>
       </div>
       <label>Name <input type="text" id="demoName" placeholder="e.g. wave_hello" maxlength="40"></label>
+      <div class="step stephead">
+        <span class="n"></span>
+        <span title="Target speed of the move into this step">spd</span>
+        <span title="Acceleration ramp of the move into this step">acc</span>
+        <span title="Wait after this step is reached, before the next one starts">pause [s]</span>
+      </div>
       <div class="step" id="demoGlobals" title="Global speed/accel — typing here applies the value to every step; per-step fields can still fine-tune afterwards. Empty = steps have mixed values.">
         <span class="n">all</span>
-        <span class="lbl">spd</span><input type="number" id="gSpeed" min="1" max="3400" placeholder="mix">
-        <span class="lbl">acc</span><input type="number" id="gAcc" min="0" max="254" placeholder="mix">
-        <span class="lbl">→ every step</span>
+        <input type="number" id="gSpeed" min="1" max="3400" placeholder="mix">
+        <input type="number" id="gAcc" min="0" max="254" placeholder="mix">
+        <input type="text" inputmode="decimal" id="gPause" placeholder="mix" title="Pause after every step [s] — 0…10">
       </div>
       <div id="demoSteps"></div>
+      <div class="steplegend">spd <b>1–3400</b> ticks/s · acc <b>0–254</b> ·
+        pause <b>0–10</b> s <span class="hint">(comma or dot)</span><br>
+        <span class="hint">the “all” row stamps its value onto every step</span></div>
       <div class="row">
         <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ model pose</button>
         <button id="demoAddRobot" title="Physical teach-in: release torque, hand-pose the robot, then capture its real pose as the next step">+ robot pose</button>
@@ -221,6 +236,6 @@
     <button id="shutdownBannerOk" class="primary">OK</button>
   </div>
 </div>
-<script type="module" src="app.js?v=25"></script>
+<script type="module" src="app.js?v=26"></script>
 </body>
 </html>
