@@ -100,11 +100,30 @@ zero lines and the posable 3D rig are **derived from CAD data, not guessed**.
 
 ## 8. Servo GUI
 
-```
+### Starting the web UI
+
+The GUI is a local web app: a small FastAPI server serves the page and (in
+USB mode) drives the servo adapter. It runs on **any machine with this repo**
+— the Windows laptop and the Linux workstation both work; the robot needs
+nothing extra (in wireless mode the browser talks to the Pi service that is
+already running as a systemd unit).
+
+Prerequisite (once per machine): [uv](https://docs.astral.sh/uv/) —
+`winget install astral-sh.uv` (Windows) / `curl -LsSf https://astral.sh/uv/install.sh | sh` (Linux).
+
+```bash
 cd src/servo_gui
-uv sync
-uv run server.py        # -> http://127.0.0.1:8451
+uv run server.py        # first run resolves deps automatically
 ```
+
+Then open **<http://127.0.0.1:8451>** in the browser. Stop with `Ctrl+C`.
+The port is fixed (8451); a second instance on the same machine will fail
+with "address already in use" — there is probably already one running.
+
+- **USB mode**: plug the adapter into *this* computer first, then *Connect*.
+- **Wireless mode**: robot main switch on, ~30 s Pi boot — the GUI finds the
+  service on its own (status line shows `bus connected`), and the 3D model
+  syncs to the robot's real pose on first contact.
 
 - **Version badge** in the header (`GUI vN · backend vN`): mismatch = red banner →
   restart the server (`Ctrl+C`, `uv run server.py`). GUI files are served with
@@ -125,7 +144,7 @@ Switch at the top of the *Connection* section; the choice persists in
 | --- | --- | --- |
 | Servo adapter | laptop USB (`COMx`) | Raspberry Pi USB (`pixel2`, 192.168.178.147) |
 | Execution | on the laptop | **on the Pi** — the browser only sends intents (never per-cycle setpoints; Wi-Fi jitter stays out of the control loop) |
-| Available | everything below | demo list/▶ play, **■ STOP**, ⌂ center, ✋ release, live log/phase + 3D pose, **full teach-in** (model posing, *+ robot pose* via the Pi, save/delete) |
+| Available | everything below | demo list/▶ play with **waypoint preview**, **■ STOP**, ⌂ center, per-servo **✋ release / 🔒 lock** (Servos list or clicked joint), live position + **idle digital twin** (hand-moved joints mirror onto the model), live log/phase, **full teach-in**, **⏻ shutdown Pi** (banner confirms when it is safe to cut power) |
 | Hidden | — | bus/bench tooling (scan/IDs, mapping, limits, offsets, sweep tests, group runs, model-zero calibration) |
 
 - Both modes run the same `zbot_core` engine — limits, offsets, sag
@@ -139,8 +158,9 @@ Switch at the top of the *Connection* section; the choice persists in
   hand-posed robot through the Pi (release torque first via *✋ release*).
   Calibration (zero/offsets/limits/model zero) stays a USB-mode feature.
 - Deploying to the robot syncs demos + calibration:
-  `.\src\pi_service\deploy\deploy_pi.ps1`
-  (details/troubleshooting: [pi-service.md](pi-service.md)).
+  `.\src\pi_service\deploy\deploy_pi.ps1` (Windows) /
+  `./src/pi_service/deploy/deploy_pi.sh` (Linux) —
+  details/troubleshooting: [pi-service.md](pi-service.md).
 - Robot unreachable in wireless mode? ProtonVPN blocks LAN by default —
   enable *"Allow LAN connections"*.
 
@@ -152,7 +172,7 @@ Switch at the top of the *Connection* section; the choice persists in
 | Mount & calibrate | *⌂ Move to center* → mount part → hand-trim → *⊙ set current position as zero* (shifts existing limits automatically) |
 | Teach-in demo | *— new demo —* → pose model (sliders) or robot (*release torque*, hand-pose) → *+ step* → per-step or global spd/acc → *save demo* → play in **simulation first** |
 | Run on the robot (wireless) | `deploy_pi.ps1` once → switch to *Wireless (Pi)* → select demo → *▶ play* (*■ STOP* aborts instantly) |
-| Teach-in via Wi-Fi | wireless mode → *✋ release* → hand-pose the robot → *+ robot pose* (or pose the model with the slider → *+ model pose*) → *save demo* (lands in the repo **and** on the robot) → *▶ play* |
+| Teach-in via Wi-Fi | wireless mode → *✋ release* (all, or selected servos) → hand-pose the robot (the model mirrors live) → *🔒 lock* a posed limb to keep it while posing the next → *+ robot pose* (or pose the model with the slider → *+ model pose*) → *save demo* (lands in the repo **and** on the robot) → *▶ play* |
 
 ## 9. Pose accuracy under load
 
