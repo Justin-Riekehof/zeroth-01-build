@@ -28,7 +28,7 @@ Distilled from hardware bring-up sessions (last updated 2026-07-30). The facts b
 ## Robot computer
 
 - Raspberry Pi (hostname `pixel2` since 2026-08-21, fresh install; predecessor was
-  `pixel`), Raspberry Pi OS Lite 64-bit (Debian Trixie), `aarch64`, ~2 GB RAM
+  `pixel`), Raspberry Pi OS Lite 64-bit (Debian Trixie), `aarch64`, Pi 4 Model B Rev 1.5, 2 GB RAM
 - Reachable as `justin@192.168.178.147` (FritzBox network `192.168.178.0/24`;
   set a DHCP reservation so this IP stays stable). `pixel2.local` resolves
   correctly again since the 2026-08-21 reboot, but configs deliberately use the

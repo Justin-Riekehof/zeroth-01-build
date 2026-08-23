@@ -11,7 +11,7 @@
 
 ## 1. Zielbild
 
-Locomotion-Policy (Stand → Balance → Walking) per RL in Simulation trainieren, Sim-to-Real-Transfer auf die reale 16-DOF-Plattform. Trainings-Hardware: Ubuntu-Workstation, 2× RTX 3090 (48 GB VRAM), 32 GB System-RAM. Zielhardware: Raspberry Pi 4B 4 GB, 50 Hz Regelschleife.
+Locomotion-Policy (Stand → Balance → Walking) per RL in Simulation trainieren, Sim-to-Real-Transfer auf die reale 16-DOF-Plattform. Trainings-Hardware: Ubuntu-Workstation, 2× RTX 3090 (48 GB VRAM), 32 GB System-RAM. Zielhardware: Raspberry Pi 4B **2 GB** (Rev 1.5), 50 Hz Regelschleife.
 
 ---
 
@@ -23,7 +23,7 @@ Das ist der Teil, der beim Sim-Aufbau schiefgeht, wenn man das Default-Modell un
 |---|---|---|---|
 | Bein-Aktoren | ursprüngliche Revisionen: STS3215 in allen 16 Gelenken | **10× STS3250** (12 V, C002, 1:345) `[OK]` | Aktuator-Blöcke im MJCF/URDF für Beingelenke **müssen** andere `forcerange`/`gear`/Geschwindigkeitsgrenzen tragen als die Arme. Wenn das Repo einen einzigen Aktuator-Typ für alle 16 Joints definiert → aufsplitten. |
 | Arm-Aktoren | STS3215 | 6× STS3215 (12 V, C018, 1:345) `[OK]` | unverändert |
-| Compute | Milk-V Duo S + kos-zbot-Image | **Raspberry Pi 4B 4 GB**, eigener Inferenz-Loop (Python/onnxruntime ARM64, FastAPI-Intent-API) `[OK]` | kos-zbot-Runtime wird **nicht** 1:1 genutzt → Joint-Order- und Action-Scaling-Metadaten aus dem kinfer-Export müssen im eigenen Loop explizit gelesen und angewandt werden. Häufigste Sim-to-Real-Fehlerquelle. |
+| Compute | Milk-V Duo S + kos-zbot-Image | **Raspberry Pi 4B 2 GB**, eigener Inferenz-Loop (Python/onnxruntime ARM64, FastAPI-Intent-API) `[OK]` | kos-zbot-Runtime wird **nicht** 1:1 genutzt → Joint-Order- und Action-Scaling-Metadaten aus dem kinfer-Export müssen im eigenen Loop explizit gelesen und angewandt werden. Häufigste Sim-to-Real-Fehlerquelle. |
 | Servo-Bus | UART/GPIO | Waveshare Bus Servo Adapter (A) V1.1 via USB, `/dev/ttyUSB0`, 1 Mbit/s, Y-Splitter-Topologie an der Hüfte `[OK]` | Bus-Roundtrip-Latenz gehört ins Latenzmodell (s. §5) |
 | Material | — | Bambu PETG, 4 Wände, 40 % Gyroid `[OK]` | Link-Massen der CAD-Inertials sind **zu hoch** (Vollmaterial-Annahme) → skalieren, s. §4 |
 

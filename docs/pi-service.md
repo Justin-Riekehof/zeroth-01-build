@@ -57,6 +57,9 @@ What it does:
 
 ## First bring-up on the real bus
 
+> Starting from a **blank card** — fresh OS, no `~/venv`, no sudoers rule — the
+> steps before this one are in [pi-bringup.md](pi-bringup.md).
+
 1. Plug the Waveshare adapter (jumper **B**) into the Pi's USB, servo power on.
 2. On the laptop: ProtonVPN → **"Allow LAN connections"** (or disconnect),
    otherwise `192.168.178.147` is unreachable.

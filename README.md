@@ -43,7 +43,7 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 | --------------- | ------------------------------------------------------ |
 | Platform        | K-Scale Zeroth-01 (~40 cm humanoid)                    |
 | Actuators       | Feetech STS3215 (arms) · STS3250 (legs/torso, planned) |
-| Onboard compute | Raspberry Pi 4 (4 GB)                                  |
+| Onboard compute | Raspberry Pi 4 Model B Rev 1.5 (2 GB)                 |
 | Printing        | Bambu Lab P2S — PETG                                   |
 | Training rig    | Linux workstation, 2× RTX 3090 (local, no cloud)       |
 
