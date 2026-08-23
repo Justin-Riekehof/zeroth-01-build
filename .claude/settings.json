@@ -199,7 +199,8 @@
       "Bash(echo \"--- relative-import scan done \\(exit $?\\)\")",
       "Bash(curl -sI \"http://127.0.0.1:8123/vendor/three-0.160.1/three.module.js\")",
       "Bash(echo \"--- external-URL scan exit: $?\")",
-      "PowerShell(git add -A)"
+      "PowerShell(git add -A)",
+      "PowerShell(git push)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Justin\\Documents\\stash\\zeroth-01-build\\src\\servo_gui"
