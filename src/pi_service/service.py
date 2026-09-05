@@ -7,11 +7,15 @@ the web GUI in wireless mode, later a teleoperation site — send only
 high-level intents over HTTP; per-cycle setpoints never cross Wi-Fi
 (jitter must not sit inside a servo control loop).
 
-Endpoints (intents only, no static files, no calibration editing):
+Endpoints (intents + the calibration the robot itself enforces; no static
+files):
     GET  /status            engine live state + bus + service info
     GET  /demos             taught-in demos available on this robot
     POST /demos             save a demo (wireless teach-in; repo stays canonical)
     POST /demos/delete      remove a demo from the robot
+    GET  /limits            the joint ranges this robot enforces
+    POST /limits            calibrate one joint's range (wireless calibration;
+                            repo stays canonical)
     GET  /robot_pose        hand-posed pose in CAD deg (wireless teach-in)
     POST /demo/{name}       play a demo (limits/offsets enforced locally)
     POST /center            all configured servos to center (hold optional)
@@ -47,11 +51,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from zbot_core.bus import ServoBusError, open_bus
-from zbot_core.config import ConfigStore, Demo
+from zbot_core.config import ConfigStore, Demo, limit_log_line
 from zbot_core.motion import (GroupParams, MotionEngine, MotionError,
                               lock_joints, release_joints, to_rel)
 
-API_VERSION = 5
+API_VERSION = 6
 
 # Needs the matching NOPASSWD line in /etc/sudoers.d/zbot-deploy on the Pi.
 # Kept as one exact command so the sudoers rule can stay maximally narrow.
@@ -215,6 +219,37 @@ def delete_demo(p: DemoName):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {"ok": True, "demos": _demos_list()}
+
+
+# ------------------------------------------------------------ joint limits
+# The robot enforces ITS OWN copy of the ranges (MotionEngine re-reads them
+# per run), so wireless calibration has to land here — not only in the repo.
+# Everything else about calibration (zero/offsets) still comes from a deploy.
+
+@app.get("/limits")
+def get_limits():
+    return CFG.limits()
+
+
+class LimitEntry(BaseModel):
+    joint: str
+    min_deg: float = Field(ge=-180, le=180)
+    max_deg: float = Field(ge=-180, le=180)
+    symmetric: bool = True
+
+
+@app.post("/limits")
+def set_limits(e: LimitEntry):
+    """Calibrate one joint's safe range on the robot. Takes effect on the
+    next run without a redeploy; the GUI saves the same values into the repo,
+    which stays canonical."""
+    try:
+        r = CFG.save_limit(e.joint, e.min_deg, e.max_deg, e.symmetric)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex)) from ex
+    S.log(limit_log_line(e.joint, e.min_deg, e.max_deg,
+                         r["mirrored"], r["skipped"]))
+    return {"ok": True, **r}
 
 
 @app.get("/robot_pose")

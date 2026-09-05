@@ -44,18 +44,24 @@ GLB manually from the pinned URL and drag & drop it into the GUI window.
    `src/tests/servos/sts3250_test.py`). Or leave **Simulation** checked to try
    everything without hardware.
 2. **Servo** — click the part in the 3D model that corresponds to the servo on the
-   bench. *save mapping* remembers servo ID + model per CAD part
-   (stored in `servo_map.json`) — and, when the part belongs to a CAD joint, also
+   bench. Clicking a motor also **ticks it in the *Servos* list** (and colours it
+   orange); clicking it again unticks it, and the list/region chips highlight the
+   model in return — orange always means "selected", in both directions.
+   *save mapping* remembers servo ID + model per CAD part (stored in
+   `servo_map.json`) — and, when the part belongs to a CAD joint, also
    updates the canonical joint → ID config
    ([hardware/servo_ids.json](../../hardware/servo_ids.json)) that drives the
    group runs. Onboarding new servos (e.g. the legs) is therefore fully doable
    from the GUI: flash the ID (*Bus IDs*), click the joint, *save mapping*.
-3. **Test interval** — set min/max in degrees **relative to the center position**
-   (see calibration convention below; seam-safe limits ±176.5° are enforced), speed,
-   acceleration, cycles. *Run test* pings the servo, moves to min, then sweeps
-   min → max → min. The orange sector in the 3D view shows the interval (gray marker
-   = 0° center); the white needle is the live position. Torque is always disabled at
-   the end — also on *Stop* or error.
+3. **Joint range** — set min/max in degrees **relative to the center position**
+   (see calibration convention below; seam-safe limits ±176.5° are enforced).
+   *save limits* stores them as the joint's enforced range; this works in
+   **wireless mode too**, where the values go to the repo *and* to the robot,
+   which enforces them from the next run on (no redeploy).
+4. **Test run** (USB only) — speed, acceleration, cycles. *Run test* pings the
+   servo, moves to min, then sweeps min → max → min. The orange sector in the 3D
+   view shows the interval (gray marker = 0° center); the white needle is the live
+   position. Torque is always disabled at the end — also on *Stop* or error.
 
 ## Calibration convention
 

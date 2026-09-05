@@ -55,6 +55,19 @@ new_max_tick = server._to_ticks(lim["max_deg"], r["offset"])
 check(f"forward physical stop preserved (old {old_max_tick} == new {new_max_tick})",
       abs(old_max_tick - new_max_tick) <= 1)
 
+# --- /api/limits: response shape the GUI relies on + left/right mirroring ---
+server.CFG.limits_path.write_text(json.dumps({}))
+r = client.post("/api/limits", json={"joint": "left_knee_pitch",
+                                     "min_deg": -80.0, "max_deg": 20.0}).json()
+check("limits response carries the full table",
+      r["limits"]["left_knee_pitch"]["max_deg"] == 20.0)
+check(f"mirrored to the other side (got {r['mirrored']})",
+      r["mirrored"] == "right_knee_pitch"
+      and r["limits"]["right_knee_pitch"]["set"] == "mirrored")
+rr = client.post("/api/limits", json={"joint": "left_knee_pitch",
+                                      "min_deg": 20.0, "max_deg": 20.0})
+check(f"empty range rejected (status {rr.status_code})", rr.status_code == 400)
+
 # --- truncation guard: interval fully outside reachable band -> 400 ---
 server.CFG.offsets_path.write_text(json.dumps({"j": 170.0}))   # huge offset
 server.CFG.limits_path.write_text(json.dumps({}))

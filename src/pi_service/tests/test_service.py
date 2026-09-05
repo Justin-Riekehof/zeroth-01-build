@@ -264,6 +264,53 @@ def test_robot_pose_rejected_during_run(client):
     wait_idle(client, timeout=3.0)
 
 
+# ------------------------------------------------------------ joint limits
+# Wireless calibration: the robot enforces its OWN copy, so the GUI has to be
+# able to write it here — a repo-only save would clamp to the last deploy.
+
+def test_limits_roundtrip_and_take_effect(client):
+    before = client.get("/limits").json()
+    assert before["right_shoulder_pitch"]["max_deg"] == 90.0
+    r = client.post("/limits", json={"joint": "right_shoulder_pitch",
+                                     "min_deg": -30.0, "max_deg": 40.0,
+                                     "symmetric": False})
+    assert r.status_code == 200
+    entry = r.json()["limits"]["right_shoulder_pitch"]
+    assert (entry["min_deg"], entry["max_deg"], entry["set"]) == \
+        (-30.0, 40.0, "direct")
+    assert client.get("/limits").json()["right_shoulder_pitch"]["max_deg"] == 40.0
+    assert "joint limits saved: right_shoulder_pitch" in logs(client)
+    # ...and the engine clamps the very next run to the new range
+    service.CFG.save_demo(Demo(name="high", steps=[
+        {"angles": {"right_shoulder_pitch": 80.0}, "speed": 3400, "acc": 150}]))
+    assert client.post("/demo/high").status_code == 200
+    wait_idle(client)
+    assert "clamped to joint limits" in logs(client)
+
+
+def test_limits_mirror_left_right(client):
+    service.CFG.write_servo_ids({"left_elbow": 13, "right_elbow": 23})
+    service.CFG.write_limits({})
+    r = client.post("/limits", json={"joint": "left_elbow", "min_deg": -20.0,
+                                     "max_deg": 20.0})
+    body = r.json()
+    assert body["mirrored"] == "right_elbow"
+    assert body["limits"]["right_elbow"]["set"] == "mirrored"
+    # a range set DIRECTLY on the other side is never overwritten
+    client.post("/limits", json={"joint": "right_elbow", "min_deg": -10.0,
+                                 "max_deg": 10.0, "symmetric": False})
+    body = client.post("/limits", json={"joint": "left_elbow", "min_deg": -50.0,
+                                        "max_deg": 50.0}).json()
+    assert body["mirrored"] is None and body["skipped"] == "right_elbow"
+    assert body["limits"]["right_elbow"]["max_deg"] == 10.0
+
+
+def test_limits_reject_empty_range(client):
+    r = client.post("/limits", json={"joint": "right_elbow", "min_deg": 20.0,
+                                     "max_deg": 20.0})
+    assert r.status_code == 400 and "smaller" in r.json()["detail"]
+
+
 # ------------------------------------------------------------ safety guards
 
 def test_corrupt_limits_rejected(client):

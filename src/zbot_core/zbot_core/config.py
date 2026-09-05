@@ -10,6 +10,7 @@ the GUI's 250 ms live poll — never see a half-written file.
 import json
 import os
 import re
+from datetime import date
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -52,6 +53,25 @@ def demo_slug(name: str) -> str:
     if not slug:
         raise ValueError("Invalid demo name.")
     return slug
+
+
+# ------------------------------------------------------------ joint limits
+
+def mirror_joint(joint: str) -> str | None:
+    """The same joint on the other body side, or None for a center joint."""
+    if "left" in joint:
+        return joint.replace("left", "right", 1)
+    if "right" in joint:
+        return joint.replace("right", "left", 1)
+    return None
+
+
+def limit_log_line(joint: str, min_deg: float, max_deg: float,
+                   mirrored: str | None, skipped: str | None) -> str:
+    """One log wording for both backends."""
+    return (f"joint limits saved: {joint} [{min_deg:+.1f}, {max_deg:+.1f}]"
+            + (f" + mirrored to {mirrored}" if mirrored else "")
+            + (f" ({skipped} kept its own direct values)" if skipped else ""))
 
 
 # ------------------------------------------------------------ config store
@@ -119,6 +139,33 @@ class ConfigStore:
     def write_connection(self, d: dict) -> None:
         # persist only the overrides; connection() re-merges the defaults
         write_json_atomic(self.connection_path, d)
+
+    # -- one joint's range (both backends write the same shape)
+    def save_limit(self, joint: str, min_deg: float, max_deg: float,
+                   symmetric: bool = True) -> dict:
+        """Store ONE joint's safe range, optionally mirrored to the other
+        side. Shared by both backends so the GUI (repo copy) and the Pi
+        service (the copy the robot actually enforces) stay identical.
+
+        Returns {"limits", "mirrored", "skipped"}; raises ValueError when the
+        range is empty."""
+        if min_deg >= max_deg:
+            raise ValueError("min must be smaller than max.")
+        limits = self.limits()
+        entry = {"min_deg": min_deg, "max_deg": max_deg,
+                 "set": "direct", "updated": date.today().isoformat()}
+        limits[joint] = entry
+        mirrored = skipped = None
+        m = mirror_joint(joint)
+        if symmetric and m and m != joint:
+            # never silently overwrite limits someone set directly on the mirror
+            if limits.get(m, {}).get("set") == "direct":
+                skipped = m
+            else:
+                limits[m] = {**entry, "set": "mirrored"}
+                mirrored = m
+        self.write_limits(limits)
+        return {"limits": limits, "mirrored": mirrored, "skipped": skipped}
 
     # -- demos
     def demo_path(self, name: str) -> Path:

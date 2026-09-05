@@ -63,7 +63,7 @@
       <div id="selName" class="selname">nothing selected</div>
       <div class="row">
         <button id="selParent" disabled title="Widen selection to parent group">⬆ parent</button>
-        <button id="selClear" disabled>clear</button>
+        <button id="selClear" disabled title="Clear the selection — nothing highlighted, every checkbox in the Servos list off">clear</button>
       </div>
       <div class="grid2 usb-only">
         <label>Servo ID <input type="number" id="servoId" value="1" min="1" max="253"></label>
@@ -105,17 +105,21 @@
         ground contact (gravity feel — lowest foot stays on the floor)</label>
     </section>
 
-    <section class="usb-only">
-      <h2>Test interval <span class="hint">— 0° = center (mount pos.)</span></h2>
+    <section>
+      <h2>Joint range <span class="hint">— limits &amp; test interval; 0° = center</span></h2>
       <div class="grid2">
         <label>Min [°] <input type="number" id="minDeg" value="-90" min="-176.5" max="176.5" step="0.5"></label>
         <label>Max [°] <input type="number" id="maxDeg" value="90" min="-176.5" max="176.5" step="0.5"></label>
       </div>
       <div class="row">
-        <button id="saveLimits" disabled title="Store min/max as safe limits for this joint in hardware/joint_limits.json — tests are clamped to them">save limits</button>
+        <button id="saveLimits" disabled title="Store min/max as the safe range for this joint in hardware/joint_limits.json — every sweep and demo is clamped to it. Wireless: saved to the repo AND to the robot, which enforces it right away">save limits</button>
       </div>
       <label class="check"><input type="checkbox" id="symmetric" checked>
         apply to mirror joint (left ↔ right)</label>
+    </section>
+
+    <section class="usb-only">
+      <h2>Test run <span class="hint">— sweeps the range above</span></h2>
       <div class="grid2">
         <label>Speed [ticks/s] <input type="number" id="speed" value="500" min="1" max="3400"></label>
         <label>Accel <input type="number" id="acc" value="50" min="0" max="254"></label>
@@ -138,7 +142,7 @@
     </section>
 
     <section>
-      <h2>Servos <span class="hint">— select for torque &amp; group ops</span></h2>
+      <h2>Servos <span class="hint">— click a motor in the model or tick it here; orange = selected</span></h2>
       <div id="groupQuick" class="chips">
         <button data-sel="all" title="Select / deselect every servo">all</button>
         <button data-sel="upper" title="Shoulders + elbows, both sides">upper</button>
@@ -236,6 +240,6 @@
     <button id="shutdownBannerOk" class="primary">OK</button>
   </div>
 </div>
-<script type="module" src="app.js?v=26"></script>
+<script type="module" src="app.js?v=27"></script>
 </body>
 </html>

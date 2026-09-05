@@ -134,6 +134,12 @@ with "address already in use" — there is probably already one running.
   A watchdog re-parks held joints if they lose torque (logged).
 - **Simulation checkbox:** full GUI without hardware; group/demo runs animate the
   3D model.
+- **Selection is one state:** clicking a motor in the 3D view ticks it in the
+  *Servos* list and colours it orange; clicking it again unticks it. The region
+  chips (*all/upper/lower/left/right*) and the checkboxes light the model up the
+  same way, so **orange = selected = what group ops, torque and demos act on**.
+  *clear* drops the whole selection. Parts that carry no configured servo can't
+  appear in the list — they only get the click highlight.
 
 ### Operating modes: USB (local) ↔ Wireless (Pi)
 
@@ -144,8 +150,8 @@ Switch at the top of the *Connection* section; the choice persists in
 | --- | --- | --- |
 | Servo adapter | laptop USB (`COMx`) | Raspberry Pi USB (`pixel2`, 192.168.178.147) |
 | Execution | on the laptop | **on the Pi** — the browser only sends intents (never per-cycle setpoints; Wi-Fi jitter stays out of the control loop) |
-| Available | everything below | demo list/▶ play with **waypoint preview**, **■ STOP**, ⌂ center, per-servo **✋ release / 🔒 lock** (Servos list or clicked joint), live position + **idle digital twin** (hand-moved joints mirror onto the model), live log/phase, **full teach-in**, **⏻ shutdown Pi** (banner confirms when it is safe to cut power) |
-| Hidden | — | bus/bench tooling (scan/IDs, mapping, limits, offsets, sweep tests, group runs, model-zero calibration) |
+| Available | everything below | demo list/▶ play with **waypoint preview**, **■ STOP**, ⌂ center, per-servo **✋ release / 🔒 lock** (Servos list or clicked joint), live position + **idle digital twin** (hand-moved joints mirror onto the model), live log/phase, **full teach-in**, **joint-range calibration** (*Joint range* → *save limits*), **⏻ shutdown Pi** (banner confirms when it is safe to cut power) |
+| Hidden | — | bus/bench tooling (scan/IDs, mapping, offsets/zeroing, sweep tests, group runs, model-zero calibration) |
 
 - Both modes run the same `zbot_core` engine — limits, offsets, sag
   compensation and hold behave identically; in wireless mode they are enforced
@@ -156,7 +162,14 @@ Switch at the top of the *Connection* section; the choice persists in
   git-tracked); in wireless mode the robot additionally gets its own copy, so
   *▶ play* works immediately without a deploy. *+ robot pose* reads the
   hand-posed robot through the Pi (release torque first via *✋ release*).
-  Calibration (zero/offsets/limits/model zero) stays a USB-mode feature.
+- **Joint ranges are calibratable in both modes**, by the same rule: *save limits*
+  writes the repo copy **and**, in wireless mode, the robot's own copy — which is
+  the one it enforces, so the new range applies to the very next run without a
+  deploy. The GUI shows the ranges that actually apply (the robot's in wireless
+  mode) and warns in the log when repo and robot disagree — that means a stale
+  deploy. If the robot rejects the write (Pi service older than v6), the log says
+  so explicitly and the robot keeps its old range. Zeroing/offsets and model-zero
+  calibration stay USB-mode features.
 - Deploying to the robot syncs demos + calibration:
   `.\src\pi_service\deploy\deploy_pi.ps1` (Windows) /
   `./src/pi_service/deploy/deploy_pi.sh` (Linux) —
@@ -172,6 +185,7 @@ Switch at the top of the *Connection* section; the choice persists in
 | Mount & calibrate | *⌂ Move to center* → mount part → hand-trim → *⊙ set current position as zero* (shifts existing limits automatically) |
 | Teach-in demo | *— new demo —* → pose model (sliders) or robot (*release torque*, hand-pose) → *+ step* → per-step or global spd/acc → *save demo* → play in **simulation first** |
 | Run on the robot (wireless) | `deploy_pi.ps1` once → switch to *Wireless (Pi)* → select demo → *▶ play* (*■ STOP* aborts instantly) |
+| Calibrate a range via Wi-Fi | wireless mode → *✋ release* the joint → hand-move it to each mechanical end stop, reading *live position* → type the safe min/max into *Joint range* → *save limits* (lands in the repo **and** on the robot) |
 | Teach-in via Wi-Fi | wireless mode → *✋ release* (all, or selected servos) → hand-pose the robot (the model mirrors live) → *🔒 lock* a posed limb to keep it while posing the next → *+ robot pose* (or pose the model with the slider → *+ model pose*) → *save demo* (lands in the repo **and** on the robot) → *▶ play* |
 
 ## 9. Pose accuracy under load

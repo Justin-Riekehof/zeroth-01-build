@@ -11,7 +11,7 @@ const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
 const EXPECTED_API = 19;
 // must match the Pi service's API_VERSION (wireless mode)
-const EXPECTED_PI_API = 5;
+const EXPECTED_PI_API = 6;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -32,18 +32,23 @@ const wireless = () => conn.mode === 'wireless';
 // Timeouts are essential here: a halting/unplugged Pi leaves TCP connects
 // hanging in SYN retries for MINUTES — without an abort, the status poll
 // stalls and the UI never notices the Pi is gone (e.g. no shutdown banner).
+// An error body is NOT data: a Pi too old for an endpoint answers 404 with
+// {"detail": ...}, and silently using that as the payload corrupts whatever
+// it feeds (limits!). Both verbs reject instead, callers decide what to do.
+const piResult = async (r) => {
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail ?? r.statusText);
+  return data;
+};
 const pi = {
-  get: (p, timeoutMs = 4000) => fetch(conn.pi_url + p,
-    { signal: AbortSignal.timeout(timeoutMs) }).then(r => r.json()),
-  post: async (p, body, timeoutMs = 8000) => {
-    const r = await fetch(conn.pi_url + p, { method: 'POST',
+  get: (p, timeoutMs = 4000) =>
+    fetch(conn.pi_url + p, { signal: AbortSignal.timeout(timeoutMs) })
+      .then(piResult),
+  post: (p, body, timeoutMs = 8000) =>
+    fetch(conn.pi_url + p, { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body ?? {}),
-      signal: AbortSignal.timeout(timeoutMs) });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.detail ?? r.statusText);
-    return data;
-  },
+      signal: AbortSignal.timeout(timeoutMs) }).then(piResult),
 };
 
 // ---------------------------------------------------------------- log
@@ -187,6 +192,7 @@ async function loadModel() {
   scene.add(modelRoot);
   modelRoot.updateWorldMatrix(true, true);
   nodeIndex.clear();
+  highlighted.clear();               // the old model's Object3Ds are gone
   modelRoot.traverse(o => {
     if (o.name && !nodeIndex.has(fullKey(o.name)))
       nodeIndex.set(fullKey(o.name), o);
@@ -209,6 +215,7 @@ async function loadModel() {
   buildRig();
   footNodes = ['foot_left', 'foot_right'].map(findNode).filter(Boolean);
   captureSoleNormals();                // rest pose = soles flat on the ground
+  select(null);                        // re-highlight on the NEW node objects
 }
 
 // ---------------------------------------------------------------- selection
@@ -272,12 +279,54 @@ function setHighlight(root, on) {
   });
 }
 
-function select(obj) {
-  setHighlight(selected, false);
+// The 3D view and the Servos list share ONE selection: a motor glowing orange
+// in the model is exactly a checked box, in both directions. Clicking a motor
+// part toggles it; parts that carry no configured servo cannot appear in the
+// list and keep the plain "this is what I clicked" glow.
+const highlighted = new Set();     // roots currently emissive
+
+// canonical node of a joint = its motor part — that is what a list row means
+function jointNode(name) {
+  const j = joints.find(x => x.name === name);
+  if (!j) return null;
+  return findNode(j.occurrences.find(o => /motor/i.test(o)) ?? j.occurrences[0]);
+}
+const inServoList = j => !!j && servoIds[j.name] !== undefined;
+
+function applyHighlights() {
+  const want = new Set();
+  for (const name of selectedJoints()) {
+    const n = jointNode(name);
+    if (n) want.add(n);
+  }
+  if (selected && !inServoList(currentJoint)) want.add(selected);
+  for (const o of highlighted) if (!want.has(o)) setHighlight(o, false);
+  for (const o of want) if (!highlighted.has(o)) setHighlight(o, true);
+  highlighted.clear();
+  for (const o of want) highlighted.add(o);
+  $('selClear').disabled = !selected && !want.size;
+}
+
+// 3D click -> list checkbox (the list stays the single source of truth)
+function toggleJointSelection(name) {
+  const box = [...document.querySelectorAll('.gsel')]
+    .find(c => c.value === name);
+  if (!box) return;
+  if (box.disabled) {                     // servo doesn't answer on the bus
+    clientMsg(`${name} is not on the bus — cannot be selected`);
+    return;
+  }
+  box.checked = !box.checked;
+  clientMsg(`${name} ${box.checked ? 'selected' : 'deselected'} — `
+    + `${selectedJoints().length} servo(s) selected`);
+}
+
+function select(obj, toggle = false) {
   selected = obj;
-  setHighlight(selected, true);
   const has = !!selected;
   currentJoint = has ? findJoint(selected) : null;
+  if (toggle && inServoList(currentJoint))
+    toggleJointSelection(currentJoint.name);
   $('axis').disabled = !!currentJoint;   // axis comes from the CAD joint
   $('selName').textContent = has
     ? (selected.name || '(unnamed)')
@@ -309,7 +358,6 @@ function select(obj) {
   }
   $('selParent').disabled = !has || nearestNamed(selected.parent) === null
     || selected.parent === modelRoot;
-  $('selClear').disabled = !has;
   $('saveMap').disabled = !has;
   const nodeMap = has ? mapping[selected.name] : null;
   if (nodeMap) {
@@ -328,6 +376,7 @@ function select(obj) {
     clientMsg(`mapping: "${selected.name}" -> ID ${nodeMap.servo_id}`);
   }
   updateGauge();
+  applyHighlights();
 }
 
 let downXY = null;
@@ -342,11 +391,14 @@ canvas.addEventListener('pointerup', e => {
     ((e.clientX - r.left) / r.width) * 2 - 1,
     -((e.clientY - r.top) / r.height) * 2 + 1), camera);
   const hit = raycaster.intersectObject(modelRoot, true)[0];
-  select(hit ? nearestNamed(hit.object) : null);
+  select(hit ? nearestNamed(hit.object) : null, true);
 });
 $('selParent').onclick = () =>
   selected && select(nearestNamed(selected.parent));
-$('selClear').onclick = () => select(null);
+$('selClear').onclick = () => {
+  document.querySelectorAll('.gsel:checked').forEach(c => { c.checked = false; });
+  select(null);
+};
 
 // Reverse of servo_ids.json (id -> joint). Selecting the joint that carries a
 // given bus ID keeps the 3D selection in sync with the ID you are operating on,
@@ -354,12 +406,8 @@ $('selClear').onclick = () => select(null);
 const jointForId = id =>
   Object.entries(servoIds).find(([, i]) => i === id)?.[0];
 function selectJointForId(id) {
-  const jn = jointForId(id);
-  const j = jn && joints.find(x => x.name === jn);
-  if (!j) return false;
-  const occ = j.occurrences.find(o => /motor/i.test(o)) ?? j.occurrences[0];
-  const node = findNode(occ);
-  if (node && node !== selected) select(node);
+  const node = jointNode(jointForId(id));
+  if (node && node !== selected) select(node);   // activate, don't toggle
   return !!node;
 }
 
@@ -805,6 +853,7 @@ function applyMode() {
   $('modeUsb').checked = !wifi;
   $('modeWifi').checked = wifi;
   refreshDemos().catch(() => {});
+  refreshLimits().catch(() => {});
   if (wifi) {
     $('phase').textContent = 'idle';
     $('posDeg').textContent = '–';
@@ -834,6 +883,41 @@ $('modeUsb').onchange = $('modeWifi').onchange = async () => {
     $('modeWifi').checked = conn.mode === 'wireless';
   }
 };
+
+// Joint limits are enforced wherever the motion runs: the repo copy in USB
+// mode, the robot's own copy in wireless. Always show the ones that apply, so
+// calibrating never edits a range the moving machine doesn't use.
+let limitSeq = 0;
+async function refreshLimits() {
+  const seq = ++limitSeq;
+  const wifi = wireless();
+  const stale = () => seq !== limitSeq || wifi !== wireless();
+  const repo = await api.get('/api/limits').catch(e => {
+    clientMsg('repo limits unavailable: ' + e.message);
+    return {};
+  });
+  if (stale()) return;
+  if (!wifi) { jointLimits = repo; renderGroup(); return; }
+  try {
+    const robot = await pi.get('/limits');
+    if (stale()) return;
+    jointLimits = robot;
+    // a stale deploy is invisible otherwise — and would silently clamp differently
+    const drift = [...new Set([...Object.keys(repo), ...Object.keys(robot)])]
+      .filter(j => repo[j]?.min_deg !== robot[j]?.min_deg
+                || repo[j]?.max_deg !== robot[j]?.max_deg);
+    if (drift.length)
+      clientMsg(`limits differ repo ↔ robot for ${drift.length} joint(s): `
+        + drift.slice(0, 4).join(', ') + (drift.length > 4 ? ', …' : '')
+        + " — showing the robot's (enforced) values; save them again to align");
+  } catch (e) {
+    if (stale()) return;
+    jointLimits = repo;
+    clientMsg(`robot limits unavailable (${e.message}) — showing the repo `
+      + 'values; a Pi service older than v6 cannot store limits');
+  }
+  renderGroup();
+}
 
 // demo list source follows the mode: repo (USB) vs. robot (wireless) — after
 // a deploy both hold the same demos, but the robot's list is the truth there
@@ -1002,9 +1086,15 @@ function renderGroup() {
   document.querySelectorAll('.gsel').forEach(c => {
     if (wasChecked.has(c.value) && !c.disabled) c.checked = true;
   });
+  applyHighlights();
 }
 const selectedJoints = () =>
   [...document.querySelectorAll('.gsel:checked')].map(c => c.value);
+
+// list -> 3D: ticking a box lights that motor up in the model right away
+$('groupList').addEventListener('change', e => {
+  if (e.target.classList.contains('gsel')) applyHighlights();
+});
 
 // gray out configured servos that don't answer on the bus (daisy chain not
 // fully wired). null availableIds (disconnected / simulation) = all enabled.
@@ -1033,6 +1123,7 @@ function selectRegion(spec) {
   if (!boxes.length) { clientMsg(`${spec}: no servos available`); return; }
   const on = boxes.every(b => b.checked);
   boxes.forEach(b => { b.checked = !on; });
+  applyHighlights();
   clientMsg(`${spec.replace(':', ' ')} — `
     + (on ? 'cleared' : `${boxes.length} servo${boxes.length > 1 ? 's' : ''} selected`));
 }
@@ -1154,15 +1245,31 @@ $('run').onclick = guard(async () => {
 });
 $('saveLimits').onclick = guard(async () => {
   if (!currentJoint) return;
-  const r = await api.post('/api/limits', {
+  const body = {
     joint: currentJoint.name,
     min_deg: +$('minDeg').value,
     max_deg: +$('maxDeg').value,
     symmetric: $('symmetric').checked,
-  });
+  };
+  // the repo copy is canonical in BOTH modes (git-tracked, deploys sync it)
+  let r = await api.post('/api/limits', body);
+  let where = 'the repo';
+  if (wireless()) {
+    // ...and the robot enforces its OWN copy, so the new range has to land
+    // there too — otherwise it keeps clamping to the last deployed one
+    try {
+      r = await pi.post('/limits', body);
+      where = 'the repo AND the robot';
+    } catch (e) {
+      where = 'the repo ONLY';
+      clientMsg(`WARNING: limits saved to the repo but NOT to the robot `
+        + `(${e.message}) — it still enforces its old range`);
+    }
+  }
   jointLimits = r.limits;
   renderGroup();
-  clientMsg(`limits saved for "${currentJoint.name}"`
+  clientMsg(`limits [${body.min_deg}, ${body.max_deg}]° saved to ${where} for `
+    + `"${currentJoint.name}"`
     + (r.mirrored ? ` + mirrored to "${r.mirrored}"` : '')
     + (r.skipped ? ` — "${r.skipped}" kept its own direct values` : ''));
 });
@@ -1533,7 +1640,7 @@ setInterval(() => refreshStatus().catch(() => {}), 10000);
 guard(async () => {
   await Promise.all([refreshPorts(), refreshStatus()]);
   mapping = await api.get('/api/mapping');
-  jointLimits = await api.get('/api/limits');
+  await refreshLimits();
   jointOffsets = await api.get('/api/offsets');
   modelZero = await api.get('/api/model_zero');
   modelInvert = await api.get('/api/model_invert');

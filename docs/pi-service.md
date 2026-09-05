@@ -15,6 +15,8 @@ corrupt-calibration guard are enforced on the Pi, never trusted from clients.
 | `GET /demos` | demos available on the robot |
 | `POST /demos` | save a demo onto the robot (wireless teach-in; the GUI also saves to the repo, which stays canonical) |
 | `POST /demos/delete` | remove a demo from the robot (`{"name": "..."}`) |
+| `GET /limits` | the joint ranges this robot enforces |
+| `POST /limits` | calibrate one joint's range (`{"joint": "...", "min_deg": -90, "max_deg": 45, "symmetric": true}`) — wireless calibration; takes effect on the next run without a redeploy, the GUI writes the same values into the repo, which stays canonical |
 | `GET /robot_pose` | hand-posed robot pose in CAD-frame degrees (wireless teach-in capture) |
 | `POST /demo/{name}` | play a taught-in demo, hold the final pose |
 | `POST /center` | all configured servos to center (`{"hold": true, "speed": 300}`) |

@@ -22,7 +22,8 @@ from pydantic import BaseModel, Field
 from zbot_core.bus import (POS_MAX_SAFE, POS_MIN_SAFE, ServoBus,
                            ServoBusError, rel_deg_to_ticks,
                            serial_ports, ticks_to_rel_deg)
-from zbot_core.config import ConfigStore, Demo, read_json
+from zbot_core.config import (ConfigStore, Demo, limit_log_line,
+                              read_json)
 from zbot_core.motion import (CenterParams, GroupParams, MotionEngine,
                               MotionError, TestParams, lock_joints,
                               release_joints)
@@ -465,14 +466,6 @@ def _read_limits() -> dict:
     return CFG.limits()
 
 
-def _mirror_name(joint: str) -> str | None:
-    if "left" in joint:
-        return joint.replace("left", "right", 1)
-    if "right" in joint:
-        return joint.replace("right", "left", 1)
-    return None
-
-
 @app.get("/api/limits")
 def get_limits():
     return _read_limits()
@@ -487,27 +480,16 @@ class LimitEntry(BaseModel):
 
 @app.post("/api/limits")
 def set_limits(e: LimitEntry):
-    if e.min_deg >= e.max_deg:
-        raise HTTPException(400, "min must be smaller than max.")
-    limits = _read_limits()
-    entry = {"min_deg": e.min_deg, "max_deg": e.max_deg,
-             "set": "direct", "updated": date.today().isoformat()}
-    limits[e.joint] = entry
-    mirrored = skipped = None
-    m = _mirror_name(e.joint)
-    if e.symmetric and m and m != e.joint:
-        # never silently overwrite limits someone set directly on the mirror
-        if limits.get(m, {}).get("set") == "direct":
-            skipped = m
-        else:
-            limits[m] = {**entry, "set": "mirrored"}
-            mirrored = m
-    CFG.write_limits(limits)
-    S.log(f"joint limits saved: {e.joint} [{e.min_deg:+.1f}, {e.max_deg:+.1f}]"
-          + (f" + mirrored to {mirrored}" if mirrored else "")
-          + (f" ({skipped} kept its own direct values)" if skipped else ""))
-    return {"ok": True, "mirrored": mirrored, "skipped": skipped,
-            "limits": limits}
+    """Repo copy of the joint's safe range — canonical and git-tracked. In
+    wireless mode the GUI additionally writes the robot's own copy (the one
+    the Pi enforces), exactly like a taught-in demo."""
+    try:
+        r = CFG.save_limit(e.joint, e.min_deg, e.max_deg, e.symmetric)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex)) from ex
+    S.log(limit_log_line(e.joint, e.min_deg, e.max_deg,
+                         r["mirrored"], r["skipped"]))
+    return {"ok": True, **r}
 
 
 @app.get("/api/offsets")
