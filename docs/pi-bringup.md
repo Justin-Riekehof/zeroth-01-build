@@ -20,7 +20,7 @@ Raspberry Pi OS Lite (Debian 13 Trixie, Python 3.13.5) on a Pi 4 Model B Rev 1.5
 | Restored by `deploy_pi.*` | Must be rebuilt by hand |
 |---|---|
 | `zbot_core` + `pi_service` source | Raspberry Pi OS itself, hostname, user |
-| `demos/` (the repo is canonical) | SSH authorized key |
+| `demos/` (the repo is canonical) | SSH authorized keys — the *list* is in the repo ([hardware/dev_authorized_keys](../hardware/dev_authorized_keys)), but it has to be put on the Pi once (Imager, or `authorize_dev_keys.sh`) before a deploy can reach it |
 | `servo_ids` / `joint_limits` / `joint_offsets` | `~/venv` |
 | the `zbot-pi` systemd unit | `/etc/sudoers.d/zbot-deploy` (→ `pi_setup.sh`) |
 | | `~/zbot/hardware/connection.json` (pinned serial port) |
@@ -36,9 +36,12 @@ the settings gear and set:
 
 - hostname `pixel2`
 - username `justin` + a password (needed once, for step 4 and local console)
-- **SSH → public key only**, paste the **contents** of the dev laptop's
-  `~/.ssh/id_ed25519.pub` (the whole `ssh-ed25519 AAAA... justin-laptop` line), or
-  click DURCHSUCHEN and pick the file. The Imager does not accept a path here
+- **SSH → public key only**, paste the **contents** of
+  [hardware/dev_authorized_keys](../hardware/dev_authorized_keys) — every dev
+  machine's public key, one per line, comments stripped. The Imager does not
+  accept a path here, and it takes only one line at a time, so paste each key
+  separately. Pasting just *one* machine's key is how you lock yourself out
+  later: see *Recovering SSH access* below
 - WLAN SSID + password, country `DE`
 - locale/timezone `Europe/Berlin`
 
@@ -159,7 +162,7 @@ client-side settings and `ConfigStore.connection()` fills them from its defaults
 This file is host-specific and deliberately never shipped by the deploy — later
 deploys preserve it.
 
-## 6. Deploy from the dev laptop
+## 6. Deploy from a dev machine
 
 ```powershell
 .\src\pi_service\deploy\deploy_pi.ps1          # Windows
@@ -204,7 +207,7 @@ Only if this shows a problem is it worth putting a scope on the buck converter �
 and it must be a scope or a min/max-capturing meter, because the dips are
 milliseconds long.
 
-## 8. Smoke test from the laptop
+## 8. Smoke test from a dev machine
 
 ```powershell
 curl.exe -s http://192.168.178.147:8460/status
@@ -229,12 +232,69 @@ that mode the list comes from the robot, not the repo.
 - SD cards have no SMART, so you get no warning. A USB SSD does — if you move to
   one, add `sudo smartctl -a -d sat /dev/sda` to a monthly check.
 
+## Recovering SSH access from a new dev machine
+
+`sshd` on the robot is **publickey-only** and there is deliberately no way in
+through the intent service (demo saves are slug-restricted to `demos/*.json`)
+or the serial console (it belongs to the servo UART). So when the machine
+holding the accepted key is wiped or replaced, the robot becomes unreachable
+for deploys, and nothing but physical access gets it back. That happened on
+2026-09-05, when the dev laptop was reset.
+
+**First, check whether you actually need the card.** Try every machine you
+still have, including freshly set-up ones:
+
+```bash
+ssh justin@192.168.178.147 'echo OK; hostname'
+```
+
+Any machine that answers can authorize the others in one line, no disassembly:
+
+```bash
+ssh justin@192.168.178.147 'cat >> ~/.ssh/authorized_keys' < hardware/dev_authorized_keys
+```
+
+**If nothing answers, go through the SD card.** The keys live in the repo, so
+any Linux box with a card reader can do it — the robot's own machine does not
+have to be the one holding a key:
+
+1. Shut the Pi down cleanly (GUI ⏻, wait for the ACT LED, then main switch).
+   Pulling a card from a running Pi is how the last one died.
+2. Card into a reader. Identify the partitions — you want the **ext4** one
+   labelled `rootfs`, *not* the FAT32 `bootfs`:
+   ```bash
+   lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
+   udisksctl mount -b /dev/mmcblk0p2       # if it did not auto-mount
+   ```
+   Writing the key onto `bootfs` is the classic failed attempt: it is the only
+   partition Windows shows, and `sshd` never looks there.
+3. Install every key from the repo, with the ownership and modes `StrictModes`
+   demands (wrong ones fail silently as `Permission denied (publickey)`):
+   ```bash
+   sudo ./src/pi_service/deploy/authorize_dev_keys.sh /media/$USER/rootfs
+   ```
+   Run it without an argument and it lists the mounted partitions that look
+   like a Pi rootfs. It refuses anything that is not one, validates each key
+   line, and is safe to run twice.
+4. `sync`, unmount cleanly, card back into the Pi, boot, then verify from the
+   machine you want to deploy from — with `ssh-keygen -R 192.168.178.147`
+   first if the card was re-flashed rather than edited.
+
+**Adding a machine later** (a rebuilt laptop, a second workstation): append its
+`~/.ssh/id_ed25519.pub` to
+[hardware/dev_authorized_keys](../hardware/dev_authorized_keys), commit, and
+install it over SSH from a machine that still has access. Doing it while access
+exists is the whole point of keeping the list in the repo — it costs one
+command instead of opening the robot.
+
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
 | `REMOTE HOST IDENTIFICATION HAS CHANGED` | expected after a reinstall — `ssh-keygen -R 192.168.178.147` |
 | `scp` / `ssh` fail, host unreachable | ProtonVPN blocking LAN; or Pi off |
+| `Permission denied (publickey)` from every machine | the accepted key is gone with its machine — *Recovering SSH access* above |
+| key installed by hand, still `Permission denied` | written to `bootfs` instead of `rootfs`, or wrong owner/mode — `authorize_dev_keys.sh` sets both |
 | ssh: `kex_exchange_identification: Connection closed` | TCP up but every fork dies — storage gone, kernel still running from RAM. Not recoverable remotely |
 | deploy: "systemd step failed" | `/etc/sudoers.d/zbot-deploy` missing → step 4, or use `--skip-service` |
 | `/status` shows `"connected": false` | adapter jumper not on **B**, servo power off, or `connection.json` points at a stale `by-id` path |

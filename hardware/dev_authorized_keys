@@ -1,0 +1,15 @@
+# Public keys of the development machines allowed to SSH into the robot as
+# `justin`. This file exists so that access can be restored from ANY machine
+# with the repo — the case that bit us on 2026-09-05, when the only key the Pi
+# accepted lived on a laptop that had just been wiped.
+#
+# Installed onto the Pi by:
+#   src/pi_service/deploy/authorize_dev_keys.sh   (offline, SD card in a reader)
+#   or appended over SSH from a machine that still has access.
+#
+# Public keys only. A private key NEVER belongs in this repo.
+#
+# Adding a machine: append its ~/.ssh/id_ed25519.pub line here, commit, and
+# install it the next time the card is out (or over SSH while access exists).
+
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILySL9cuSqK2iPHHPXcdL4BSztJ64xujPioIe8K1lZi3 justin@workstation
