@@ -36,10 +36,10 @@
     "updated": "2026-07-26"
   },
   "left_shoulder_pitch": {
-    "max_deg": 60.0,
-    "min_deg": -60.0,
-    "set": "mirrored",
-    "updated": "2026-07-19"
+    "max_deg": 95.0,
+    "min_deg": 0.0,
+    "set": "direct",
+    "updated": "2026-09-05"
   },
   "left_shoulder_yaw": {
     "max_deg": 45.0,
@@ -84,10 +84,10 @@
     "updated": "2026-07-26"
   },
   "right_shoulder_pitch": {
-    "max_deg": 60.0,
-    "min_deg": -60.0,
+    "max_deg": 0.0,
+    "min_deg": -95.0,
     "set": "direct",
-    "updated": "2026-07-19"
+    "updated": "2026-09-05"
   },
   "right_shoulder_yaw": {
     "max_deg": 45.0,
