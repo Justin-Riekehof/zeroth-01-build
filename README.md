@@ -153,6 +153,18 @@ media/      photos, print timelapses, hero GIF
 
 ## Roadmap
 
+> **🔴 Highest priority — before anything else that touches the robot: re-flash the Pi's SD card on the laptop to restore SSH access.**
+> Since the laptop reset on 2026-09-05 no machine can SSH into the robot: its `authorized_keys` held only that laptop's key. The only card reader is in the Windows laptop, and Windows cannot write the ext4 `rootfs` where the keys live — so the card gets re-flashed with Raspberry Pi Imager, this time with **both** dev keys. Until then every deploy is blocked, and the robot is still missing Pi service **v6** and the ±95° shoulder limits (`push_ups` loses ~28° per shoulder).
+>
+> Step by step, with every command: **[docs/pi-bringup.md → Runbook: re-flash from the Windows laptop](docs/pi-bringup.md#runbook-re-flash-from-the-windows-laptop)**. In short:
+>
+> 1. Laptop: new SSH key → append it to [hardware/dev_authorized_keys](hardware/dev_authorized_keys) → commit & push
+> 2. Robot on, old card: back up its demos over HTTP (`/demos`), then shut down cleanly
+> 3. Imager: Pi OS Lite (64-bit) · `pixel2` · `justin` · Wi-Fi · SSH public-key only with **both** key lines
+> 4. First boot: `ssh-keygen -R 192.168.178.147`, then `ssh justin@192.168.178.147`
+> 5. Pi-local setup: `pi_setup.sh`, `~/venv`, `connection.json`
+> 6. `deploy_pi.ps1`, verify (`/status`, `/limits`, `get_throttled`) — then `git pull` + SSH check on the workstation
+
 - [x] Build plan & repository
 - [x] Print all body parts in PETG (Bambu Lab P2S)
 - [x] Servo test & visualization GUI (FastAPI + three.js) on a pinned CAD version — joint axes, kinematics and safety limits from/against the CAD data
@@ -161,7 +173,7 @@ media/      photos, print timelapses, hero GIF
 - [x] First arm motion demos → new hero GIF
 - [x] Phase 2 assembly: legs & torso (STS3250, IDs 31–35 / 41–45) → whole body assembled, calibrated (mount offsets, limits) — teach-in demos (kneeling, waving) run on the full body
 - [x] Onboard the Raspberry Pi: shared motion core (`zbot_core`), Pi intent service with watchdog scaffold + one-command deploy, GUI wireless mode — demos run untethered from the laptop's USB port
-- [ ] **Restore deploy access to the Pi — blocking, next step.** The robot's `authorized_keys` holds only the wiped laptop's key, so *no* machine can reach it over SSH; `sshd` is publickey-only, the intent service exposes no file-write primitive and the serial console belongs to the servo UART, so there is no remote way back in. **First check whether it is still needed** — `ssh justin@192.168.178.147 'echo OK'` from every machine you have, including freshly set-up ones; one that answers can authorize the rest in a single command. Otherwise: SD card into any Linux box with a reader, `sudo ./src/pi_service/deploy/authorize_dev_keys.sh /media/$USER/rootfs` — the keys of all dev machines live in [hardware/dev_authorized_keys](hardware/dev_authorized_keys). Full procedure and the failure modes: [docs/pi-bringup.md](docs/pi-bringup.md#recovering-ssh-access-from-a-new-dev-machine). Then deploy: it carries Pi service **v6** (wireless joint-range calibration) and the widened shoulder limits, without which the robot keeps clamping every taught pose to its last deployed values (`push_ups` loses ~28° per shoulder).
+- [ ] **Restore SSH/deploy access to the Pi — highest priority, see the top of this section:** re-flash the SD card on the laptop with both dev keys, rebuild the Pi-local setup, deploy Pi service v6 + the widened shoulder limits
 - [ ] C++ serial tooling against the bench setup: Feetech packet parser, tick ↔ radian conversion, RAII serial-port wrapper
 - [x] Simulation setup: build-specific MJCF model (16 DoF, sys-ID'd Feetech actuators) running in MuJoCo/ksim — GPU training pipeline verified end-to-end ([sim/](sim/README.md))
 - [ ] Train a locomotion policy in simulation

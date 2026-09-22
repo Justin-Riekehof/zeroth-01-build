@@ -254,6 +254,10 @@ Any machine that answers can authorize the others in one line, no disassembly:
 ssh justin@192.168.178.147 'cat >> ~/.ssh/authorized_keys' < hardware/dev_authorized_keys
 ```
 
+**Only a Windows machine has a card reader?** Windows cannot write the ext4
+`rootfs`, so the steps below do not work there — re-flash the card instead:
+[Runbook: re-flash from the Windows laptop](#runbook-re-flash-from-the-windows-laptop).
+
 **If nothing answers, go through the SD card.** The keys live in the repo, so
 any Linux box with a card reader can do it — the robot's own machine does not
 have to be the one holding a key:
@@ -287,6 +291,215 @@ install it over SSH from a machine that still has access. Doing it while access
 exists is the whole point of keeping the list in the repo — it costs one
 command instead of opening the robot.
 
+## Runbook: re-flash from the Windows laptop
+
+**The situation since 2026-09-05:** no machine can SSH into the robot, and the
+only card reader is in the Windows 11 laptop. Windows sees just the FAT32
+`bootfs` and cannot write the ext4 `rootfs` where `authorized_keys` lives, so
+`authorize_dev_keys.sh` is not an option there. Instead the card is re-flashed
+with Raspberry Pi Imager, which writes the keys itself — this time **all** of
+them. The price is the Pi-local setup (venv, sudoers rule, journal cap,
+`connection.json`), which steps 5–6 rebuild; demos, calibration and code all
+come back from the repo. Budget about an hour.
+
+> A Linux machine with a card reader (a cheap USB reader on the workstation
+> will do) keeps the existing install via the section above and beats this
+> route — use it if one is at hand.
+
+`powershell` blocks run on the laptop, `bash` blocks inside an SSH session on
+the Pi.
+
+### 0. Prepare the laptop — robot not involved yet
+
+1. Repo up to date: `git pull` — you need this runbook and the current
+   [hardware/dev_authorized_keys](../hardware/dev_authorized_keys).
+2. Install Raspberry Pi Imager from <https://www.raspberrypi.com/software/>
+   (or `winget install RaspberryPiFoundation.RaspberryPiImager`).
+3. `ssh -V` must print a version — the OpenSSH client ships with Windows 11.
+4. ProtonVPN: **"Allow LAN connections"** on, or disconnect. Otherwise every
+   step against `192.168.178.147` fails with a timeout.
+5. A freshly reset Windows refuses to run `.ps1` files. Once, for your user:
+   ```powershell
+   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+   ```
+
+### 1. Give the laptop a key and put it on the list
+
+The reset took the laptop's old private key with it — that is the whole reason
+for this runbook. If `Test-Path $HOME\.ssh\id_ed25519.pub` prints `True`, reuse
+that key and skip the `ssh-keygen` line; never overwrite an existing key.
+
+```powershell
+ssh-keygen -t ed25519 -C "justin@laptop"      # Enter = default path; passphrase optional
+Get-Content $HOME\.ssh\id_ed25519.pub | Add-Content -Encoding ascii hardware\dev_authorized_keys
+Select-String '^ssh-' hardware\dev_authorized_keys    # expect TWO lines: workstation + laptop
+git add hardware/dev_authorized_keys
+git commit -m "dev keys: add the laptop"
+git push
+```
+
+Both lines go onto the card in step 3. With two machines holding access,
+resetting one of them can no longer lock the robot out.
+
+### 2. Save what only the robot has, then shut it down
+
+Robot on, still with its **old** card. One last check first: should
+`ssh justin@192.168.178.147 'echo OK'` answer from the workstation against all
+odds, the one-liner in the section above replaces this whole runbook.
+
+SSH is locked, but the intent service on port 8460 answers over HTTP. Demos taught in wireless mode are stored on the
+robot; the GUI writes them to the repo as well, but check before the card is
+erased:
+
+```powershell
+curl.exe -s http://192.168.178.147:8460/demos -o $HOME\pi_backup_demos.json
+(Get-Content $HOME\pi_backup_demos.json | ConvertFrom-Json).demos.name   # on the robot
+Get-ChildItem demos\*.json | ForEach-Object BaseName                      # in the repo
+```
+
+A demo that exists only on the robot goes into the repo before you continue —
+the deploy in step 6 fills the fresh card from `demos/`, so the repo is the
+only copy that survives (replace `NAME` twice):
+
+```powershell
+$d = (Get-Content $HOME\pi_backup_demos.json | ConvertFrom-Json).demos | Where-Object name -eq "NAME"
+[IO.File]::WriteAllText("$PWD\demos\NAME.json", ($d | ConvertTo-Json -Depth 10))
+```
+
+`WriteAllText` rather than `Set-Content -Encoding utf8`: Windows PowerShell
+writes a BOM, and the loader then skips the file as invalid. Commit and push
+whatever you restored.
+
+Then shut down cleanly — GUI ⏻ in wireless mode, or:
+
+```powershell
+curl.exe -s -X POST http://192.168.178.147:8460/shutdown
+```
+
+Wait until the green ACT LED stays dark, then the main switch, and only then
+pull the card. Pulling it from a running Pi is how the last one died. If the
+service does not answer at all, skip the backup — the repo is canonical — and
+wait for the ACT LED to stop flickering before cutting power.
+
+### 3. Flash the card with Imager
+
+1. Card into the laptop's reader. Windows will likely pop up *"You need to
+   format the disk in drive X: before you can use it"* — that is the ext4
+   partition it cannot read. **Cancel**, every time; Imager does the erasing.
+2. In Imager: **Device** Raspberry Pi 4 · **OS** Raspberry Pi OS (other) →
+   **Raspberry Pi OS Lite (64-bit)** · **Storage** the SD card. Check the size
+   before you confirm — it must not be a USB stick or a backup drive.
+3. OS customisation ("Edit settings" in Imager 1.x, the customisation steps of
+   the wizard in Imager 2.x):
+
+   | Setting | Value |
+   |---|---|
+   | Hostname | `pixel2` |
+   | Username / password | `justin` / a password — **write it down**, step 5 needs it once for `sudo` |
+   | Wireless LAN | SSID + password, country `DE` |
+   | Locale | time zone `Europe/Berlin`, keyboard `de` |
+   | SSH | **enabled, public-key authentication only** |
+   | Authorized keys | **both** `ssh-ed25519 …` lines from `hardware/dev_authorized_keys`, each as its own entry, full line including the trailing comment — not the `#` lines |
+
+   Imager may offer to pre-fill the laptop's own key. Keep it, but add the
+   workstation line by hand: a card with a single key is exactly how the robot
+   got locked out.
+4. **Write** → confirm the erase → wait for writing **and** verifying to
+   finish. Eject in Windows, pull the card.
+
+### 4. First boot
+
+Card into the Pi, power on — servo power can stay off for now. The first boot
+applies the settings, grows the filesystem and reboots once: give it 2–3
+minutes. The DHCP reservation is bound to the Pi's MAC, so it comes back at
+`192.168.178.147`.
+
+```powershell
+ssh-keygen -R 192.168.178.147                    # re-flash = new host keys; expected
+ssh justin@192.168.178.147 'echo OK; hostname'    # accept the fingerprint with "yes"
+```
+
+| Result | Meaning |
+|---|---|
+| `OK`, `pixel2` | access restored — continue |
+| timeout / `No route to host` | still booting, VPN blocking LAN, or Wi-Fi settings wrong — look for `pixel2` in the FritzBox device list |
+| `Permission denied (publickey)` | the keys did not make it onto the card as intended — back to step 3; Imager keeps the settings |
+
+### 5. Rebuild the Pi-local setup
+
+Copy the root-only script over, then open a shell on the Pi:
+
+```powershell
+scp src/pi_service/deploy/pi_setup.sh justin@192.168.178.147:~/
+ssh -t justin@192.168.178.147
+```
+
+On the Pi — the background for each line is in [3. Virtualenv](#3-virtualenv)
+to [5. Serial adapter](#5-serial-adapter) above:
+
+```bash
+sed -i 's/\r$//' ~/pi_setup.sh     # a Windows checkout has CRLF line endings; bash chokes on them
+sudo bash ~/pi_setup.sh            # asks for the Imager password once
+sudo -n systemctl daemon-reload && echo SUDO-OK    # sudoers rule is live
+sudo -n -l /usr/sbin/shutdown -h now               # must echo the command back (GUI ⏻)
+python3 -m venv ~/venv
+id -nG                             # must contain dialout
+cat /proc/swaps                    # must show /dev/zram0
+```
+
+Servo adapter: Waveshare jumper on **B**, USB into the Pi, servo power on. Then
+pin the port:
+
+```bash
+ls /dev/serial/by-id/              # expect usb-1a86_USB_Single_Serial_5B8E112354-if00
+mkdir -p ~/zbot/hardware
+cat > ~/zbot/hardware/connection.json <<'EOF'
+{
+  "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B8E112354-if00"
+}
+EOF
+exit
+```
+
+If `ls` shows a different name, write that one into the file — it carries the
+adapter's serial number.
+
+### 6. Deploy
+
+```powershell
+.\src\pi_service\deploy\deploy_pi.ps1
+```
+
+This ships Pi service **v6** (wireless joint-range calibration) and the ±95°
+shoulder limits, neither of which the robot has had so far. The health check
+at the end must print `"bus": {"connected": true, ...}` with the `by-id` path.
+
+### 7. Verify
+
+```powershell
+ssh justin@192.168.178.147 'systemctl is-enabled zbot-pi; systemctl is-active zbot-pi'  # enabled, active
+curl.exe -s http://192.168.178.147:8460/demos        # the repo's demos
+curl.exe -s http://192.168.178.147:8460/limits       # shoulder pitch now ±95°
+ssh justin@192.168.178.147 vcgencmd get_throttled    # baseline: throttled=0x0
+```
+
+Then run `push_ups` as usual — robot set up for it, E-stop at hand
+(`curl.exe -s -X POST http://192.168.178.147:8460/stop`). The log in `/status`
+must no longer show the shoulders clamped to ±60° (`left_shoulder_pitch +92.5
+-> +60.0`). Read `get_throttled` once more afterwards; anything other than
+`0x0` means [7. Power sanity check](#7-power-sanity-check--do-this-before-trusting-the-build)
+comes first.
+
+### 8. Back at the workstation
+
+```bash
+git pull                                  # picks up the laptop's key line
+ssh-keygen -R 192.168.178.147
+ssh justin@192.168.178.147 'echo OK'      # both dev machines have access again
+```
+
+Then tick the entry off in the README roadmap.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -294,6 +507,9 @@ command instead of opening the robot.
 | `REMOTE HOST IDENTIFICATION HAS CHANGED` | expected after a reinstall — `ssh-keygen -R 192.168.178.147` |
 | `scp` / `ssh` fail, host unreachable | ProtonVPN blocking LAN; or Pi off |
 | `Permission denied (publickey)` from every machine | the accepted key is gone with its machine — *Recovering SSH access* above |
+| Windows: *"You need to format the disk"* when the card goes in | that is the ext4 `rootfs`, which Windows cannot read — Cancel |
+| `pi_setup.sh`: `$'\r': command not found` | checked out on Windows with CRLF line endings — `sed -i 's/\r$//' ~/pi_setup.sh` |
+| `.ps1`: "running scripts is disabled on this system" | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, once per user |
 | key installed by hand, still `Permission denied` | written to `bootfs` instead of `rootfs`, or wrong owner/mode — `authorize_dev_keys.sh` sets both |
 | ssh: `kex_exchange_identification: Connection closed` | TCP up but every fork dies — storage gone, kernel still running from RAM. Not recoverable remotely |
 | deploy: "systemd step failed" | `/etc/sudoers.d/zbot-deploy` missing → step 4, or use `--skip-service` |
