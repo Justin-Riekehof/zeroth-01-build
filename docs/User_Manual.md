@@ -15,6 +15,7 @@ public overview is the repo [README](../README.md).
 | Angle frame | All GUI/API/demo angles are **relative to zero**: −…+ around the mount pose |
 | Seam-safe travel | **±176.5°** (ticks 40 – 4055) — endpoints keep distance to the 0/4095 encoder seam ([why](../src/tests/servos/sts3250_test.py)) |
 | Mount offsets | Servo mounted off-center? Offset in [hardware/joint_offsets.json](../hardware/joint_offsets.json) shifts that joint's zero (e.g. `left_hip_pitch` +90° → zero at tick 3072). Applied transparently everywhere. Usable travel becomes asymmetric. |
+| **Center pose override** | By default every *⌂ center* action (single servo, group, Pi, hold-center re-parks) moves to 0° = mount pose. [hardware/center_pose.json](../hardware/center_pose.json) overrides that per joint (CAD deg, clamped to the joint's limits, mount offsets still applied); joints not listed stay at 0°. Set it in the GUI: pose the model, *⌂ set model pose as center pose*; *⌂ reset center pose* returns to all 0°. Deployed to the Pi like the other calibration files. |
 | Model zero | Display-only corrections ([hardware/model_zero_offsets.json](../hardware/model_zero_offsets.json)) mapping the CAD scene pose onto the real standing zero pose. Never affects servo commands. |
 
 Conversions: `deg = ticks × 360/4096` · `rel = deg − 180 − mount_offset`.
@@ -26,12 +27,19 @@ Unit: **ticks/second**; °/s ≈ speed × 0.088. Valid range in GUI/API: **1 –
 | speed | °/s | feel |
 | --- | --- | --- |
 | 200 | ~18 | very gentle (careful_walk range) |
-| 300 | ~26 | demo/pose changes |
-| 500 | ~44 | default test speed |
+| 300 | ~26 | demo/pose changes, default everywhere and the **power-limit cap** |
 | 1000 | ~88 | brisk |
 | 3400 | ~299 | register max ≈ physical no-load max (STS3215 @ 12 V: ~270°/s; less under load) |
 
 Commanding more than the servo can deliver just means "as fast as possible".
+
+**Power limit (since 2026-09-22):** every backend clamps each commanded move to
+[hardware/motion_limits.json](../hardware/motion_limits.json) — default **max speed 300**,
+**max acc 30** — and logs the clamp once per run (`power limit: speed 3400 -> 300, …`).
+Reason: 16 servos starting at once with acc 254 sagged the 3S pack into the low-voltage
+cutoff during `push_ups`. Raise the file's values deliberately, not per demo. The same
+file sets `stagger_ms` (default 40): in a simultaneous group start the servos are
+commanded one after another with that pause, so their inrush currents do not add up.
 
 ## 3. Acceleration
 
@@ -40,7 +48,8 @@ Unit: **1 ≈ 100 ticks/s² ≈ 8.8°/s²** (1-byte Feetech ramp register). Rang
 | acc | °/s² | feel |
 | --- | --- | --- |
 | 10 – 30 | 90 – 260 | butter-smooth (demos, holds) |
-| 50 | ~440 | default |
+| 30 | ~260 | default (GUI, tests, centering) and the **power-limit cap** |
+| 50 | ~440 | former default |
 | 150+ | 1300+ | aggressive — torque spikes, mechanical stress |
 | **0** | ∞ | **special case: no ramp at all** — hard jolt, avoid |
 
@@ -88,6 +97,7 @@ Tens digit = limb, ones digit = joint counted from the torso outward.
 | [hardware/joint_limits.json](../hardware/joint_limits.json) | per-joint safe range, CAD-frame deg; **enforced server-side** (sweeps/demos clamped); left↔right mirroring, `direct` beats `mirrored` |
 | [hardware/joint_offsets.json](../hardware/joint_offsets.json) | per-joint mount offset (zero ≠ tick 2048) |
 | [hardware/model_zero_offsets.json](../hardware/model_zero_offsets.json) | display-only model pose corrections |
+| [hardware/center_pose.json](../hardware/center_pose.json) | optional center pose override: joint → CAD deg that every *⌂ center* action targets instead of 0° (absent/empty = mount pose) |
 | [src/servo_gui/servo_map.json](../src/servo_gui/servo_map.json) | CAD part → ID/model/axis (3D click prefill) |
 | [demos/*.json](../demos/) | teach-in sequences: steps of `{angles, speed, acc, pause_s}` ([format](../demos/README.md)) |
 
@@ -158,6 +168,14 @@ Switch at the top of the *Connection* section; the choice persists in
   **on the Pi** and never trusted from the browser.
 - **Stop is an E-stop in both modes** (USB: *■ Stop*; wireless: *■ STOP* in the
   Demos section).
+- **Battery gauge in both modes** (Connection section): the pack voltage as the
+  servos measure their supply rail (register 62), with an estimated LiPo
+  percentage. Orange below 11.1 V = charge soon; red below 10.8 V. In wireless
+  mode the Pi service also halts the OS itself after 10 s below 10.8 V, before
+  the XY-CD63 hardware cutoff can cut its 5 V — the gauge shows the countdown
+  and then the same "safe to cut power" banner as the ⏻ button
+  ([pi-service.md](pi-service.md)). Under servo load the rail reads lower than
+  the pack's open-circuit voltage, so treat the percentage as an estimate.
 - **Teach-in works in both modes.** Demos always save to the repo (canonical,
   git-tracked); in wireless mode the robot additionally gets its own copy, so
   *▶ play* works immediately without a deploy. *+ robot pose* reads the
@@ -183,6 +201,7 @@ Switch at the top of the *Connection* section; the choice persists in
 | --- | --- |
 | New servo bring-up | chain it in alone → *scan bus* → *set ID* (auto-selects the joint) → *save mapping* → probe range → *save limits* |
 | Mount & calibrate | *⌂ Move to center* → mount part → hand-trim → *⊙ set current position as zero* (shifts existing limits automatically) |
+| Custom center pose | pose the model with the sliders (e.g. a stable stand) → *⌂ set model pose as center pose* → from now on *⌂ center* everywhere moves there; *⌂ reset center pose* = mount pose again; `deploy` ships it to the Pi |
 | Teach-in demo | *— new demo —* → pose model (sliders) or robot (*release torque*, hand-pose) → *+ step* → per-step or global spd/acc → *save demo* → play in **simulation first** |
 | Run on the robot (wireless) | `deploy_pi.ps1` once → switch to *Wireless (Pi)* → select demo → *▶ play* (*■ STOP* aborts instantly) |
 | Calibrate a range via Wi-Fi | wireless mode → *✋ release* the joint → hand-move it to each mechanical end stop, reading *live position* → type the safe min/max into *Joint range* → *save limits* (lands in the repo **and** on the robot) |
@@ -198,11 +217,12 @@ Two effects make the ACTUAL pose deviate from the taught pose:
    step the residual error is measured and the goal is over-commanded by it
    (clamped to the joint limits, max 2 trim iterations — log line
    `load sag compensated`; uncorrectable rest is logged as
-   `residual pose error`). Range sweeps are not settled on purpose.
+   `residual pose error`). Range sweeps are not settled on purpose. In demos only steps with a pause and the final step are settled; a step with pause 0 is a transit step and runs straight through (the settle pass would cost up to ~1 s per step), a per-step `settle` flag in the JSON overrides this.
 2. **Teach-in capture bias:** *+ robot pose* records the hand-posed robot with
    torque released — "roughly center by hand" is easily ±10° off true zero.
-   For an exact neutral step use **+ center** (writes true 0.0° for all
-   joints) instead of hand-posing it.
+   For an exact neutral step use **+ center** instead of hand-posing it: a center
+   step is resolved at playback to the center pose override (0.0° where none is
+   set), as is any older step whose angles are all exactly 0.
 
 ## 10. Safety checklist
 
@@ -212,6 +232,8 @@ Two effects make the ACTUAL pose deviate from the taught pose:
 3. Keep amplitudes and accel small for whole-body demos (no balance policy).
 4. Don't leave servos holding under load unattended (heat/current).
 5. PSU current limit generous enough — brown-outs reset servos mid-motion.
+6. Battery gauge orange → finish the run and charge; red → stop. Never let the
+   hardware cutoff be the first thing that turns the robot off (SD card).
 
 ## 11. Pi camera (Camera Module 3, IMX708)
 

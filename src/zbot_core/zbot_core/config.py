@@ -36,6 +36,9 @@ def read_json(path: Path, default):
 
 class DemoStep(BaseModel):
     angles: dict[str, float]           # joint name -> target angle (CAD deg)
+    title: str = Field("", max_length=60)   # optional label shown in the editor/log
+    center: bool = False               # center step: angles resolve to the center pose at playback
+    settle: bool | None = None         # load-sag settle pass: None = only on steps with a pause and on the last step
     speed: int = Field(500, ge=1, le=3400)
     acc: int = Field(50, ge=0, le=254)
     pause_s: float = Field(0.0, ge=0, le=10)
@@ -96,6 +99,8 @@ class ConfigStore:
         self.offsets_path = hw / "joint_offsets.json"
         self.model_zero_path = hw / "model_zero_offsets.json"
         self.model_invert_path = hw / "model_invert.json"
+        self.center_pose_path = hw / "center_pose.json"
+        self.motion_limits_path = hw / "motion_limits.json"
         self.connection_path = hw / "connection.json"
         self.demos_dir = self.root / "demos"
         hw.mkdir(parents=True, exist_ok=True)
@@ -117,6 +122,29 @@ class ConfigStore:
     def model_invert(self) -> dict:
         return read_json(self.model_invert_path, {})
 
+    # Power limits: every commanded move is clamped to these (speed in ticks/s,
+    # acc in Feetech ramp units; acc 0 = no ramp counts as "above the cap").
+    # Reason: 16 servos accelerating at once sag the 3S pack; acc 254 / speed
+    # 1000 in a demo step tripped the low-voltage cutoff on 2026-09-22.
+    MOTION_LIMITS_DEFAULT = {"max_speed": 300, "max_acc": 30, "stagger_ms": 40}   # stagger: pause between the servos of one group start
+
+    def motion_limits(self) -> dict:
+        d = {**self.MOTION_LIMITS_DEFAULT}
+        for k, v in read_json(self.motion_limits_path, {}).items():
+            if k in d and isinstance(v, (int, float)) and v > 0:
+                d[k] = int(v)
+        return d
+
+    def write_motion_limits(self, d: dict) -> None:
+        write_json_atomic(self.motion_limits_path, d)
+
+    def center_pose(self) -> dict:
+        """Override of the center pose: joint -> CAD deg. Every "center"
+        action (single servo, group, Pi, hold-center re-parks) targets these
+        angles instead of 0 deg; joints not listed stay at 0 deg (mount
+        pose). Empty/missing file = plain mount pose."""
+        return read_json(self.center_pose_path, {})
+
     def connection(self) -> dict:
         return {**DEFAULT_CONNECTION, **read_json(self.connection_path, {})}
 
@@ -135,6 +163,9 @@ class ConfigStore:
 
     def write_model_invert(self, d: dict) -> None:
         write_json_atomic(self.model_invert_path, d)
+
+    def write_center_pose(self, d: dict) -> None:
+        write_json_atomic(self.center_pose_path, d)
 
     def write_connection(self, d: dict) -> None:
         # persist only the overrides; connection() re-merges the defaults

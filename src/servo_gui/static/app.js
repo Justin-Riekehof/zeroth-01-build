@@ -9,9 +9,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 19;
+const EXPECTED_API = 20;
 // must match the Pi service's API_VERSION (wireless mode)
-const EXPECTED_PI_API = 6;
+const EXPECTED_PI_API = 8;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -109,6 +109,7 @@ new ResizeObserver(resize).observe(canvas.parentElement);
 let groundY = 0;
 let footNodes = [];
 let baseQuat = null;               // modelRoot orientation at load
+let anchorXZ = null;   // torso XZ at load time — the model is re-centred there every frame while ground contact is on
 const soleNormal = new Map();      // foot node -> sole normal in foot frame
 const DOWN = new THREE.Vector3(0, -1, 0);
 const groundBox = new THREE.Box3();
@@ -167,6 +168,21 @@ renderer.setAnimationLoop(() => {
       const dy = groundY - groundBox.min.y;
       if (Math.abs(dy) > 1e-5) modelRoot.position.y += dy;
     }
+    // horizontal re-centring: the tilt about the stance foot (and every
+    // stance change) walks the body sideways a little each frame, so over a
+    // demo the model drifted away from the view centre. Keep the torso at
+    // the XZ it had when the model was loaded.
+    if (anchorXZ) {
+      const tn = findNode('Torso <1>');
+      if (tn) {
+        tn.updateWorldMatrix(true, false);
+        const w = tn.getWorldPosition(_v1);
+        const dx = anchorXZ.x - w.x, dz = anchorXZ.z - w.z;
+        if (Math.abs(dx) > 1e-5 || Math.abs(dz) > 1e-5) {
+          modelRoot.position.x += dx; modelRoot.position.z += dz;
+        }
+      }
+    }
   } else if (modelRoot && baseQuat
              && (modelRoot.position.lengthSq() > 1e-10
                  || !modelRoot.quaternion.equals(baseQuat))) {
@@ -211,6 +227,7 @@ async function loadModel() {
   grid.scale.setScalar(Math.max(1, diag * 2));
   groundY = box.min.y;                 // floor plane for the ground snap
   baseQuat = modelRoot.quaternion.clone();
+  { const tn = findNode('Torso <1>'); anchorXZ = tn ? tn.getWorldPosition(new THREE.Vector3()) : center.clone(); }
   clientMsg('CAD model loaded (pinned OnShape version, see resources/cad/VERSION.md)');
   buildRig();
   footNodes = ['foot_left', 'foot_right'].map(findNode).filter(Boolean);
@@ -265,8 +282,27 @@ function checkRow(label, checked, swatch, onChange, extraClass = '') {
   lab.appendChild(document.createTextNode(label));
   return lab;
 }
+// fold state (sets, groups, the panel itself) survives reloads
+const FOLD_KEY = 'zbot.fold.';
+const foldGet = (key, dflt) => { try { const v = localStorage.getItem(FOLD_KEY + key); return v === null ? dflt : v === '1'; } catch (_) { return dflt; } };
+const foldSet = (key, folded) => { try { localStorage.setItem(FOLD_KEY + key, folded ? '1' : '0'); } catch (_) {} };
+// wrap a checkbox row in a header with a chevron that folds `wrap` (the row's container)
+function foldable(wrap, row, key, dfltFolded) {
+  const hdr = document.createElement('div'); hdr.className = 'fold-hdr';
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'chev-btn';
+  btn.textContent = '▾'; btn.title = 'fold / unfold';
+  const apply = f => { wrap.classList.toggle('folded', f); btn.textContent = '▾'; };
+  btn.addEventListener('click', e => { e.preventDefault(); const f = !wrap.classList.contains('folded'); apply(f); foldSet(key, f); });
+  hdr.appendChild(btn); hdr.appendChild(row); wrap.appendChild(hdr);
+  apply(foldGet(key, dfltFolded));
+}
+$('attachHead')?.addEventListener('click', () => {
+  const sec = $('attachSection'); const f = !sec.classList.contains('folded');
+  sec.classList.toggle('folded', f); foldSet('panel', f);
+});
 async function loadAttachments() {
   const list = $('attachList'), section = $('attachSection');
+  section.classList.toggle('folded', foldGet('panel', false));
   if (!list || !modelRoot) return;
   list.innerHTML = '';
   for (const r of attachRoots.values()) r.parent?.remove(r);
@@ -285,7 +321,7 @@ async function loadAttachments() {
     modelRoot.add(root);
     attachRoots.set(set.id, root);
     const wrap = document.createElement('div'); wrap.className = 'attach-set';
-    wrap.appendChild(checkRow(set.label, root.visible, null, on => { root.visible = on; }));
+    foldable(wrap, checkRow(set.label, root.visible, null, on => { root.visible = on; }), 'set.' + set.id, true);
     const parts = document.createElement('div'); parts.className = 'parts';
     const itemRow = (item, container) => {
       paintNode(root, item.node, item.color ?? '#999999', item.opacity ?? 1);
@@ -304,9 +340,9 @@ async function loadAttachments() {
       const inner = document.createElement('div'); inner.className = 'parts';
       const boxes = [];
       const anyOn = (grp.items ?? []).some(i => i.visible !== false);
-      gwrap.appendChild(checkRow(grp.label, anyOn, null, v => {
+      foldable(gwrap, checkRow(grp.label, anyOn, null, v => {
         for (const [item, cb] of boxes) { cb.checked = v; setNodeVisible(root, item.node, v); }
-      }, 'group'));
+      }, 'group'), 'group.' + (grp.id ?? set.id + '.' + grp.label), true);
       for (const item of grp.items ?? []) boxes.push([item, itemRow(item, inner)]);
       gwrap.appendChild(inner);
       wrap.appendChild(gwrap);
@@ -424,6 +460,20 @@ function applyHighlights() {
   highlighted.clear();
   for (const o of want) highlighted.add(o);
   $('selClear').disabled = !selected && !want.size;
+  renderTorqueScope();
+}
+
+// Spell out what ✋ release / 🔒 lock will act on right now (same rule as
+// torqueTargets: checked servos, else the clicked model joint, else all).
+function renderTorqueScope() {
+  const el = $('torqueScope');
+  if (!el) return;
+  const js = selectedJoints();
+  el.textContent = 'release / lock act on: ' + (js.length
+    ? `${js.length} selected servo${js.length > 1 ? 's' : ''}`
+    : (currentJoint && servoIds[currentJoint.name] !== undefined)
+      ? `clicked joint ${currentJoint.name}`
+      : 'all servos');
 }
 
 // 3D click -> list checkbox (the list stays the single source of truth)
@@ -796,6 +846,15 @@ let jointLimits = {};   // joint name -> {min_deg, max_deg, set} from repo confi
 let servoIds = {};      // joint name -> bus ID from hardware/servo_ids.json
 let jointOffsets = {};  // joint name -> mount offset deg (hardware/joint_offsets.json)
 let modelZero = {};     // joint name -> display-only model zero correction (deg)
+let centerPose = {};    // joint name -> deg: override of the center pose (all ⌂ center actions)
+function renderCenterPose() {
+  const row = $('centerPoseRow');
+  const items = Object.entries(centerPose);
+  if (!items.length) { row.classList.add('hidden'); return; }
+  $('centerPoseVal').textContent = items.map(([j, d]) =>
+    `${j.replace(/^(left|right)_/, m => m[0] === 'l' ? 'L·' : 'R·')} ${d > 0 ? '+' : ''}${d}°`).join(', ');
+  row.classList.remove('hidden');
+}
 let modelInvert = {};   // joint name -> true if the model rig turns inverted
 let availableIds = null; // Set of bus IDs present, or null = unknown (all enabled)
 let connected = false;  // real hardware bus present (from /api/status)
@@ -971,6 +1030,7 @@ const guard = fn => async (...args) => {
 function applyMode() {
   const wifi = wireless();
   document.body.classList.toggle('wireless', wifi);
+  syncCamera();                // camera stream only while wireless + card open
   $('modeUsb').checked = !wifi;
   $('modeWifi').checked = wifi;
   refreshDemos().catch(() => {});
@@ -1075,6 +1135,8 @@ async function piPoll() {
         serverLog = s.live.log ?? [];
         renderLog();
         $('phase').textContent = s.live.phase;
+        renderHead(s.head);
+        renderBattery(s.battery);
         $('connState').textContent = `Pi ${conn.pi_url} — bus `
           + (s.bus.connected
              ? (s.bus.simulated ? 'SIMULATED' : `connected (${s.bus.port})`)
@@ -1109,10 +1171,15 @@ async function piPoll() {
   } catch (_) {
     if (wireless()) {
       lastRealPose = null;                       // next contact: full sync
+      renderHead(null);
+      renderBattery(null);
       if (shutdownAt) {
         const safe = Date.now() - shutdownAt >= SHUTDOWN_GRACE_MS;
         $('connState').textContent = `Pi ${conn.pi_url} — shutting down …`;
-        if (safe && $('shutdownBanner').classList.contains('hidden')) {
+        if (safe && batteryHaltSeen) {
+          $('batteryBannerState').textContent =
+            'Pi is DOWN — cut the main switch now, then charge the pack.';
+        } else if (safe && $('shutdownBanner').classList.contains('hidden')) {
           $('shutdownBanner').classList.remove('hidden');
           clientMsg('Pi is down — safe to cut the main switch (check the '
             + 'ACT LED).');
@@ -1129,6 +1196,205 @@ async function piPoll() {
 piPoll();
 
 $('piStop').onclick = guard(() => pi.post('/stop'));
+
+// ------------------------------------------------------------ battery
+// One widget for both modes. USB: /api/battery (this computer's adapter),
+// wireless: /status.battery (Pi service BatteryMonitor, which also halts
+// the Pi itself before the hardware cutoff). Percent from the 3S LiPo
+// open-circuit curve — under servo load the rail reads lower, so it is an
+// estimate ("≈").
+const LIPO_OCV = [[3.27, 0], [3.50, 5], [3.60, 12], [3.70, 25], [3.75, 35],
+                  [3.80, 45], [3.85, 55], [3.90, 65], [3.97, 75], [4.05, 85],
+                  [4.12, 93], [4.20, 100]];      // V per cell -> %
+function lipoPercent(packV, cells = 3) {
+  const v = packV / cells;
+  if (v <= LIPO_OCV[0][0]) return 0;
+  if (v >= LIPO_OCV[LIPO_OCV.length - 1][0]) return 100;
+  for (let i = 1; i < LIPO_OCV.length; i++) {
+    const [v0, p0] = LIPO_OCV[i - 1], [v1, p1] = LIPO_OCV[i];
+    if (v <= v1) return Math.round(p0 + (p1 - p0) * (v - v0) / (v1 - v0));
+  }
+  return 100;
+}
+const USB_WARN_V = 11.1;          // same defaults as the Pi service
+const USB_LOW_V = 10.8;
+let batteryHaltSeen = false;
+function renderBattery(b) {
+  // b: null (unreachable) | {volts, servo_id, error, [enabled, level,
+  //    low_for_s, hold_s, shutdown, age_s]}
+  const box = $('battery'), fill = $('battFill');
+  let cls = '', volts = '–', pct = '', note = '', frac = 0;
+  if (!b) { note = wireless() ? 'Pi unreachable' : 'connect for the pack voltage'; cls = 'off'; }
+  else if (b.enabled === false) { note = 'monitor off on the Pi'; cls = 'off'; }
+  else if (b.volts === null || b.volts === undefined) { note = b.error ?? 'no reading'; cls = 'off'; }
+  else {
+    const v = b.volts, p = lipoPercent(v);
+    volts = `${v.toFixed(1)} V`; pct = `≈ ${p} %`; frac = p / 100;
+    const level = b.level ?? (v < USB_LOW_V ? 'low' : v < USB_WARN_V ? 'warn' : 'ok');
+    if (b.servo_id !== null && b.servo_id !== undefined) note = `ID ${b.servo_id}`;
+    if (b.age_s !== null && b.age_s !== undefined && b.age_s > 15)
+      note += ` · stale ${b.age_s.toFixed(0)} s`;
+    if (level === 'warn') { cls = 'warn'; note += ' · charge soon'; }
+    if (level === 'low') {
+      cls = 'low';
+      note += b.low_for_s !== null && b.low_for_s !== undefined && b.hold_s
+        ? ` · LOW — Pi halts in ${Math.max(0, b.hold_s - b.low_for_s).toFixed(0)} s`
+        : ' · LOW — stop and charge';
+    }
+    if (b.shutdown === 'halting') { cls = 'low'; note = 'empty — Pi halting itself'; }
+    if (b.shutdown === 'failed') { cls = 'low'; note = 'empty — HALT FAILED: sudo shutdown -h now, then cut power'; }
+  }
+  box.className = 'battery' + (cls ? ' ' + cls : '');
+  fill.setAttribute('width', (26 * frac).toFixed(1));
+  $('battVolts').textContent = volts;
+  $('battPct').textContent = pct;
+  $('battNote').textContent = note;
+  if (b && (b.shutdown === 'halting' || b.shutdown === 'failed') && !batteryHaltSeen) {
+    batteryHaltSeen = true;
+    if (b.shutdown === 'halting' && !shutdownAt) shutdownAt = Date.now();
+    showBatteryBanner(b.shutdown === 'failed'
+      ? 'HALT FAILED (sudoers rule missing) — run "sudo shutdown -h now" on the Pi, then cut power'
+      : 'Pi is halting …');
+    clientMsg('⚠ BATTERY EMPTY — the Pi shut itself down; cut the main '
+      + 'switch after the ACT LED stops, then charge');
+  }
+}
+
+// the loud one: stays until acknowledged, replaces the ordinary "safe to cut
+// power" banner for a battery-triggered halt
+function showBatteryBanner(state) {
+  $('batteryBannerState').textContent = state;
+  $('batteryBanner').classList.remove('hidden');
+  try { document.title = '⚠ BATTERY EMPTY — ' + document.title.replace(/^⚠ BATTERY EMPTY — /, ''); } catch (_) {}
+}
+$('batteryBannerOk').onclick = () => {
+  $('batteryBanner').classList.add('hidden');
+  batteryHaltSeen = false;                   // a later halt (after a recharge) warns again
+  shutdownAt = null;
+  try { document.title = document.title.replace(/^⚠ BATTERY EMPTY — /, ''); } catch (_) {}
+};
+
+// USB mode: poll the adapter every ~2 s (the server caches for 2 s anyway)
+let usbBattN = 0;
+async function usbBatteryPoll() {
+  try {
+    if (!wireless()) {
+      if (!connected) renderBattery(null);
+      else {
+        usbBattN = (usbBattN + 1) % 8;
+        if (usbBattN === 0) {
+          const b = await api.get('/api/battery');
+          if (!wireless()) renderBattery(b);
+        }
+      }
+    }
+  } catch (_) { /* soft: keep last shown value */ }
+  finally { setTimeout(usbBatteryPoll, 250); }
+}
+usbBatteryPoll();
+
+// ------------------------------------------------------------ head card
+// Camera + IMU overlay (top-right of the viewport). Both feeds come straight
+// from the Pi service: the IMU sample rides along in /status (piPoll), the
+// camera is an <img> on the multipart MJPEG endpoint — opened only while the
+// card is expanded, so nothing streams (and rpicam-vid does not run) when
+// nobody is looking. Units are the sensor's: mg, °/s, °C, V.
+
+const HEAD_OPEN_KEY = 'headCardOpen';
+const ACC_FULL = 1500, GYRO_FULL = 250;      // bar scale: ±full = full width
+let camRetry = null;
+
+const headOpen = () => !$('headCard').classList.contains('collapsed');
+
+function syncCamera() {
+  const img = $('camImg');
+  const want = wireless() && headOpen();
+  clearTimeout(camRetry); camRetry = null;
+  if (!want) {
+    if (img.hasAttribute('src')) { img.src = ''; img.removeAttribute('src'); }
+    $('camMsg').textContent = 'camera off';
+    $('camMsg').classList.remove('hidden');
+    return;
+  }
+  $('camMsg').textContent = 'connecting …';
+  $('camMsg').classList.remove('hidden');
+  img.src = `${conn.pi_url}/camera.mjpg?t=${Date.now()}`;
+}
+$('camImg').onload = () => $('camMsg').classList.add('hidden');
+$('camImg').onerror = () => {
+  if (!headOpen() || !wireless()) return;
+  $('camMsg').textContent = 'camera unavailable — retrying …';
+  $('camMsg').classList.remove('hidden');
+  camRetry = setTimeout(syncCamera, 3000);
+};
+
+$('headToggle').onclick = () => {
+  $('headCard').classList.toggle('collapsed');
+  try { localStorage.setItem(HEAD_OPEN_KEY, headOpen() ? '1' : '0'); } catch (_) {}
+  syncCamera();
+};
+try {
+  if (localStorage.getItem(HEAD_OPEN_KEY) === '1')
+    $('headCard').classList.remove('collapsed');
+} catch (_) {}
+
+for (const b of $('eyeChips').querySelectorAll('button'))
+  b.onclick = guard(() => pi.post('/head/cmd', { line: b.dataset.cmd }));
+
+const fmtNum = (v, d = 0) => v === null || v === undefined ? '–'
+  : (v >= 0 ? '+' : '') + (+v).toFixed(d);
+
+function setBar(el, v, full) {
+  const pct = Math.max(-1, Math.min(1, (v ?? 0) / full)) * 50;
+  el.style.left = (pct < 0 ? 50 + pct : 50) + '%';
+  el.style.width = Math.abs(pct) + '%';
+}
+
+function drawTilt(roll, pitch) {
+  const cv = $('tiltBubble'), ctx = cv.getContext('2d');
+  const r = cv.width / 2, cx = r, cy = r;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = '#3a4352'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, r - 1, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, (r - 1) * (30 / 45), 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+  ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r); ctx.stroke();
+  if (roll === null || roll === undefined || pitch === null) return;
+  // dot = where the head leans: nose down -> up on the dial, right ear -> right
+  const k = (r - 1) / 45;
+  const x = cx + Math.max(-45, Math.min(45, roll)) * k;
+  const y = cy - Math.max(-45, Math.min(45, pitch)) * k;
+  ctx.fillStyle = '#ff8c1a';
+  ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+}
+
+function renderHead(h) {
+  const imu = h?.imu, s = imu?.sample, cam = h?.camera;
+  const fresh = s && imu.age_s !== null && imu.age_s < 1.5;
+  $('headDot').className = 'dot ' + (fresh ? 'live' : s ? 'stale' : '');
+  for (const el of $('imuBars').querySelectorAll('.fill'))
+    setBar(el, fresh ? s[el.dataset.k] : 0,
+           el.dataset.k[0] === 'a' ? ACC_FULL : GYRO_FULL);
+  for (const el of $('imuBars').querySelectorAll('.v'))
+    el.textContent = s ? fmtNum(s[el.dataset.v], el.dataset.v[0] === 'a' ? 0 : 1) : '–';
+  drawTilt(fresh ? s.roll_deg : null, fresh ? s.pitch_deg : null);
+  $('imuTilt').textContent = fresh && s.tilt_deg !== null
+    ? `tilt ${s.tilt_deg.toFixed(0)}°` : '–';
+  let meta;
+  if (!h) meta = 'Pi unreachable';
+  else if (!imu.connected) meta = 'IMU: ' + (imu.error ?? 'no board');
+  else if (!s) meta = `IMU: ${imu.port.split('/').pop()} — waiting for data`;
+  else meta = (fresh ? 'IMU live' : `IMU stale (${imu.age_s.toFixed(0)} s)`)
+    + (s.temp_c !== undefined ? ` · ${s.temp_c.toFixed(1)} °C` : '')
+    + (s.vsys !== undefined ? ` · ${s.vsys.toFixed(2)} V` : '')
+    + (s.source === 'demo' ? ' · stock firmware' : '')
+    + (s.mood ? ` · ${s.mood}` : '');
+  if (cam && headOpen() && cam.streaming && cam.fps)
+    meta += ` · cam ${cam.fps.toFixed(0)} fps`;
+  $('imuMeta').textContent = meta;
+  for (const b of $('eyeChips').querySelectorAll('button'))
+    b.disabled = !(s && s.source === 'json');
+}
 // After a confirmed /shutdown, the poll watches for the Pi going silent and
 // then shows the "safe to cut power" banner. NOT immediately on unreachable:
 // the HTTP service dies at the START of the halt sequence — flushing and
@@ -1237,6 +1503,13 @@ async function refreshPresence() {
 // a region that is already fully selected gets cleared, otherwise it gets
 // selected whole. Servos missing from the bus (disabled) are never touched.
 function selectRegion(spec) {
+  if (spec === 'none') {                  // explicit deselect-all (the "all" chip only toggles)
+    const boxes = [...document.querySelectorAll('.gsel:checked')];
+    boxes.forEach(b => { b.checked = false; });
+    applyHighlights();
+    clientMsg(boxes.length ? `selection cleared (${boxes.length} servos)` : 'nothing was selected');
+    return;
+  }
   const parts = spec.split(':');
   const boxes = [...document.querySelectorAll('.gsel:not(:disabled)')]
     .filter(b => parts.every(p =>
@@ -1421,6 +1694,39 @@ $('modelZeroAll').onclick = guard(async () => {
   syncPoseUI(0);
   clientMsg(`model zero calibrated from posed model (${n} joints folded in)`);
 });
+$('centerPoseSet').onclick = guard(async () => {
+  // the model's current pose (servo-space angles) becomes the center pose;
+  // joints at 0 are simply left out of the override
+  const angles = {};
+  let n = 0;
+  for (const name of Object.keys(servoIds)) {
+    const cur = +((jointAngles.get(name) ?? 0).toFixed(1));
+    angles[name] = Math.abs(cur) < 0.5 ? 0 : cur;   // idle-twin jitter (±0.1°) is not a pose
+    if (angles[name]) n++;
+  }
+  if (!n) { clientMsg('model is at 0° everywhere — pose some joints first, or use reset center pose'); return; }
+  const cur = Object.entries(centerPose);
+  const summary = Object.entries(angles).filter(([, d]) => d).map(([j, d]) => `${j} ${d > 0 ? '+' : ''}${d}°`).join(', ');
+  if (!confirm(`Set the center pose override to:\n${summary}\n\n`
+      + (cur.length ? `This REPLACES the current override:\n${cur.map(([j, d]) => `${j} ${d > 0 ? '+' : ''}${d}°`).join(', ')}`
+                    : 'Every ⌂ center action will move there from now on.'))) { clientMsg('center pose unchanged'); return; }
+  const r = await api.post('/api/center_pose', { angles });
+  centerPose = r.angles;
+  renderCenterPose();
+  clientMsg(`center pose override saved (${n} joints) — ⌂ center now moves there`
+    + (wireless() ? '; deploy to apply on the Pi' : ''));
+});
+$('centerPoseReset').onclick = guard(async () => {
+  const cur = Object.entries(centerPose);
+  if (!cur.length) { clientMsg('no center pose override set — nothing to reset'); return; }
+  if (!confirm(`Reset the center pose to the mount pose (all joints 0°)?\n\nThis DELETES the current override:\n`
+      + cur.map(([j, d]) => `${j} ${d > 0 ? '+' : ''}${d}°`).join(', ')
+      + '\n\nTip: note these values if you may want them back.')) { clientMsg('center pose unchanged'); return; }
+  const r = await api.post('/api/center_pose', { angles: {} });
+  centerPose = r.angles;
+  renderCenterPose();
+  clientMsg('center pose override cleared — ⌂ center = mount pose (all 0°)');
+});
 $('modelInvertBtn').onclick = guard(async () => {
   if (!currentJoint) return;
   const name = currentJoint.name;
@@ -1490,7 +1796,23 @@ function renderDemoList() {
   if (demos.some(d => d.name === sel)) $('demoList').value = sel;
 }
 
-const stepSummary = s => {
+const escAttr = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const stepSummary = s => (s.title ? `${s.title}: ` : '') + stepPose(s);
+// center step: flagged, or every angle exactly 0 (old "+ center" steps) — it
+// follows the center pose override at playback (same rule as the engine)
+const isCenterStep = s => !!s.center
+  || (Object.keys(s.angles).length > 0 && Object.values(s.angles).every(d => d === 0));
+const stepAngles = s => {                 // effective angles of a step for preview
+  if (!isCenterStep(s)) return s.angles;
+  const out = {};
+  for (const j of Object.keys(s.angles)) out[j] = centerPose[j] ?? 0;
+  return out;
+};
+const stepPose = s => {
+  if (isCenterStep(s)) {
+    const n = Object.keys(centerPose).filter(j => j in s.angles).length;
+    return n ? `center pose (override on ${n} joint${n > 1 ? 's' : ''}, 0° elsewhere)` : 'center pose (all 0°)';
+  }
   const nz = Object.entries(s.angles).filter(([, d]) => Math.abs(d) > 0.5);
   return nz.length
     ? `${nz.length}⌁ ` + nz.slice(0, 3).map(([j, d]) =>
@@ -1553,7 +1875,7 @@ function exitStepPreview(msg = true) {
 }
 
 function applyStepPose(i) {
-  for (const [j, d] of Object.entries(editSteps[i].angles))
+  for (const [j, d] of Object.entries(stepAngles(editSteps[i])))
     if (pivots.has(j)) setJointAngle(j, d);
   previewI = i;
   renderDemoSteps();
@@ -1565,21 +1887,72 @@ function renderDemoSteps() {
   syncGlobalFields();
   if (previewI !== null && previewI >= editSteps.length) previewI = null;
   $('demoSteps').innerHTML = editSteps.map((s, i) => `
-    <div class="step${i === previewI ? ' sel' : ''}" data-i="${i}" title="${stepSummary(s)}">
-      <span class="n">#${i + 1}</span>
+    <div class="step${i === previewI ? ' sel' : ''}" data-i="${i}" title="${escAttr(stepSummary(s))}">
+      <span class="n drag" draggable="true" title="Drag to reorder (drop above or below another step)">⠿${i + 1}</span>
       <input type="number" data-k="speed" data-lo="1" data-hi="3400" value="${s.speed}" min="1" max="3400" title="Speed into this step [ticks/s] — 1…3400">
       <input type="number" data-k="acc" data-lo="0" data-hi="254" value="${s.acc}" min="0" max="254" title="Acceleration into this step — 0…254">
       <input type="text" inputmode="decimal" data-k="pause_s" data-lo="0" data-hi="10" value="${s.pause_s}" title="Pause AFTER this step [s] — 0…10; comma or dot both work">
+      <input type="text" class="ttl" data-k="title" maxlength="60" value="${escAttr(s.title ?? '')}" placeholder="${escAttr(stepPose(s))}" title="Step title (optional, shown here and in the playback log)">
       <span class="acts">${i === previewI
         ? '<button data-a="upd" title="Replace this step\'s angles with the current model pose (only joints already in the step)">⟳ update</button>'
           + '<button data-a="pose" title="End the preview — the model follows the robot again">↩ live</button>'
         : '<button data-a="pose" title="Show this step\'s pose on the 3D model (detaches the model from the live robot while previewing)">▣ pose</button>'}
+      <button data-a="robot" title="Overwrite this step's angles with the robot's CURRENT physical pose (release torque, hand-pose, then click) — title/speed/pause stay">⟲ robot</button>
+      <button data-a="until" title="Play the SAVED demo from the start up to this step, then hold (save first if you edited)">▶ to here</button>
+      <button data-a="up" title="Move this step one up"${i === 0 ? ' disabled' : ''}>▲</button>
+      <button data-a="down" title="Move this step one down"${i === editSteps.length - 1 ? ' disabled' : ''}>▼</button>
+      <button data-a="dup" title="Duplicate this step (copy inserted right after it)">⧉ dup</button>
       <button data-a="del" title="Remove this step">✕</button></span>
     </div>`).join('');
 }
+// Drag-and-drop reordering (HTML5 DnD; the "⠿n" handle is the drag source, the
+// rows are drop targets — upper half = before, lower half = after). The
+// previewed step is tracked by identity so its highlight moves with it.
+let dragI = null;
+const clearDropMarks = () => document.querySelectorAll('#demoSteps .step').forEach(r => r.classList.remove('drop-before', 'drop-after', 'dragging'));
+$('demoSteps').addEventListener('dragstart', e => {
+  const h = e.target.closest?.('.n.drag'); const row = h?.closest('.step');
+  if (!h || !row) { e.preventDefault(); return; }
+  dragI = +row.dataset.i; row.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', String(dragI)); } catch (_) {}
+});
+$('demoSteps').addEventListener('dragover', e => {
+  const row = e.target.closest?.('.step');
+  if (dragI === null || !row) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  const r = row.getBoundingClientRect(); const after = (e.clientY - r.top) > r.height / 2;
+  document.querySelectorAll('#demoSteps .step').forEach(x => { if (x !== row) x.classList.remove('drop-before', 'drop-after'); });
+  row.classList.toggle('drop-before', !after); row.classList.toggle('drop-after', after);
+});
+$('demoSteps').addEventListener('dragleave', e => {
+  const row = e.target.closest?.('.step');
+  if (row && !row.contains(e.relatedTarget)) row.classList.remove('drop-before', 'drop-after');
+});
+$('demoSteps').addEventListener('drop', e => {
+  const row = e.target.closest?.('.step');
+  if (dragI === null || !row) return;
+  e.preventDefault();
+  const r = row.getBoundingClientRect(); const after = (e.clientY - r.top) > r.height / 2;
+  let to = +row.dataset.i + (after ? 1 : 0);
+  const from = dragI; dragI = null; clearDropMarks();
+  if (to > from) to--;                     // removing the source shifts later indices
+  if (to === from) return;
+  const previewObj = previewI !== null ? editSteps[previewI] : null;
+  const [st] = editSteps.splice(from, 1);
+  editSteps.splice(to, 0, st);
+  if (previewObj) previewI = editSteps.indexOf(previewObj);
+  renderDemoSteps();
+  clientMsg(`step #${from + 1} moved -> #${to + 1}`);
+});
+$('demoSteps').addEventListener('dragend', () => { dragI = null; clearDropMarks(); });
 $('demoSteps').addEventListener('input', e => {
   const row = e.target.closest('.step');
   if (!row || !e.target.dataset.k) return;
+  if (e.target.dataset.k === 'title') {           // free text, no number parsing
+    editSteps[+row.dataset.i].title = e.target.value;
+    return;
+  }
   const v = parseNum(e.target.value);
   e.target.classList.toggle('bad', v === null && e.target.value.trim() !== '');
   if (v === null) return;          // mid-edit or unparseable: keep the old value
@@ -1591,6 +1964,12 @@ $('demoSteps').addEventListener('change', e => {
   const row = e.target.closest('.step');
   if (!row || !e.target.dataset.k) return;
   const step = editSteps[+row.dataset.i], k = e.target.dataset.k;
+  if (k === 'title') {
+    step.title = e.target.value.trim().slice(0, 60);
+    e.target.value = step.title;
+    row.title = stepSummary(step);
+    return;
+  }
   const v = parseNum(e.target.value);
   const out = Math.max(+e.target.dataset.lo,
                        Math.min(+e.target.dataset.hi, v === null ? +step[k] : v));
@@ -1610,6 +1989,24 @@ $('demoSteps').addEventListener('click', e => {
       else if (i < previewI) previewI--;
     }
     renderDemoSteps();
+  } else if (a === 'until') {
+    playDemo(i + 1).catch(err => clientMsg('ERROR: ' + err.message));
+  } else if (a === 'robot') {
+    overwriteStepFromRobot(i).catch(err => clientMsg('ERROR: ' + err.message));
+  } else if (a === 'up' || a === 'down') {
+    const j = a === 'up' ? i - 1 : i + 1;
+    if (j < 0 || j >= editSteps.length) return;
+    [editSteps[i], editSteps[j]] = [editSteps[j], editSteps[i]];
+    if (previewI === i) previewI = j;           // the previewed step keeps its highlight
+    else if (previewI === j) previewI = i;
+    renderDemoSteps();
+    clientMsg(`step #${i + 1} moved ${a} -> #${j + 1}`);
+  } else if (a === 'dup') {
+    const st = editSteps[i];
+    editSteps.splice(i + 1, 0, { ...st, angles: { ...st.angles } });
+    if (previewI !== null && previewI > i) previewI++;
+    renderDemoSteps();
+    clientMsg(`step #${i + 1} duplicated -> #${i + 2}` + (st.title ? ` (${st.title})` : ''));
   } else if (a === 'pose') {
     if (previewI === i) exitStepPreview();
     else applyStepPose(i);
@@ -1617,6 +2014,7 @@ $('demoSteps').addEventListener('click', e => {
     const st = editSteps[i];
     for (const j of Object.keys(st.angles))
       st.angles[j] = +((jointAngles.get(j) ?? 0).toFixed(1));
+    delete st.center;                          // now a taught pose, no longer "center"
     renderDemoSteps();
     clientMsg(`step #${i + 1} updated from model pose — ${stepSummary(st)}`);
   }
@@ -1642,11 +2040,28 @@ $('demoAddStep').onclick = () => {
   const angles = {};
   for (const j of Object.keys(servoIds))
     angles[j] = +((jointAngles.get(j) ?? 0).toFixed(1));
-  editSteps.push({ angles, speed: +$('gSpeed').value || 500,
-    acc: $('gAcc').value === '' ? 50 : +$('gAcc').value, pause_s: 0 });
+  editSteps.push({ angles, speed: +$('gSpeed').value || 300,
+    acc: $('gAcc').value === '' ? 30 : +$('gAcc').value, pause_s: 0 });
   renderDemoSteps();
   clientMsg(`step #${editSteps.length} from model pose — ${stepSummary(editSteps.at(-1))}`);
 };
+// overwrite an existing step with the real robot's current pose (the same
+// read as "+ robot pose"); the step keeps its title, speed, acc and pause
+async function overwriteStepFromRobot(i) {
+  const st = editSteps[i];
+  if (!st) return;
+  const r = wireless() ? await pi.get('/robot_pose')
+                       : await api.get('/api/robot_pose');
+  if (!r.pose) throw new Error(r.detail ?? 'no pose available');
+  st.angles = { ...r.pose };
+  delete st.center;                          // a measured pose, no longer "center"
+  exitStepPreview(false);
+  for (const [j, d] of Object.entries(r.pose))
+    if (pivots.has(j)) setJointAngle(j, d);
+  renderDemoSteps();
+  clientMsg(`step #${i + 1} overwritten from ROBOT pose — ${stepSummary(st)}`
+    + (r.missing?.length ? ` (missing: ${r.missing.join(', ')})` : ''));
+}
 $('demoAddRobot').onclick = guard(async () => {
   // physical teach-in: read the real robot's current pose (hand-posed,
   // torque released) and store it as a step; mirror it onto the 3D model.
@@ -1654,8 +2069,8 @@ $('demoAddRobot').onclick = guard(async () => {
   const r = wireless() ? await pi.get('/robot_pose')
                        : await api.get('/api/robot_pose');
   if (!r.pose) throw new Error(r.detail ?? 'no pose available');
-  editSteps.push({ angles: r.pose, speed: +$('gSpeed').value || 500,
-    acc: $('gAcc').value === '' ? 50 : +$('gAcc').value, pause_s: 0 });
+  editSteps.push({ angles: r.pose, speed: +$('gSpeed').value || 300,
+    acc: $('gAcc').value === '' ? 30 : +$('gAcc').value, pause_s: 0 });
   exitStepPreview(false);      // mirroring the robot = the twin is back
   for (const [j, d] of Object.entries(r.pose))
     if (pivots.has(j)) setJointAngle(j, d);
@@ -1665,12 +2080,16 @@ $('demoAddRobot').onclick = guard(async () => {
     + (r.missing.length ? ` (missing: ${r.missing.join(', ')})` : ''));
 });
 $('demoAddCenter').onclick = () => {
+  // exact center step: the center pose override where one is set, 0° elsewhere
   const angles = {};
-  for (const j of Object.keys(servoIds)) angles[j] = 0;
-  editSteps.push({ angles, speed: +$('gSpeed').value || 300,
+  for (const j of Object.keys(servoIds)) angles[j] = 0;     // resolved at playback (center: true)
+  const nOv = Object.keys(centerPose).filter(j => j in angles).length;
+  editSteps.push({ angles, center: true, title: 'center', speed: +$('gSpeed').value || 300,
     acc: $('gAcc').value === '' ? 30 : +$('gAcc').value, pause_s: 0 });
   renderDemoSteps();
-  clientMsg(`step #${editSteps.length}: exact center (all joints 0.0°)`);
+  clientMsg(`step #${editSteps.length}: exact center — ` + (nOv
+    ? `center pose override on ${nOv} joint${nOv > 1 ? 's' : ''}, 0.0° elsewhere`
+    : 'all joints 0.0° (no center pose override set)'));
 };
 $('demoSave').onclick = guard(async () => {
   const name = $('demoName').value.trim();
@@ -1718,16 +2137,23 @@ $('demoDelete').onclick = guard(async () => {
   renderDemoSteps();
   clientMsg(`demo '${name}' deleted`);
 });
-$('demoPlay').onclick = guard(async () => {
+// play the SAVED demo selected in the list; until = 1-based last step (optional)
+async function playDemo(until = null) {
   const name = $('demoList').value;
-  if (!name) { clientMsg('no demo selected'); return; }
+  if (!name) { clientMsg('no demo selected — save the demo first, then pick it in the list'); return; }
+  const saved = demos.find(d => d.name === name);
+  if (until !== null && saved && until > saved.steps.length) { clientMsg(`saved demo '${name}' has only ${saved.steps.length} steps — save first`); return; }
+  if (saved && JSON.stringify(saved.steps) !== JSON.stringify(editSteps))
+    clientMsg(`note: playing the SAVED '${name}' — the editor has unsaved changes`);
   clientLog.length = 0;
   if (wireless())
-    await pi.post('/demo/' + encodeURIComponent(name));
+    await pi.post('/demo/' + encodeURIComponent(name), until ? { until } : {});
   else
     await api.post('/api/demo/play',
-      { name, simulate: $('simulate').checked });
-});
+      { name, simulate: $('simulate').checked, until });
+  if (until) clientMsg(`playing '${name}' up to step #${until}`);
+}
+$('demoPlay').onclick = guard(() => playDemo());
 
 $('stop').onclick = guard(() => api.post('/api/stop'));
 $('copyLog').onclick = guard(async () => {
@@ -1766,6 +2192,8 @@ guard(async () => {
   modelZero = await api.get('/api/model_zero');
   modelInvert = await api.get('/api/model_invert');
   servoIds = await api.get('/api/servo_ids');
+  try { centerPose = await api.get('/api/center_pose'); } catch { centerPose = {}; }
+  renderCenterPose();
   renderGroup();
   applyMode();                 // hide/show mode sections + load the demo list
   await refreshPresence();               // no-op if not connected

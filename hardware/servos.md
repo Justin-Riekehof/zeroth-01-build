@@ -101,6 +101,14 @@ The **live position** readout (shown while connected) reflects the current angle
 the CAD frame with the offset applied, and drives the gauge needle — so you can watch
 the value as you hand-turn.
 
+**Center pose override:** *Move to center* normally means 0° on every joint (the mount
+pose above). [center_pose.json](center_pose.json) can override that per joint (CAD
+degrees, clamped to the joint's limits, mount offsets still applied) so that every
+*⌂ center* action — single servo, group, on the Pi, and the hold-center re-parks — moves
+to e.g. a stable standing pose instead. Joints not listed stay at 0°. GUI: pose the model,
+*⌂ set model pose as center pose*; *⌂ reset center pose* deletes the override. The deploy
+ships the file to the Pi.
+
 Re-zeroing a joint that already has limits **shifts those limits by the same amount**
 so they keep protecting the exact same physical stops (the range in
 [joint_limits.json](joint_limits.json) moves, the physical endpoints do not).

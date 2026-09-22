@@ -13,3 +13,4 @@
 # install it the next time the card is out (or over SSH while access exists).
 
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILySL9cuSqK2iPHHPXcdL4BSztJ64xujPioIe8K1lZi3 justin@workstation
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMu1FT/aiuA2sWTgmRi69rUUmjo0qb5P47KQ/bO+udJM justin@laptop

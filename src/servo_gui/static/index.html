@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 <script type="importmap">
 {
   "imports": {
@@ -41,6 +41,16 @@
       <label class="check usb-only"><input type="checkbox" id="simulate" checked>
         Simulation (no hardware needed)</label>
       <div id="connState" class="muted">not connected</div>
+      <div id="battery" class="battery" title="3S pack voltage as the servos measure their supply rail (register 62, 0.1 V steps). Percent is estimated from the LiPo open-circuit curve and reads low under servo load. Wireless: below warn_v the Pi service warns, below shutdown_v for hold_s it halts the OS itself — before the XY-CD63 hardware cutoff can cut its 5 V.">
+        <svg class="batt-icon" viewBox="0 0 34 16" aria-hidden="true">
+          <rect x="0.75" y="0.75" width="29.5" height="14.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="31" y="4.5" width="2.5" height="7" rx="1" fill="currentColor"/>
+          <rect id="battFill" x="2.5" y="2.5" width="0" height="11" rx="1.2" fill="currentColor"/>
+        </svg>
+        <span id="battVolts">–</span>
+        <span id="battPct" class="muted"></span>
+        <span id="battNote" class="muted"></span>
+      </div>
     </section>
 
     <section class="usb-only">
@@ -101,15 +111,22 @@
       <div class="row usb-only">
         <button id="modelZeroAll" title="Model-zero calibration: click joints and pose them with the slider until the whole model matches the real robot's zero pose, then click here — folds every posed angle into the display corrections at once (view-only)">⌖ calibrate model zero (all posed joints)</button>
       </div>
+      <div class="row">
+        <button id="centerPoseSet" title="Override the center pose: pose the model with the sliders, then click — every ⌂ center action (single servo, group, Pi) moves to THIS pose instead of all 0°. Stored in hardware/center_pose.json; deploy to apply on the Pi">⌂ set model pose as center pose</button>
+        <button id="centerPoseReset" title="Back to the plain mount pose: ⌂ center = all joints 0°">⌂ reset center pose</button>
+      </div>
+      <div id="centerPoseRow" class="hint hidden">center pose override: <span id="centerPoseVal"></span></div>
       <label class="check"><input type="checkbox" id="groundSnap" checked>
         ground contact (gravity feel — lowest foot stays on the floor)</label>
     </section>
 
     <section id="attachSection" class="hidden">
-      <h2>Attachments <span class="hint">— printed add-ons on the pinned model (resources/cad/attachments)</span></h2>
-      <div id="attachList"></div>
-      <label class="check"><input type="checkbox" id="torsoXray">
-        torso see-through (look at the parts inside)</label>
+      <h2 class="fold" id="attachHead" title="Click to fold / unfold the panel"><span class="chev">▾</span> Attachments <span class="hint">— printed add-ons on the pinned model (resources/cad/attachments)</span></h2>
+      <div id="attachBody">
+        <div id="attachList"></div>
+        <label class="check"><input type="checkbox" id="torsoXray">
+          torso see-through (look at the parts inside)</label>
+      </div>
     </section>
 
     <section>
@@ -128,8 +145,8 @@
     <section class="usb-only">
       <h2>Test run <span class="hint">— sweeps the range above</span></h2>
       <div class="grid2">
-        <label>Speed [ticks/s] <input type="number" id="speed" value="500" min="1" max="3400"></label>
-        <label>Accel <input type="number" id="acc" value="50" min="0" max="254"></label>
+        <label>Speed [ticks/s] <input type="number" id="speed" value="300" min="1" max="3400"></label>
+        <label>Accel <input type="number" id="acc" value="30" min="0" max="254" title="Ramp; every backend clamps to hardware/motion_limits.json (default max 30) to keep 16 simultaneous starts from sagging the pack"></label>
       </div>
       <label>Cycles <input type="number" id="cycles" value="1" min="1" max="20"></label>
       <label>Shaft axis <span class="hint">(part frame — pick the one matching the output shaft)</span>
@@ -151,7 +168,8 @@
     <section>
       <h2>Servos <span class="hint">— click a motor in the model or tick it here; orange = selected</span></h2>
       <div id="groupQuick" class="chips">
-        <button data-sel="all" title="Select / deselect every servo">all</button>
+        <button data-sel="all" title="Select every servo (a second click deselects all)">all</button>
+        <button data-sel="none" title="Deselect every servo — release / lock then act on the clicked model joint, or on all servos if none is clicked">none</button>
         <button data-sel="upper" title="Shoulders + elbows, both sides">upper</button>
         <button data-sel="lower" title="Hips, knees + ankles, both sides">lower</button>
         <button data-sel="left" title="Every joint on the left side">left</button>
@@ -174,6 +192,7 @@
         <button id="groupRelease" title="Disable torque: checked servos — else the clicked model joint — else all. Teach-in: release, hand-pose, capture">✋ release torque</button>
         <button id="groupLock" title="Freeze at the CURRENT position (torque on): checked servos — else the clicked model joint — else all. Teach-in: pose a limb, lock it, pose the next">🔒 lock torque</button>
       </div>
+      <div id="torqueScope" class="hint">release / lock act on: all servos</div>
       <h2 class="pi-only">Robot <span class="hint">— executed on the Pi</span></h2>
       <div id="readout">
         <span id="phase">idle</span>
@@ -214,7 +233,7 @@
       <div class="row">
         <button id="demoAddStep" title="Capture the current 3D model pose (pose sliders) as the next step">+ model pose</button>
         <button id="demoAddRobot" title="Physical teach-in: release torque, hand-pose the robot, then capture its real pose as the next step">+ robot pose</button>
-        <button id="demoAddCenter" title="Append an EXACT center step (all joints 0.0°) — better than hand-posing 'roughly center'">+ center</button>
+        <button id="demoAddCenter" title="Append an EXACT center step: the center pose override where set, 0.0° elsewhere — better than hand-posing 'roughly center'">+ center</button>
       </div>
       <div class="row">
         <button id="demoSave" title="Save under the given name into demos/ in the repo (wireless: also onto the robot)">save demo</button>
@@ -235,7 +254,59 @@
           (see <code>resources/cad/VERSION.md</code>).</p>
       </div>
     </div>
+    <div id="headCard" class="pi-only collapsed">
+      <button id="headToggle" class="headhead" title="Camera Module 3 + IMU display board in the head — streamed from the Pi (wireless mode)">
+        <span class="dot" id="headDot"></span>
+        <span class="ttl">Head <span class="hint">— camera · IMU</span></span>
+        <span class="chev">▾</span>
+      </button>
+      <div class="headbody">
+        <div class="cam">
+          <img id="camImg" alt="">
+          <div id="camMsg" class="muted">camera off</div>
+        </div>
+        <div class="imu">
+          <div class="imugrid" id="imuBars">
+            <div class="bar"><span class="k">acc x</span><div class="track"><div class="fill" data-k="ax"></div></div><span class="v" data-v="ax">–</span></div>
+            <div class="bar"><span class="k">acc y</span><div class="track"><div class="fill" data-k="ay"></div></div><span class="v" data-v="ay">–</span></div>
+            <div class="bar"><span class="k">acc z</span><div class="track"><div class="fill" data-k="az"></div></div><span class="v" data-v="az">–</span></div>
+            <div class="bar gyro"><span class="k">gyro x</span><div class="track"><div class="fill" data-k="gx"></div></div><span class="v" data-v="gx">–</span></div>
+            <div class="bar gyro"><span class="k">gyro y</span><div class="track"><div class="fill" data-k="gy"></div></div><span class="v" data-v="gy">–</span></div>
+            <div class="bar gyro"><span class="k">gyro z</span><div class="track"><div class="fill" data-k="gz"></div></div><span class="v" data-v="gz">–</span></div>
+          </div>
+          <div class="tilt">
+            <canvas id="tiltBubble" width="76" height="76" title="Head tilt from gravity: dot = where the head leans (forward = up), ring = 30°"></canvas>
+            <div class="tiltval" id="imuTilt">–</div>
+          </div>
+        </div>
+        <div class="imumeta">
+          <span id="imuMeta" class="muted">IMU: no board</span>
+          <span class="hint">acc in mg · gyro in °/s</span>
+        </div>
+        <div class="chips" id="eyeChips" title="Expressions of the eye on the display board (needs the src/head_display firmware)">
+          <button data-cmd="mood neutral">neutral</button>
+          <button data-cmd="mood happy">happy</button>
+          <button data-cmd="mood sleepy">sleepy</button>
+          <button data-cmd="mood surprised">surprised</button>
+          <button data-cmd="blink">blink</button>
+        </div>
+      </div>
+    </div>
   </main>
+</div>
+<div id="batteryBanner" class="hidden" role="alertdialog" aria-live="assertive">
+  <div class="box">
+    <h2>⚠ BATTERY EMPTY</h2>
+    <p><b>The Pi shut itself down</b> — the pack fell below the shutdown voltage for 10 s
+      and the service halted the OS to protect the SD card. The servos are still powered.</p>
+    <p id="batteryBannerState" class="state">Pi is halting …</p>
+    <ol>
+      <li>Wait until the green ACT LED on the Pi stops blinking.</li>
+      <li><b>Cut the main switch</b> — before the hardware cutoff does.</li>
+      <li>Charge the pack. The Pi boots again with the switch.</li>
+    </ol>
+    <button id="batteryBannerOk" class="danger">Understood</button>
+  </div>
 </div>
 <div id="shutdownBanner" class="hidden">
   <div class="box">
@@ -247,6 +318,6 @@
     <button id="shutdownBannerOk" class="primary">OK</button>
   </div>
 </div>
-<script type="module" src="app.js?v=29"></script>
+<script type="module" src="app.js?v=43"></script>
 </body>
 </html>

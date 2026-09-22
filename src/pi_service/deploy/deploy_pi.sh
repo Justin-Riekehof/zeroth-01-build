@@ -5,7 +5,7 @@
 #   ./src/pi_service/deploy/deploy_pi.sh --skip-service        # code only, no sudo
 #   ./src/pi_service/deploy/deploy_pi.sh --host justin@10.0.0.5
 #
-# Ships zbot_core + pi_service + calibration (servo_ids/joint_limits/joint_offsets)
+# Ships zbot_core + pi_service + calibration (servo_ids/joint_limits/joint_offsets/center_pose)
 # + demos to $PI_HOST:~/zbot, installs both packages editable into ~/venv,
 # refreshes the systemd unit and health-checks /status.
 # connection.json is deliberately NOT shipped: it is host-specific — the Pi falls
@@ -39,7 +39,7 @@ mkdir -p "$STAGE/src" "$STAGE/hardware"
 cp -r "$REPO_ROOT/src/zbot_core" "$STAGE/src/zbot_core"
 cp -r "$REPO_ROOT/src/pi_service" "$STAGE/src/pi_service"
 find "$STAGE" -depth -type d \( -name .venv -o -name __pycache__ -o -name .pytest_cache \) -exec rm -rf {} +
-for f in servo_ids.json joint_limits.json joint_offsets.json; do
+for f in servo_ids.json joint_limits.json joint_offsets.json center_pose.json motion_limits.json; do
     [[ -f "$REPO_ROOT/hardware/$f" ]] && cp "$REPO_ROOT/hardware/$f" "$STAGE/hardware/$f"
 done
 cp -r "$REPO_ROOT/demos" "$STAGE/demos"

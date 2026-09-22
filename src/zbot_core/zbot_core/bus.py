@@ -20,6 +20,7 @@ from serial.tools import list_ports
 BAUD = 1_000_000
 ADDR_TORQUE_ENABLE = 40
 ADDR_ID = 5                    # EPROM register holding the servo ID
+ADDR_PRESENT_VOLTAGE = 62      # supply rail in 0.1 V units (SMS_STS_PRESENT_VOLTAGE)
 TICKS_PER_REV = 4096
 POS_MIN_SAFE = 40      # ~3.5 deg
 POS_MAX_SAFE = 4055    # ~356.5 deg
@@ -126,6 +127,16 @@ class ServoBus:
                                                        ADDR_TORQUE_ENABLE)
         return val if res == COMM_SUCCESS else None
 
+    def read_voltage(self, servo_id: int) -> float | None:
+        """Servo rail voltage in V as the servo measures it (register 62,
+        0.1 V steps), or None if it does not answer. The rail sits behind the
+        low-voltage cutoff, so this is the battery pack voltage minus the
+        drop over fuse, switch and relay — the Pi has no ADC of its own."""
+        with self._lock:
+            val, res, _err = self._servo.read1ByteTxRx(servo_id,
+                                                       ADDR_PRESENT_VOLTAGE)
+        return val / 10.0 if res == COMM_SUCCESS else None
+
     def scan(self, id_from: int = 1, id_to: int = 30) -> list[dict]:
         """Ping every ID in the range; returns the servos that answered."""
         found = []
@@ -168,6 +179,8 @@ class SimBus:
 
     simulated = True
     port = "simulator"
+
+    voltage: float | None = 12.3    # a healthy 3S pack; tests lower it
 
     def __init__(self, start_ticks: int = 2048):
         self._start = float(start_ticks)
@@ -214,6 +227,9 @@ class SimBus:
     def read_torque(self, servo_id: int) -> int | None:
         return 1
 
+    def read_voltage(self, servo_id: int) -> float | None:
+        return self.voltage
+
     def scan(self, id_from: int = 1, id_to: int = 30) -> list[dict]:
         return [{"id": sid, "model": 3250} for sid in sorted(self._pos)
                 if id_from <= sid <= id_to]
@@ -237,6 +253,7 @@ class Bus(Protocol):
     def torque_off(self, servo_id: int) -> None: ...
     def torque_on(self, servo_id: int) -> bool: ...
     def read_torque(self, servo_id: int) -> int | None: ...
+    def read_voltage(self, servo_id: int) -> float | None: ...
     def scan(self, id_from: int = ..., id_to: int = ...) -> list[dict]: ...
     def set_id(self, old_id: int, new_id: int) -> int: ...
 

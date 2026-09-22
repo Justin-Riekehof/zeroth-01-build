@@ -39,6 +39,14 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5; }
 
 .muted { color: var(--muted); }
+.battery { display: flex; align-items: center; gap: 8px; margin-top: 6px;
+  font-variant-numeric: tabular-nums; color: var(--muted); }
+.battery .batt-icon { width: 34px; height: 16px; flex: none; color: #5fbf7a; }
+.battery #battVolts { color: var(--fg); font-weight: 600; }
+.battery.warn .batt-icon, .battery.warn #battVolts { color: var(--accent); }
+.battery.low .batt-icon, .battery.low #battVolts, .battery.low #battNote { color: #ffb3b5; }
+.battery.low #battVolts { font-weight: 700; }
+.battery.off .batt-icon { color: var(--muted); }
 .hidden { display: none !important; }
 #staleBanner { background: #3a1d20; border: 1px solid var(--danger);
   color: #ffb3b5; border-radius: 5px; padding: 8px; margin-bottom: 10px;
@@ -54,6 +62,22 @@ button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5
   border-radius: 8px; padding: 20px 26px; max-width: 400px; text-align: center; }
 #shutdownBanner h2 { margin-top: 0; }
 #shutdownBanner button { margin-top: 10px; min-width: 120px; }
+/* battery halt: louder than the ordinary shutdown banner and it stays until
+   acknowledged — the robot is still standing under torque with an empty pack */
+#batteryBanner { position: fixed; inset: 0; z-index: 41; display: flex;
+  align-items: center; justify-content: center; background: rgba(40, 6, 8, .86);
+  animation: battPulse 1.2s ease-in-out infinite alternate; }
+#batteryBanner.hidden { display: none; animation: none; }
+#batteryBanner .box { background: #2a1013; border: 2px solid var(--danger);
+  border-radius: 8px; padding: 22px 28px; max-width: 460px; color: #ffe1e2;
+  box-shadow: 0 0 0 6px rgba(229, 72, 77, .25), 0 20px 60px rgba(0,0,0,.6); }
+#batteryBanner h2 { margin: 0 0 10px; color: #ffb3b5; font-size: 22px; letter-spacing: .04em; }
+#batteryBanner .state { font-weight: 600; color: #fff; }
+#batteryBanner ol { padding-left: 20px; }
+#batteryBanner li { margin: 4px 0; }
+#batteryBanner button { margin-top: 12px; min-width: 140px; }
+@keyframes battPulse { from { background: rgba(40, 6, 8, .80); } to { background: rgba(70, 8, 12, .92); } }
+@media (prefers-reduced-motion: reduce) { #batteryBanner { animation: none; } }
 
 /* Demo step rows are a 4-column grid, not a wrapping flex row: each number
    gets a full column, so a 4-digit speed or a decimal pause stays readable
@@ -67,7 +91,15 @@ button.danger { background: #3a1d20; border-color: var(--danger); color: #ffb3b5
 .step input { width: 100%; padding: 3px 5px; }
 .step input.bad { border-color: var(--danger); background: #2e1e20; }
 .step .lbl { color: var(--muted); font-size: 11px; }
-.step .acts { grid-column: 1 / -1; display: flex; gap: 4px; }
+.step .ttl { grid-column: 1 / -1; font-size: 12px; }
+/* drag-and-drop reordering: the step number is the handle */
+.step .n.drag { cursor: grab; user-select: none; }
+.step .n.drag:active { cursor: grabbing; }
+.step.dragging { opacity: .35; }
+.step.drop-before { border-top: 2px solid var(--accent); }
+.step.drop-after { border-bottom: 2px solid var(--accent); }
+.step .ttl::placeholder { color: #4a5262; }
+.step .acts { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
 .step .acts button { flex: none; width: auto; padding: 3px 8px; }
 .stephead { margin-bottom: 2px; color: var(--muted); font-size: 11px; }
 .steplegend { color: var(--muted); font-size: 11px; margin: -4px 0 8px; }
@@ -129,4 +161,63 @@ body:not(.wireless) .pi-only { display: none; }
 .attach-set .parts { margin: 2px 0 0 22px; }
 .attach-set .parts label.check { font-size: 12px; margin-bottom: 4px; }
 .attach-group { margin: 6px 0 0 12px; }
-.attach-group > label.group { font-weight: 600; }
+.attach-group label.group { font-weight: 600; }
+/* folding: a chevron in front of a set / group row hides its body; the
+   section heading folds the whole panel. State is kept in localStorage. */
+.fold-hdr { display: flex; align-items: center; gap: 2px; }
+.fold-hdr label.check { flex: 1; }
+.chev-btn { width: auto; flex: none; padding: 0 5px; background: none; border: 0;
+  color: var(--muted); font-size: 12px; line-height: 18px; cursor: pointer; }
+.chev-btn:hover { color: var(--fg); }
+.folded > .chev-btn, .folded > .fold-hdr > .chev-btn, h2.fold.folded .chev { transform: rotate(-90deg); }
+.chev-btn, h2.fold .chev { display: inline-block; transition: transform .15s; }
+.attach-set.folded > .parts, .attach-set.folded > .attach-group,
+.attach-group.folded > .parts { display: none; }
+h2.fold { cursor: pointer; user-select: none; }
+#attachSection.folded #attachBody { display: none; }
+
+/* Head card: camera + IMU overlay, top-right of the viewport (wireless
+   only — both feeds come straight from the Pi service). Collapsed by
+   default; the camera stream only runs while the card is open. */
+#headCard { position: absolute; top: 12px; right: 12px; width: 344px;
+  z-index: 5; background: rgba(28, 33, 41, .94); border: 1px solid var(--line);
+  border-radius: 8px; font-size: 12px; overflow: hidden; }
+#headCard .headhead { display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 10px; background: none; border: 0;
+  border-radius: 0; text-align: left; color: var(--fg); font-weight: 600; }
+#headCard .headhead:hover { background: #262d38; }
+#headCard .ttl { flex: 1; }
+#headCard .chev { color: var(--muted); transition: transform .15s; }
+#headCard.collapsed .chev { transform: rotate(-90deg); }
+#headCard.collapsed .headbody { display: none; }
+#headCard .dot { width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: #4a5262; }
+#headCard .dot.live { background: #3ddc84; }
+#headCard .dot.stale { background: var(--accent); }
+#headCard .headbody { padding: 0 10px 10px; border-top: 1px solid var(--line); }
+#headCard .cam { position: relative; margin: 10px 0 8px; background: #0c0f14;
+  border-radius: 6px; overflow: hidden; aspect-ratio: 4 / 3; }
+#headCard .cam img { display: block; width: 100%; height: 100%;
+  object-fit: contain; }
+#headCard .cam img:not([src]) { display: none; }
+#headCard #camMsg { position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; pointer-events: none; }
+#headCard #camMsg.hidden { display: none; }
+#headCard .imu { display: flex; gap: 10px; align-items: center; }
+#headCard .imugrid { flex: 1; display: grid; gap: 3px; }
+#headCard .bar { display: grid; grid-template-columns: 40px 1fr 54px;
+  align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+#headCard .bar .k { color: var(--muted); font-size: 11px; }
+#headCard .bar .v { text-align: right; font-size: 11px; }
+#headCard .track { position: relative; height: 7px; background: #10131a;
+  border-radius: 4px; }
+#headCard .track::after { content: ""; position: absolute; left: 50%; top: -1px;
+  bottom: -1px; width: 1px; background: #3a4352; }
+#headCard .fill { position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
+  background: #5aa9ff; border-radius: 4px; transition: width .12s, left .12s; }
+#headCard .bar.gyro .fill { background: #c78bff; }
+#headCard .tilt { flex: none; text-align: center; }
+#headCard .tiltval { font-size: 11px; color: var(--muted); margin-top: 2px; }
+#headCard .imumeta { display: flex; justify-content: space-between; gap: 8px;
+  margin: 8px 0 6px; font-size: 11px; }
+#headCard #eyeChips { margin-bottom: 0; }
