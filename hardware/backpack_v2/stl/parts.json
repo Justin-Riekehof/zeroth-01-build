@@ -1,0 +1,42 @@
+{
+  "base": {
+    "volume_cm3": 113.34,
+    "centroid_robot_mm": [
+      -4.48,
+      48.56,
+      314.16
+    ]
+  },
+  "deck": {
+    "volume_cm3": 100.13,
+    "centroid_robot_mm": [
+      3.56,
+      81.99,
+      311.62
+    ]
+  },
+  "lid": {
+    "volume_cm3": 32.19,
+    "centroid_robot_mm": [
+      0.88,
+      103.6,
+      318.06
+    ]
+  },
+  "frame": "robot frame of the pinned assembly (mm): +X left, +Y back, +Z up; torso back wall Y=38.1",
+  "depth_mm": {
+    "base": [
+      38.1,
+      72.1
+    ],
+    "deck": [
+      72.1,
+      102.6
+    ],
+    "lid": [
+      102.6,
+      104.6
+    ],
+    "total": 66.5
+  }
+}

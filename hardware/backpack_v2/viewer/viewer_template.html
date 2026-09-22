@@ -1,0 +1,277 @@
+<title>Pixel Backpack v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #eceff4; --panel: #ffffff; --ink: #1b222c; --muted: #5d6776; --line: #d5dae2;
+    --accent: #2f6fd6; --accent-ink: #ffffff; --canvas: #e4e8ef; --grid: #b9c1cd; --grid2: #d2d8e1;
+    --sw-robot: #8f98a6; --sw-base: #3070d6; --sw-deck: #e08a2e; --sw-lid: #80b35a; --sw-red: #cf4b4b;
+    --shadow: 0 1px 2px rgba(20,30,50,.08), 0 8px 24px rgba(20,30,50,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151a; --panel: #1a1f26; --ink: #e6e9ee; --muted: #98a2b1; --line: #2b323d;
+      --accent: #6ea0ff; --accent-ink: #0f1622; --canvas: #1c2129; --grid: #3a4350; --grid2: #2a313c;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151a; --panel: #1a1f26; --ink: #e6e9ee; --muted: #98a2b1; --line: #2b323d;
+    --accent: #6ea0ff; --accent-ink: #0f1622; --canvas: #1c2129; --grid: #3a4350; --grid2: #2a313c;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
+  html, body { overflow-x: hidden; }
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) 320px; height: 100dvh; width: 100%; max-width: 100vw; overflow: hidden; }
+  .stage { position: relative; background: var(--canvas); min-height: 0; }
+  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .hud { position: absolute; left: 14px; bottom: 12px; display: flex; gap: 14px; align-items: center;
+         font: 12px/1.3 "IBM Plex Mono", ui-monospace, monospace; color: var(--muted); pointer-events: none; }
+  .hud b { font-weight: 500; color: var(--ink); }
+  .pick { position: absolute; left: 14px; top: 12px; padding: 4px 8px; border-radius: 4px; background: var(--panel);
+          border: 1px solid var(--line); font: 12px/1.3 "IBM Plex Mono", ui-monospace, monospace; color: var(--ink); pointer-events: none; }
+  .pick:empty { display: none; }
+  .panel { min-width: 0; background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; padding: 18px 18px 22px; display: flex; flex-direction: column; gap: 18px; }
+  .err { position: absolute; inset: auto 14px 44px 14px; padding: 10px 12px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); font-size: 13px; }
+  .err:empty { display: none; }
+  .err code { font: 12px/1.4 "IBM Plex Mono", ui-monospace, monospace; color: var(--muted); word-break: break-all; }
+  .eyebrow { font: 500 11px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  h1 { margin: 6px 0 4px; font: 600 24px/1.1 "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { margin: 0; color: var(--muted); font-size: 13px; }
+  h2 { margin: 0 0 8px; font: 600 12px/1 "IBM Plex Sans Condensed", system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  section { border-top: 1px solid var(--line); padding-top: 14px; }
+  .views { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  button.view { font: 500 12px/1 "IBM Plex Sans Condensed", system-ui, sans-serif; letter-spacing: .04em; padding: 8px 0; border-radius: 4px;
+                border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+  button.view:hover { border-color: var(--accent); }
+  button.view[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.view:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .parts { display: flex; flex-direction: column; gap: 6px; }
+  .parts label { display: grid; grid-template-columns: 16px 12px 1fr auto; align-items: center; gap: 10px; cursor: pointer; padding: 3px 0; }
+  .parts input { margin: 0; width: 16px; height: 16px; accent-color: var(--accent); }
+  .sw { width: 12px; height: 12px; border-radius: 2px; }
+  .parts small { color: var(--muted); font: 400 11px/1 "IBM Plex Mono", ui-monospace, monospace; }
+  .sub { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .range { display: grid; grid-template-columns: 1fr 64px; align-items: center; gap: 10px; }
+  .range input[type=range] { width: 100%; accent-color: var(--accent); }
+  .range output { font: 500 13px/1 "IBM Plex Mono", ui-monospace, monospace; text-align: right; font-variant-numeric: tabular-nums; }
+  dl { margin: 0; display: grid; grid-template-columns: 1fr auto; row-gap: 5px; column-gap: 12px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font: 500 13px/1.45 "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; text-align: right; }
+  .note { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+  .note a { color: var(--accent); }
+  @media (max-width: 820px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 62dvh auto; height: auto; }
+    .panel { border-left: 0; border-top: 1px solid var(--line); }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+    <div class="pick" id="pick"></div>
+    <div class="err" id="err"></div>
+    <div class="hud"><span><b>X</b> links</span><span><b>Y</b> hinten</span><span><b>Z</b> oben</span><span>Roboter-Frame, mm</span></div>
+  </div>
+  <aside class="panel">
+    <header>
+      <div class="eyebrow">Z-Bot · Zeroth-01 · CAD-Pin 93de7567</div>
+      <h1>Pixel Backpack v2</h1>
+      <p class="lede">Gesamter Roboter aus dem gepinnten OnShape-Stand mit dem neuen Elektronik-Rucksack. Ziehen dreht, Rad zoomt, rechte Taste verschiebt, Klick nennt das Teil.</p>
+    </header>
+    <section>
+      <h2>Ansicht</h2>
+      <div class="views" id="views">
+        <button class="view" data-view="iso" aria-pressed="true">Iso</button>
+        <button class="view" data-view="back">Hinten</button>
+        <button class="view" data-view="left">Links</button>
+        <button class="view" data-view="top">Oben</button>
+        <button class="view" data-view="front">Vorn</button>
+      </div>
+    </section>
+    <section>
+      <h2>Teile</h2>
+      <div class="parts" id="parts">
+        <label><input type="checkbox" data-role="robot" checked><span class="sw" style="background:var(--sw-robot)"></span>Roboter (Torso, Arme, Beine, Kopf)<small>GLB</small></label>
+        <label><input type="checkbox" data-role="base" checked><span class="sw" style="background:var(--sw-base)"></span>Grundrahmen mit LiPo-Schublade<small>Teil 1</small></label>
+        <label><input type="checkbox" data-role="deck" checked><span class="sw" style="background:var(--sw-deck)"></span>Elektronik-Deck<small>Teil 2</small></label>
+        <label><input type="checkbox" data-role="lid" checked><span class="sw" style="background:var(--sw-lid)"></span>Rückdeckel<small>Teil 3</small></label>
+        <label><input type="checkbox" data-role="components"><span class="sw" style="background:var(--sw-red);opacity:.5"></span>Bauteil-Hüllen (LiPo, Pi, Cutoff …)<small>Kontrolle</small></label>
+        <label><input type="checkbox" data-role="orig"><span class="sw" style="background:var(--sw-red);opacity:.5"></span>Original-Backpack (K-Scale)<small>105×24×80</small></label>
+      </div>
+      <div class="sub">
+        <label class="range"><span>Explosion</span><output id="explOut">0 mm</output><input id="expl" type="range" min="0" max="80" step="1" value="0" style="grid-column:1/-1" aria-label="Explosionsabstand in Millimetern"></label>
+        <label class="range"><span>Deckel-Deckkraft</span><output id="lidOut">100 %</output><input id="lidOp" type="range" min="10" max="100" step="5" value="100" style="grid-column:1/-1" aria-label="Deckkraft des Rückdeckels"></label>
+      </div>
+    </section>
+    <section>
+      <h2>Maße</h2>
+      <dl>
+        <dt>Hüllkörper B × T × H</dt><dd>146 × 66,5 × 123 mm</dd>
+        <dt>Tiefe ab Rückwand (Y 38,1)</dt><dd>66,5 mm</dd>
+        <dt>Original K-Scale</dt><dd>105 × 24 × 80 mm</dd>
+        <dt>Höhe über Boden</dt><dd>Z 254 – 377</dd>
+        <dt>Breite</dt><dd>X ±73 (Torso)</dd>
+        <dt>Torso-Schrauben</dt><dd>4× M3, Ø4 Hülsen</dd>
+        <dt>Masse bestückt, geschätzt</dt><dd>≈ 750 g</dd>
+        <dt>Schwerpunkt hinter Rückwand</dt><dd>≈ 30 mm</dd>
+        <dt>Δ Schwerpunkt Roboter</dt><dd>+11 hinten · +10 oben</dd>
+      </dl>
+      <p class="note">Arme schwingen laut Gelenkgrenzen nur nach vorn; Beine erreichen die Rückenzone unterhalb Z 252 erst ab Y 128. Details in <code>hardware/backpack_v2/README.md</code>.</p>
+    </section>
+  </aside>
+</div>
+
+<script>
+/*__DATA__*/
+</script>
+<script>
+  // Any failure (module load, WebGL, decode) becomes visible instead of a blank stage.
+  (function () {
+    var box = document.getElementById('err');
+    function show(msg) { if (!box) return; box.innerHTML = '<b>3D-Ansicht konnte nicht geladen werden.</b> Seite neu laden hilft oft. Fehler: <code></code>'; box.querySelector('code').textContent = msg; }
+    window.__viewerReady = false;
+    window.addEventListener('error', function (e) { if (!window.__viewerReady) show((e.message || 'Skriptfehler') + (e.filename ? ' @ ' + e.filename.split('/').pop() : '')); });
+    window.addEventListener('unhandledrejection', function (e) { show(String(e.reason && e.reason.message || e.reason)); });
+    setTimeout(function () { if (!window.__viewerReady && box && !box.textContent) show('three.js wurde nach 12 s nicht geladen (Netzwerk oder Content-Security-Policy).'); }, 12000);
+  })();
+</script>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js';
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const b64 = s => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+
+// ---- minimal orbit control (no addon dependency): left drag = rotate, right/middle/shift drag = pan, wheel/pinch = zoom
+class Orbit {
+  constructor(camera, dom, target) {
+    this.camera = camera; this.dom = dom; this.target = target.clone();
+    this.sph = new THREE.Spherical().setFromVector3(camera.position.clone().sub(this.target));
+    this.ptrs = new Map(); this.pinch = 0; this.moved = false;
+    dom.addEventListener('pointerdown', e => { dom.setPointerCapture(e.pointerId); this.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, b: e.button, shift: e.shiftKey }); this.moved = false; this.pinch = this.dist(); });
+    dom.addEventListener('pointermove', e => {
+      const p = this.ptrs.get(e.pointerId); if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y; if (Math.abs(dx) + Math.abs(dy) > 3) this.moved = true;
+      if (this.ptrs.size === 2) { const d0 = this.pinch; p.x = e.clientX; p.y = e.clientY; const d1 = this.dist(); if (d0 > 0) this.zoom(d0 / d1); this.pinch = d1; return; }
+      if (p.b === 2 || p.b === 1 || p.shift) this.pan(dx, dy); else { this.sph.theta -= dx * 0.006; this.sph.phi = Math.min(Math.PI - 0.05, Math.max(0.05, this.sph.phi - dy * 0.006)); }
+      p.x = e.clientX; p.y = e.clientY;
+    });
+    const up = e => { this.ptrs.delete(e.pointerId); };
+    dom.addEventListener('pointerup', up); dom.addEventListener('pointercancel', up);
+    dom.addEventListener('wheel', e => { e.preventDefault(); this.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+    dom.addEventListener('contextmenu', e => e.preventDefault());
+  }
+  dist() { const a = [...this.ptrs.values()]; return a.length === 2 ? Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) : 0; }
+  zoom(f) { this.sph.radius = Math.min(4000, Math.max(120, this.sph.radius * f)); }
+  pan(dx, dy) {
+    const k = this.sph.radius * 0.0016, right = new THREE.Vector3(), upv = new THREE.Vector3();
+    this.camera.matrix.extractBasis(right, upv, new THREE.Vector3());
+    this.target.addScaledVector(right, -dx * k).addScaledVector(upv, dy * k);
+  }
+  setFromPosition(pos, target) { if (target) this.target.copy(target); this.sph.setFromVector3(pos.clone().sub(this.target)); }
+  update() { this.sph.makeSafe(); this.camera.position.setFromSpherical(this.sph).add(this.target); this.camera.lookAt(this.target); }
+}
+
+const canvas = document.getElementById('c'), stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 5, 6000);
+
+// lights: soft studio
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a94a3, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(-300, 600, 500); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.7); fill.position.set(400, 300, -500); scene.add(fill);
+
+// geometry (robot frame x,y,z -> three x, z, -y; positions int16 * scale)
+const B = DATA.meta.bounds, lo = new THREE.Vector3(...B[0]), hi = new THREE.Vector3(...B[1]);
+const center = lo.clone().add(hi).multiplyScalar(0.5); center.y = 230;
+const roles = {};
+const groupPivot = { deck: new THREE.Group(), lid: new THREE.Group(), components_deck: new THREE.Group() };
+Object.values(groupPivot).forEach(g => scene.add(g));
+for (const g of DATA.groups) {
+  const geo = new THREE.BufferGeometry();
+  const q = new Int16Array(b64(g.pos).buffer), pos = new Float32Array(q.length); for (let i = 0; i < q.length; i++) pos[i] = q[i] * g.scale;
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const idx = g.idxType === 'u16' ? new Uint16Array(b64(g.idx).buffer) : new Uint32Array(b64(g.idx).buffer);
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  const isGhost = g.opacity < 1;
+  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(...g.color), flatShading: true, roughness: 0.62, metalness: 0.05,
+    transparent: isGhost, opacity: g.opacity, depthWrite: !isGhost, side: isGhost ? THREE.DoubleSide : THREE.FrontSide });
+  const mesh = new THREE.Mesh(geo, mat); mesh.userData.role = g.role; mesh.userData.name = g.name;
+  (groupPivot[g.role] || scene).add(mesh);
+  (roles[g.role] ||= []).push(mesh);
+}
+const labels = { robot: 'Roboter (gepinntes CAD)', base: 'Teil 1 · Grundrahmen mit LiPo-Schublade', deck: 'Teil 2 · Elektronik-Deck', lid: 'Teil 3 · Rückdeckel',
+                 orig: 'Original K-Scale BackPack (Vergleich)', components_base: 'Bauteil-Hülle im Grundrahmen', components_deck: 'Bauteil-Hülle im Deck' };
+roles.orig.forEach(m => m.visible = false); roles.components_base.forEach(m => m.visible = false); roles.components_deck.forEach(m => m.visible = false);
+
+// ground grid at sole level + robot-frame axes at the origin (X red = left, Y green = back, Z blue = up)
+const grid = new THREE.GridHelper(700, 28, new THREE.Color(css('--grid')), new THREE.Color(css('--grid2')));
+grid.position.y = lo.y; scene.add(grid);
+const axes = new THREE.Group();
+const axis = (dir, col) => { const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), dir.clone().multiplyScalar(70)]); axes.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: col }))); };
+axis(new THREE.Vector3(1, 0, 0), 0xd23b3b); axis(new THREE.Vector3(0, 0, -1), 0x3aa64a); axis(new THREE.Vector3(0, 1, 0), 0x3b6fd2);
+axes.position.y = lo.y; scene.add(axes);
+
+function applyTheme() { renderer.setClearColor(new THREE.Color(css('--canvas'))); grid.material.color.set(css('--grid')); }
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+// camera presets (three frame: +Z = robot front, -Z = robot back)
+const R = 900;
+const views = {
+  iso:   () => new THREE.Vector3(-0.62, 0.42, -0.66).multiplyScalar(R),
+  back:  () => new THREE.Vector3(0, 0.02, -1).multiplyScalar(R),
+  left:  () => new THREE.Vector3(1, 0.02, 0).multiplyScalar(R),
+  top:   () => new THREE.Vector3(0.001, 1, -0.001).multiplyScalar(R),
+  front: () => new THREE.Vector3(0, 0.02, 1).multiplyScalar(R),
+};
+camera.position.copy(center.clone().add(views.iso()));
+const controls = new Orbit(camera, canvas, center);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let anim = null;
+function goTo(name) {
+  const to = center.clone().add(views[name]()); const from = camera.position.clone();
+  document.querySelectorAll('button.view').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === name)));
+  if (reduced) { controls.setFromPosition(to, center); return; }
+  anim = { from, to, t0: performance.now(), dur: 450 };
+}
+document.getElementById('views').addEventListener('click', e => { const b = e.target.closest('button.view'); if (b) goTo(b.dataset.view); });
+
+document.getElementById('parts').addEventListener('change', e => {
+  const role = e.target.dataset.role, on = e.target.checked;
+  if (role === 'components') roles.components_base.concat(roles.components_deck).forEach(m => m.visible = on);
+  else roles[role].forEach(m => m.visible = on);
+});
+const expl = document.getElementById('expl'), explOut = document.getElementById('explOut');
+expl.addEventListener('input', () => { const d = +expl.value; explOut.textContent = `${d} mm`;
+  groupPivot.deck.position.z = -d; groupPivot.components_deck.position.z = -d; groupPivot.lid.position.z = -2 * d; });
+const lidOp = document.getElementById('lidOp'), lidOut = document.getElementById('lidOut');
+lidOp.addEventListener('input', () => { const o = +lidOp.value / 100; lidOut.textContent = `${lidOp.value} %`;
+  roles.lid.forEach(m => { m.material.transparent = o < 1; m.material.opacity = o; m.material.depthWrite = o >= 1; m.material.needsUpdate = true; }); });
+
+// click identifies a part
+const ray = new THREE.Raycaster(), pick = document.getElementById('pick');
+canvas.addEventListener('pointerup', e => {
+  if (controls.moved || e.button !== 0) return;
+  const r = canvas.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+  const hits = ray.intersectObjects(scene.children, true).filter(h => h.object.visible && h.object.userData.role);
+  pick.textContent = hits.length ? labels[hits[0].object.userData.role] : '';
+});
+
+function resize() { const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(stage); resize();
+function loop(now) {
+  if (anim) { const k = Math.min(1, (now - anim.t0) / anim.dur), s = k * k * (3 - 2 * k);
+    controls.setFromPosition(anim.from.clone().lerp(anim.to, s), center); if (k >= 1) anim = null; }
+  controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop);
+}
+window.__viewerReady = true;
+requestAnimationFrame(loop);
+</script>

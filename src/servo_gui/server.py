@@ -32,6 +32,8 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 GLB_PATH = REPO_ROOT / "resources" / "cad" / "z001-opus-m-93de7567.glb"
 JOINTS_PATH = REPO_ROOT / "resources" / "cad" / "z001-joints-m-93de7567.json"
+# printed add-on parts (own designs) shown on top of the pinned model, see resources/cad/attachments/
+ATTACH_DIR = REPO_ROOT / "resources" / "cad" / "attachments"
 MAP_PATH = HERE / "servo_map.json"
 
 # all calibration/motion configs go through the shared store (repo root here;
@@ -721,6 +723,28 @@ def model():
     if not GLB_PATH.exists():
         raise HTTPException(404, "GLB snapshot missing — see resources/cad/VERSION.md")
     return FileResponse(GLB_PATH, media_type="model/gltf-binary")
+
+
+@app.get("/api/attachments")
+def attachments():
+    """Manifest of printed add-on parts (e.g. the backpack) rendered torso-fixed on the model.
+
+    Optional: an empty list keeps the GUI exactly as before. The GLBs live in the same
+    frame as the pinned model (assembly frame, Z-up, metres)."""
+    mf = ATTACH_DIR / "manifest.json"
+    if not mf.exists():
+        return {"sets": [], "hide": []}
+    return read_json(mf, {"sets": [], "hide": []})
+
+
+@app.get("/attachments/{name}")
+def attachment_file(name: str):
+    if "/" in name or "\\" in name or not name.endswith(".glb"):
+        raise HTTPException(400, "attachment name must be a plain .glb file name")
+    path = ATTACH_DIR / name
+    if not path.exists():
+        raise HTTPException(404, f"attachment {name} missing — run hardware/backpack_v2/viewer/export_attachments.py")
+    return FileResponse(path, media_type="model/gltf-binary")
 
 
 @app.put("/api/model")

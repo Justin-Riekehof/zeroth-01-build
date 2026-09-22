@@ -122,3 +122,11 @@ body:not(.wireless) .pi-only { display: none; }
 #dropHint p { margin-bottom: 10px; color: var(--muted); }
 #dropHint code { color: var(--accent); }
 #viewport.dragover { outline: 3px dashed var(--accent); outline-offset: -3px; }
+
+/* attachments panel: colour swatch + nested part rows */
+.sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.attach-set { margin: 4px 0 6px; }
+.attach-set .parts { margin: 2px 0 0 22px; }
+.attach-set .parts label.check { font-size: 12px; margin-bottom: 4px; }
+.attach-group { margin: 6px 0 0 12px; }
+.attach-group > label.group { font-weight: 600; }

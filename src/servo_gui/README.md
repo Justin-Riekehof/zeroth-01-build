@@ -102,3 +102,12 @@ file format.
 - Torque is released at the end of every run — except joints parked by the
   **hold center** demo mode, which keep holding until *✋ release torque*.
   *Stop* always cuts torque on everything (E-stop).
+
+## Attachments (printed add-ons on the model)
+
+`resources/cad/attachments/manifest.json` lists GLB files (same frame as the pinned model:
+assembly frame, Z-up, metres) that the GUI adds as torso-fixed parts — currently the
+backpack designs from `hardware/backpack_v2/`. The *Attachments* panel toggles each set and
+part, can hide original parts the build no longer has (old BackPack, battery, MilkV …) and
+offers a see-through torso. The pose rig is untouched: attachments are children of the
+model root, i.e. of the torso link. Without a manifest the panel stays hidden.

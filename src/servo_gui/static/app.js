@@ -216,7 +216,126 @@ async function loadModel() {
   footNodes = ['foot_left', 'foot_right'].map(findNode).filter(Boolean);
   captureSoleNormals();                // rest pose = soles flat on the ground
   select(null);                        // re-highlight on the NEW node objects
+  await loadAttachments();             // own printed add-ons, torso-fixed
 }
+
+// ---------------------------------------------------------------- attachments
+// Printed add-on parts (hardware/backpack_v2 ...) rendered as children of modelRoot.
+// They live in the pinned model's own frame (assembly frame, Z-up, metres), and
+// anything that is not part of a joint's chain stays with the root link = torso, so
+// the pose rig, ground snap and calibration are untouched. The manifest can also
+// hide original parts the build no longer has (old BackPack, battery, MilkV ...).
+const attachRoots = new Map();   // set id -> Object3D
+const attachLabels = new Map();  // fullKey(node name) -> human label (shown on click)
+const nodeMatches = (o, pattern) => {
+  const k = fullKey(o.name || ''), pk = fullKey(pattern);
+  return !!k && (k === pk || k.startsWith(pk));
+};
+function attachmentLabelFor(obj) {
+  for (let o = obj; o && o !== scene; o = o.parent) {
+    const k = fullKey(o.name || '');
+    if (!k) continue;
+    if (attachLabels.has(k)) return attachLabels.get(k);
+    for (const [key, label] of attachLabels) if (k.startsWith(key)) return label;
+  }
+  return null;
+}
+function setNodeVisible(root, pattern, on) {
+  root.traverse(o => { if (nodeMatches(o, pattern)) o.visible = on; });
+}
+function paintNode(root, pattern, color, opacity = 1) {
+  root.traverse(o => {
+    if (!nodeMatches(o, pattern)) return;
+    o.traverse(m => {
+      if (!m.isMesh) return;
+      m.material = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(color), roughness: .6, metalness: .05, flatShading: true,
+        transparent: opacity < 1, opacity, depthWrite: opacity >= 1,
+        side: opacity < 1 ? THREE.DoubleSide : THREE.FrontSide });
+    });
+  });
+}
+function checkRow(label, checked, swatch, onChange, extraClass = '') {
+  const lab = document.createElement('label');
+  lab.className = 'check ' + extraClass;
+  const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = checked;
+  cb.addEventListener('change', () => onChange(cb.checked));
+  lab.appendChild(cb);
+  if (swatch) { const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = swatch; lab.appendChild(sw); }
+  lab.appendChild(document.createTextNode(label));
+  return lab;
+}
+async function loadAttachments() {
+  const list = $('attachList'), section = $('attachSection');
+  if (!list || !modelRoot) return;
+  list.innerHTML = '';
+  for (const r of attachRoots.values()) r.parent?.remove(r);
+  attachRoots.clear(); attachLabels.clear();
+  let manifest;
+  try { manifest = await api.get('/api/attachments'); } catch { manifest = { sets: [], hide: [] }; }
+  const sets = manifest.sets ?? [], hides = manifest.hide ?? [];
+  section.classList.toggle('hidden', !sets.length && !hides.length);
+  for (const set of sets) {
+    let gltf;
+    try { gltf = await new GLTFLoader().loadAsync('/attachments/' + encodeURIComponent(set.file)); }
+    catch (e) { clientMsg(`attachment "${set.label}" not loaded: ${e.message}`); continue; }
+    const root = gltf.scene;
+    root.name = 'attach:' + set.id;
+    root.visible = set.visible !== false;
+    modelRoot.add(root);
+    attachRoots.set(set.id, root);
+    const wrap = document.createElement('div'); wrap.className = 'attach-set';
+    wrap.appendChild(checkRow(set.label, root.visible, null, on => { root.visible = on; }));
+    const parts = document.createElement('div'); parts.className = 'parts';
+    const itemRow = (item, container) => {
+      paintNode(root, item.node, item.color ?? '#999999', item.opacity ?? 1);
+      const on = item.visible !== false;
+      setNodeVisible(root, item.node, on);
+      attachLabels.set(fullKey(item.node), item.label);
+      const row = checkRow(item.label, on, item.color ?? '#999999', v => setNodeVisible(root, item.node, v));
+      container.appendChild(row);
+      return row.querySelector('input');
+    };
+    for (const part of set.parts ?? []) itemRow(part, parts);
+    wrap.appendChild(parts);
+    // groups (components, cables ...): one "all" checkbox + one row per item
+    for (const grp of set.groups ?? []) {
+      const gwrap = document.createElement('div'); gwrap.className = 'attach-group';
+      const inner = document.createElement('div'); inner.className = 'parts';
+      const boxes = [];
+      const anyOn = (grp.items ?? []).some(i => i.visible !== false);
+      gwrap.appendChild(checkRow(grp.label, anyOn, null, v => {
+        for (const [item, cb] of boxes) { cb.checked = v; setNodeVisible(root, item.node, v); }
+      }, 'group'));
+      for (const item of grp.items ?? []) boxes.push([item, itemRow(item, inner)]);
+      gwrap.appendChild(inner);
+      wrap.appendChild(gwrap);
+    }
+    list.appendChild(wrap);
+    clientMsg(`attachment "${set.label}" loaded (${set.file})`);
+  }
+  for (const h of hides) {
+    const apply = on => {
+      for (const pat of h.patterns ?? [])
+        modelRoot.traverse(o => { if (!o.name?.startsWith('attach:') && nodeMatches(o, pat)) o.visible = !on; });
+    };
+    apply(h.default !== false);
+    list.appendChild(checkRow(h.label, h.default !== false, null, apply));
+  }
+}
+// torso see-through: clone the torso's materials once, then fade them
+let torsoMats = null;
+$('torsoXray')?.addEventListener('change', e => {
+  const torso = findNode('Torso <1>'); if (!torso) return;
+  if (!torsoMats) {
+    torsoMats = [];
+    torso.traverse(m => { if (m.isMesh) { m.material = m.material.clone(); torsoMats.push(m.material); } });
+  }
+  for (const mat of torsoMats) {
+    mat.transparent = e.target.checked; mat.opacity = e.target.checked ? 0.3 : 1;
+    mat.depthWrite = !e.target.checked; mat.needsUpdate = true;
+  }
+});
 
 // ---------------------------------------------------------------- selection
 
@@ -328,10 +447,12 @@ function select(obj, toggle = false) {
   if (toggle && inServoList(currentJoint))
     toggleJointSelection(currentJoint.name);
   $('axis').disabled = !!currentJoint;   // axis comes from the CAD joint
+  const attachLabel = has ? attachmentLabelFor(selected) : null;
   $('selName').textContent = has
-    ? (selected.name || '(unnamed)')
+    ? (attachLabel ?? selected.name ?? '(unnamed)')
       + (currentJoint ? `  ·  ⚙ ${currentJoint.name}` : '')
     : 'nothing selected';
+  if (attachLabel) clientMsg(`attachment: ${attachLabel}`);
   if (currentJoint)
     clientMsg(`CAD joint "${currentJoint.name}" — axis & center from OnShape`);
   const hasPivot = !!(currentJoint && pivots.has(currentJoint.name));

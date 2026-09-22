@@ -53,6 +53,7 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 - **Phase 1 — Arms** (STS3215) ✅ : assembled, IDs flashed (11–13 / 21–23), center-calibrated, per-joint safe limits measured on the bench (one torn elbow bracket later) — [hardware/joint_limits.json](hardware/joint_limits.json)
 - **Phase 2 — Legs & torso** (STS3250): *in progress* — **whole body assembled & calibrated** (IDs 31–35 / 41–45, mount offsets incl. a +90° hip, hand-trimmed zeros), first **teach-in motion demos** running on the full body ([demos/](demos/)); RL locomotion still ahead
 - **Servo test GUI** ✅ : browser tool for bring-up, testing, teach-in and visualization ([src/servo_gui/](src/servo_gui/), see [Software](#software))
+- **Backpack v3.1 (CAD)** 🛠️ : rear electronics housing for the 3S LiPo, XY-CD63 low-voltage cutoff, inline fuse, anti-spark switch, Waveshare adapter and Pololu buck, plus a torso insert that carries the Pi 4B in the now-empty battery bay — derived from the pinned CAD (torso hole pattern, interior cavity, arm/leg sweep envelopes); every part modelled with its connectors and wire zones, every cable as a tube with its minimum bend radius and checked against parts and envelopes; three support-free PETG parts, shown on the model in the GUI's *Attachments* panel incl. cables ([hardware/backpack_v2/](hardware/backpack_v2/))
 - **Onboard compute / wireless mode** ✅ : shared motion core ([src/zbot_core/](src/zbot_core/)) + intent service on the Raspberry Pi ([src/pi_service/](src/pi_service/)) — demos execute on the robot, the GUI switches between USB (bench) and wireless (Pi) mode; one-command deploy ([docs/pi-service.md](docs/pi-service.md))
 - **Phase 2 — Legs & torso** (STS3250): planned — RL locomotion
 - **Phase 3 — Full integration**: planned
@@ -135,7 +136,8 @@ MuJoCo/ksim-based training pipeline: train locomotion policies locally on the GP
 
 ```
 docs/       dated build-log entries & decisions
-hardware/   servo docs & configs (IDs, joint limits, mount offsets), print notes
+hardware/   servo docs & configs (IDs, joint limits, mount offsets), print notes ·
+            backpack_v2/ (CadQuery model + STLs of the electronics backpack)
 demos/      teach-in motion sequences (JSON, created & played via the GUI)
 src/        servo_gui/ (web GUI) · zbot_core/ (shared motion core) ·
             pi_service/ (onboard intent API) · tests/ (bench scripts) · cpp/ (planned)
