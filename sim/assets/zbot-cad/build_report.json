@@ -1,0 +1,135 @@
+{
+ "links": {
+  "base": [
+   "hip_pitch_dual_carry",
+   "right_hip_pitch_motor",
+   "right_shoulder_pitch_motor",
+   "torso",
+   "left_hip_pitch_motor",
+   "left_shoulder_pitch_motor",
+   "neck_mount",
+   "head",
+   "torso_to_neck",
+   "eye_mount"
+  ],
+  "right_hip_pitch_link": [
+   "hip_yaw_right",
+   "right_hip_yaw_motor"
+  ],
+  "right_hip_yaw_link": [
+   "right_hip_roll_motor",
+   "hip_roll_right"
+  ],
+  "right_knee_pitch_link": [
+   "right_ankle_pitch_motor",
+   "ankle_pitch_right",
+   "right_knee_pitch_motor"
+  ],
+  "left_hip_pitch_link": [
+   "hip_yaw_left",
+   "left_hip_yaw_motor"
+  ],
+  "left_hip_yaw_link": [
+   "hip_roll_left",
+   "left_hip_roll_motor"
+  ],
+  "left_knee_pitch_link": [
+   "ankle_pitch_left",
+   "left_knee_pitch_motor",
+   "left_ankle_pitch_motor"
+  ],
+  "right_shoulder_yaw_link": [
+   "right_shoulder_yaw_motor",
+   "elbow_bracket_left",
+   "right_elbow_yaw_motor"
+  ],
+  "left_shoulder_yaw_link": [
+   "left_elbow_yaw_motor",
+   "elbow_bracket_right",
+   "left_shoulder_yaw_motor"
+  ],
+  "right_shoulder_pitch_link": [
+   "right_shoulder_yaw"
+  ],
+  "left_shoulder_pitch_link": [
+   "left_shoulder_yaw"
+  ],
+  "right_hip_roll_link": [
+   "knee_pitch_right"
+  ],
+  "left_hip_roll_link": [
+   "knee_pitch_left"
+  ],
+  "right_elbow_yaw_link": [
+   "right_hand"
+  ],
+  "left_elbow_yaw_link": [
+   "left_hand"
+  ],
+  "left_ankle_pitch_link": [
+   "foot_left"
+  ],
+  "right_ankle_pitch_link": [
+   "foot_right"
+  ]
+ },
+ "excluded": [
+  "[draft]_speaker_mount",
+  "backpack",
+  "battery,_5.2_ah,_dc5521_plug",
+  "bus_servo_adaptor,_waveshare",
+  "chamfered_plain_washer_normal_m2",
+  "chamfered_plain_washer_normal_m3",
+  "electronics_mount",
+  "hex_socket_head_cap_screw_m3x0.50_x_5",
+  "hex_socket_head_cap_screw_m3x0.50_x_6",
+  "hex_socket_head_cap_screw_m3x0.50_x_6_1",
+  "hex_socket_head_cap_screw_m3x0.50_x_8",
+  "lcd_imu",
+  "mic",
+  "milk_camera",
+  "milkv",
+  "milkvhat_revb"
+ ],
+ "part_masses_g": {
+  "hip_pitch_dual_carry": 60.6,
+  "torso": 430.5,
+  "neck_mount": 37.2,
+  "head": 88.1,
+  "torso_to_neck": 26.5,
+  "eye_mount": 2.0,
+  "right_hip_pitch_motor": 62.0,
+  "right_shoulder_pitch_motor": 55.0,
+  "left_hip_pitch_motor": 62.0,
+  "left_shoulder_pitch_motor": 55.0,
+  "hip_yaw_right": 36.7,
+  "right_hip_yaw_motor": 62.0,
+  "hip_roll_right": 41.5,
+  "right_hip_roll_motor": 62.0,
+  "ankle_pitch_right": 24.6,
+  "right_ankle_pitch_motor": 62.0,
+  "right_knee_pitch_motor": 62.0,
+  "hip_yaw_left": 36.7,
+  "left_hip_yaw_motor": 62.0,
+  "hip_roll_left": 41.5,
+  "left_hip_roll_motor": 62.0,
+  "ankle_pitch_left": 24.6,
+  "left_knee_pitch_motor": 62.0,
+  "left_ankle_pitch_motor": 62.0,
+  "elbow_bracket_left": 21.3,
+  "right_shoulder_yaw_motor": 55.0,
+  "right_elbow_yaw_motor": 55.0,
+  "elbow_bracket_right": 21.3,
+  "left_elbow_yaw_motor": 55.0,
+  "left_shoulder_yaw_motor": 55.0,
+  "right_shoulder_yaw": 32.5,
+  "left_shoulder_yaw": 32.5,
+  "knee_pitch_right": 35.4,
+  "knee_pitch_left": 35.4,
+  "right_hand": 37.7,
+  "left_hand": 37.7,
+  "foot_left": 62.2,
+  "foot_right": 62.2
+ },
+ "total_mass_kg": 2.9169
+}

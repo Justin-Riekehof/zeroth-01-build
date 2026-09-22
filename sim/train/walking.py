@@ -15,6 +15,7 @@ import logging
 from dataclasses import dataclass
 from typing import Collection, Self
 
+import os
 import attrs
 import distrax
 import equinox as eqx
@@ -361,9 +362,11 @@ class LinearVelocityTrackingReward(ksim.Reward):
     def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
         if self.linvel_obs_name not in trajectory.obs:
             raise ValueError(f"Observation {self.linvel_obs_name} not found; add it as an observation in your task.")
-        command = jnp.concatenate(
-            [trajectory.command[self.command_name_x], trajectory.command[self.command_name_y]], axis=-1
-        )
+        cmd = trajectory.command
+        if self.command_name_x in cmd:
+            command = jnp.concatenate([cmd[self.command_name_x], cmd[self.command_name_y]], axis=-1)
+        else:  # LinearVelocityCommand emits one 2-vector named after the class
+            command = cmd["linear_velocity_command"][..., :2]
         lin_vel_error = xax.get_norm(command - trajectory.obs[self.linvel_obs_name][..., :2], self.norm).sum(axis=-1)
         return jnp.exp(-lin_vel_error / self.error_scale), None
 
@@ -475,6 +478,200 @@ class FeetContactPenalty(Reward):
 
 
 @attrs.define(frozen=True, kw_only=True)
+class FeetSlipPenalty(ksim.Reward):
+    """Penalises horizontal foot velocity while that foot is in contact (skating / sliding gaits)."""
+
+    ctrl_dt: float = attrs.field(default=0.02)
+    pos_obs: str = attrs.field(default="feet_position_observation")
+    contact_obs: str = attrs.field(default="feet_contact_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        pos = trajectory.obs[self.pos_obs]                       # (..., 6) = left xyz, right xyz
+        pos = pos.reshape(pos.shape[:-1] + (2, 3))
+        contact = trajectory.obs[self.contact_obs].reshape(pos.shape[:-1])   # (..., 2)
+        vel = (pos[1:] - pos[:-1]) / self.ctrl_dt
+        vel = jnp.concatenate([vel, vel[-1:]], axis=0)
+        slip = jnp.linalg.norm(vel[..., :2], axis=-1) * contact  # (..., 2)  m/s while touching the floor
+        penalty = jnp.clip(slip, max=2.0).sum(axis=-1)
+        return jnp.where(trajectory.done, 0.0, penalty), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class SingleSupportReward(ksim.Reward):
+    """+1 while exactly one foot touches the floor: rewards a stepping gait over shuffling/hopping."""
+
+    contact_obs: str = attrs.field(default="feet_contact_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        contact = trajectory.obs[self.contact_obs]
+        n = contact.reshape(contact.shape[:-1] + (-1,)).sum(axis=-1)
+        return jnp.where(n == 1, 1.0, 0.0), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class SwingDurationReward(ksim.Reward):
+    """Per-step reward for a foot that is in a swing phase of a proper length (stepping instead of shuffling).
+
+    Every step of a swing (foot not in contact) receives +1 if that swing lasts t_min..t_max seconds,
+    -1 if it is shorter (chattering / shuffling), 0 if longer (foot held up, hopping) or when the other
+    foot is off the ground too (flight). The duration is known because the whole rollout is available.
+    """
+
+    ctrl_dt: float = attrs.field(default=0.02)
+    t_min: float = attrs.field(default=0.15)
+    t_max: float = attrs.field(default=0.45)
+    contact_obs: str = attrs.field(default="feet_contact_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        contact = trajectory.obs[self.contact_obs] > 0.5       # (T, 2)
+        swing = ~contact
+
+        def fwd(carry: Array, s: Array) -> tuple[Array, Array]:  # run length of the swing so far
+            carry = jnp.where(s, carry + 1, 0)
+            return carry, carry
+
+        _, up = jax.lax.scan(fwd, jnp.zeros(contact.shape[-1], dtype=jnp.int32), swing)
+
+        def bwd(carry: Array, x: tuple[Array, Array]) -> tuple[Array, Array]:  # total run length
+            up_t, s_t = x
+            carry = jnp.where(s_t, jnp.where(carry == 0, up_t, carry), 0)
+            return carry, carry
+
+        _, total = jax.lax.scan(bwd, jnp.zeros(contact.shape[-1], dtype=jnp.int32), (up, swing), reverse=True)
+        dur = total.astype(jnp.float32) * self.ctrl_dt
+        good = swing & (dur >= self.t_min) & (dur <= self.t_max)
+        short = swing & (dur < self.t_min)
+        other_down = contact[..., ::-1]
+        r = ((good.astype(jnp.float32) - short.astype(jnp.float32)) * other_down).sum(axis=-1)
+        return jnp.where(trajectory.done, 0.0, r), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class ContactFlipPenalty(ksim.Reward):
+    """Number of foot contact changes per step (chattering feet)."""
+
+    contact_obs: str = attrs.field(default="feet_contact_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        c = trajectory.obs[self.contact_obs]
+        flips = jnp.abs(c[1:] - c[:-1]).sum(axis=-1)
+        flips = jnp.concatenate([jnp.zeros_like(flips[:1]), flips], axis=0)
+        return jnp.where(trajectory.done, 0.0, flips), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class FootClearanceReward(ksim.Reward):
+    """Rewards lifting the swing foot: clip((z - z_stance) / target, 0, 1) for a foot off the ground while the
+    other foot is in contact. z_stance is that foot's mean height while in contact over the rollout, so
+    the reward is independent of the foot site's rest height."""
+
+    target: float = attrs.field(default=0.03)
+    pos_obs: str = attrs.field(default="feet_position_observation")
+    contact_obs: str = attrs.field(default="feet_contact_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        pos = trajectory.obs[self.pos_obs]
+        z = pos.reshape(pos.shape[:-1] + (2, 3))[..., 2]                    # (T, 2)
+        contact = trajectory.obs[self.contact_obs] > 0.5
+        c = contact.astype(jnp.float32)
+        z_stance = (z * c).sum(axis=0) / jnp.maximum(c.sum(axis=0), 1.0)      # (2,)
+        lift = jnp.clip((z - z_stance) / self.target, 0.0, 1.0)
+        r = (lift * (~contact) * contact[..., ::-1]).sum(axis=-1)
+        return jnp.where(trajectory.done, 0.0, r), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class HeadingPenalty(ksim.Reward):
+    """|yaw| of the base (rad, clipped) — the robot spawns facing +x, so this punishes accumulated heading drift
+    instead of the per-step yaw rate (which a stepping gait oscillates anyway)."""
+
+    clip: float = attrs.field(default=1.0)
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        q = trajectory.qpos[..., 3:7]
+        yaw = jnp.arctan2(2 * (q[..., 0] * q[..., 3] + q[..., 1] * q[..., 2]), 1 - 2 * (q[..., 2] ** 2 + q[..., 3] ** 2))
+        return jnp.where(trajectory.done, 0.0, jnp.clip(jnp.abs(yaw), max=self.clip)), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class LateralPositionPenalty(ksim.Reward):
+    """|y| of the base (m, clipped): stay on the x axis it started on."""
+
+    clip: float = attrs.field(default=1.0)
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        y = trajectory.qpos[..., 1]
+        return jnp.where(trajectory.done, 0.0, jnp.clip(jnp.abs(y), max=self.clip)), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class BaseHeadingObservation(ksim.Observation):
+    """Heading of the base relative to the start heading (the robot always spawns facing +x): [cos yaw, sin yaw].
+    On the real robot this is the IMU's fused/gyro-integrated yaw, zeroed when the policy starts."""
+
+    def observe(self, state: ksim.ObservationInput, rng: PRNGKeyArray) -> Array:
+        q = state.physics_state.data.qpos[3:7]
+        yaw = jnp.arctan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (q[2] ** 2 + q[3] ** 2))
+        return jnp.stack([jnp.cos(yaw), jnp.sin(yaw)], axis=-1)
+
+
+@attrs.define(frozen=True, kw_only=True)
+class FootLiftPenalty(ksim.Reward):
+    """Penalises lifting a swing foot higher than `max_lift` above its stance height (small, real-robot-friendly
+    steps): clip((z - z_stance - max_lift) / 0.02, 0, 1) per foot in the air while the other foot is down."""
+
+    max_lift: float = attrs.field(default=0.04)
+    pos_obs: str = attrs.field(default="feet_position_observation")
+    contact_obs: str = attrs.field(default="feet_contact_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        pos = trajectory.obs[self.pos_obs]
+        z = pos.reshape(pos.shape[:-1] + (2, 3))[..., 2]
+        contact = trajectory.obs[self.contact_obs] > 0.5
+        c = contact.astype(jnp.float32)
+        z_stance = (z * c).sum(axis=0) / jnp.maximum(c.sum(axis=0), 1.0)
+        over = jnp.clip((z - z_stance - self.max_lift) / 0.02, 0.0, 1.0)
+        r = (over * (~contact) * contact[..., ::-1]).sum(axis=-1)
+        return jnp.where(trajectory.done, 0.0, r), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class JointDeviationPenalty(ksim.Reward):
+    """Sum of |q| (rad) over selected joints: keeps e.g. hip abduction/rotation and the arms near the zero pose
+    (minimal joint movement for a calm, real-robot-friendly gait)."""
+
+    joint_indices: tuple[int, ...] = attrs.field()
+    obs_name: str = attrs.field(default="joint_position_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        q = trajectory.obs[self.obs_name][..., jnp.array(self.joint_indices)]
+        return jnp.where(trajectory.done, 0.0, jnp.abs(q).sum(axis=-1)), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class BaseRollPenalty(ksim.Reward):
+    """|roll| of the base (rad, clipped): left-right leaning of the torso."""
+
+    clip: float = attrs.field(default=0.5)
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        q = trajectory.qpos[..., 3:7]
+        roll = jnp.arctan2(2 * (q[..., 0] * q[..., 1] + q[..., 2] * q[..., 3]), 1 - 2 * (q[..., 1] ** 2 + q[..., 2] ** 2))
+        return jnp.where(trajectory.done, 0.0, jnp.clip(jnp.abs(roll), max=self.clip)), None
+
+
+@attrs.define(frozen=True, kw_only=True)
+class MeanJointSpeedPenalty(ksim.Reward):
+    """Mean |joint velocity| (rad/s) over all actuated joints: slower, calmer motion."""
+
+    obs_name: str = attrs.field(default="joint_velocity_observation")
+
+    def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
+        v = trajectory.obs[self.obs_name]
+        return jnp.where(trajectory.done, 0.0, jnp.abs(v).mean(axis=-1)), None
+
+
+@attrs.define(frozen=True, kw_only=True)
 class AngularVelocityTrackingReward(ksim.Reward):
     """Reward for tracking the angular velocity."""
 
@@ -486,9 +683,10 @@ class AngularVelocityTrackingReward(ksim.Reward):
     def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
         if self.angvel_obs_name not in trajectory.obs:
             raise ValueError(f"Observation {self.angvel_obs_name} not found; add it as an observation in your task.")
-        ang_vel_error = jnp.square(
-            trajectory.command[self.command_name].flatten() - trajectory.obs[self.angvel_obs_name][..., 2]
-        )
+        cmd = trajectory.command
+        ang_cmd = cmd[self.command_name] if self.command_name in cmd else cmd["angular_velocity_command"]
+        ang_vel = trajectory.obs[self.angvel_obs_name][..., 2]
+        ang_vel_error = jnp.square(jnp.reshape(ang_cmd, ang_vel.shape) - ang_vel)
         return jnp.exp(-ang_vel_error / self.error_scale), None
 
 
@@ -680,9 +878,10 @@ class ZbotActor(eqx.Module):
         max_std: float,
         var_scale: float,
         mean_scale: float,
+        num_inputs: int = NUM_INPUTS,
     ) -> None:
         self.mlp = eqx.nn.MLP(
-            in_size=NUM_INPUTS,
+            in_size=num_inputs,
             out_size=NUM_OUTPUTS * 2,
             width_size=256,
             depth=5,
@@ -705,21 +904,22 @@ class ZbotActor(eqx.Module):
         ang_vel_cmd_1: Array,
         gait_freq_cmd_1: Array,
         last_action_n: Array,
+        heading_2: Array | None = None,
     ) -> distrax.Normal:
-        x_n = jnp.concatenate(
-            [
-                timestep_phase_4,
-                joint_pos_n,
-                joint_vel_n,
-                imu_acc_3,
-                imu_gyro_3,
-                lin_vel_cmd_2,
-                ang_vel_cmd_1,
-                gait_freq_cmd_1,
-                last_action_n,
-            ],
-            axis=-1,
-        )  # (NUM_INPUTS)
+        parts = [
+            timestep_phase_4,
+            joint_pos_n,
+            joint_vel_n,
+            imu_acc_3,
+            imu_gyro_3,
+            lin_vel_cmd_2,
+            ang_vel_cmd_1,
+            gait_freq_cmd_1,
+            last_action_n,
+        ]
+        if heading_2 is not None:
+            parts.append(heading_2)  # heading_obs=True: +2 inputs
+        x_n = jnp.concatenate(parts, axis=-1)  # (NUM_INPUTS [+2])
 
         return self.call_flat_obs(x_n)
 
@@ -830,13 +1030,14 @@ class ZbotModel(eqx.Module):
     actor: ZbotActor
     critic: ZbotCritic
 
-    def __init__(self, key: PRNGKeyArray) -> None:
+    def __init__(self, key: PRNGKeyArray, num_inputs: int = NUM_INPUTS) -> None:
         self.actor = ZbotActor(
             key,
             min_std=0.01,
             max_std=1.0,
             var_scale=1.0,
             mean_scale=1.0,
+            num_inputs=num_inputs,
         )
         self.critic = ZbotCritic(key)
 
@@ -867,11 +1068,52 @@ class ZbotWalkingTaskConfig(ZbotTaskConfig):
         help="Weight decay for the Adam optimizer.",
     )
 
+    # Local addition: "walk straight" variant. Tracks a forward velocity command instead of
+    # rewarding raw forward speed; heading is held by the angular-velocity tracking term.
+    velocity_tracking: bool = xax.field(
+        value=False,
+        help="Use velocity/heading tracking rewards with forward-only commands (walk straight).",
+    )
+    target_speed_min: float = xax.field(value=0.15, help="Forward command lower bound [m/s] (velocity_tracking).")
+    target_speed_max: float = xax.field(value=0.35, help="Forward command upper bound [m/s] (velocity_tracking).")
+    gait_shaping: bool = xax.field(
+        value=False,
+        help="Add gait-shaping terms: reward feet leaving the ground, penalise lateral drift, yaw rate and jerky actions.",
+    )
+    gait_step_reward: float = xax.field(value=0.2, help="Scale of the feet-no-contact (stepping) reward (gait_shaping).")
+    gait_lateral_penalty: float = xax.field(value=-0.5, help="Scale of the lateral (y) velocity penalty (gait_shaping).")
+    gait_yaw_penalty: float = xax.field(value=-0.3, help="Scale of the yaw-rate penalty (gait_shaping).")
+    gait_smooth_penalty: float = xax.field(value=-0.02, help="Scale of the action-smoothness penalty (gait_shaping).")
+    gait_single_support: float = xax.field(value=0.0, help="Scale of the single-support (stepping) reward (gait_shaping).")
+    feet_slip_penalty: float = xax.field(value=0.0, help="Scale of the foot-slip-while-in-contact penalty (gait_shaping), e.g. -0.3.")
+    heading_obs: bool = xax.field(value=False, help="Give the actor the base heading relative to the start ([cos yaw, sin yaw], +2 inputs; real robot: IMU yaw zeroed at start) so it can hold a straight course.")
+    torso_body_name: str = xax.field(value="base", help="Body that gets the mass randomisation (zbot-cad: base; old zbot-pixel models: Z_BOT2_MASTER_BODY_SKELETON).")
+    gait_swing_reward: float = xax.field(value=0.0, help="Scale of the swing-duration-band reward (gait_shaping), e.g. 1.0: +1 per step of a swing lasting gait_swing_tmin..tmax, -1 for shorter swings.")
+    gait_swing_tmin: float = xax.field(value=0.15, help="Shortest swing phase (s) counted as a real step.")
+    gait_swing_tmax: float = xax.field(value=0.45, help="Longest swing phase (s) still rewarded.")
+    gait_flip_penalty: float = xax.field(value=0.0, help="Scale of the foot-contact-change (chattering) penalty (gait_shaping), e.g. -0.1.")
+    gait_clearance_reward: float = xax.field(value=0.0, help="Scale of the swing-foot clearance reward (gait_shaping), e.g. 0.5.")
+    gait_clearance_target: float = xax.field(value=0.03, help="Foot lift (m) above stance height that earns the full clearance reward.")
+    foot_lift_penalty: float = xax.field(value=0.0, help="Scale of the penalty for lifting a swing foot above foot_lift_max (gait_shaping), e.g. -0.5.")
+    foot_lift_max: float = xax.field(value=0.04, help="Foot lift (m) above stance height from which foot_lift_penalty applies.")
+    joint_deviation_penalty: float = xax.field(value=0.0, help="Scale of the sum-|q| penalty on joint_deviation_joints (gait_shaping), e.g. -0.3.")
+    joint_deviation_joints: str = xax.field(value="hip_yaw,hip_roll,shoulder,elbow", help="Comma-separated name substrings of the joints held near zero by joint_deviation_penalty.")
+    roll_penalty: float = xax.field(value=0.0, help="Scale of the |base roll| penalty (gait_shaping), e.g. -1.0.")
+    joint_velocity_penalty: float = xax.field(value=0.0, help="Scale of the mean-|joint velocity| penalty (gait_shaping), e.g. -0.02.")
+    heading_penalty: float = xax.field(value=0.0, help="Scale of the |yaw| heading-drift penalty (gait_shaping), e.g. -1.0.")
+    lateral_position_penalty: float = xax.field(value=0.0, help="Scale of the |y| lateral-drift penalty (gait_shaping), e.g. -0.5.")
+    track_reward_scale: float = xax.field(value=2.0, help="Scale of the linear velocity tracking reward (velocity_tracking).")
+    track_error_scale: float = xax.field(value=0.25, help="Error scale of the velocity tracking reward; smaller = stricter.")
+
 
 class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
     @property
     def get_input_shapes(self) -> list[tuple[int, ...]]:
-        return [(NUM_INPUTS,)]
+        return [(self.num_actor_inputs,)]
+
+    @property
+    def num_actor_inputs(self) -> int:
+        return NUM_INPUTS + (2 if self.config.heading_obs else 0)
 
     def get_optimizer(self) -> optax.GradientTransformation:
         """Builds the optimizer.
@@ -897,7 +1139,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
                 ksim.StaticFrictionRandomizer(scale_lower=0.5, scale_upper=1.5),
                 ksim.ArmatureRandomizer(),
                 ksim.MassAdditionRandomizer.from_body_name(
-                    physics_model, "Z_BOT2_MASTER_BODY_SKELETON", scale_lower=-0.5, scale_upper=0.5
+                    physics_model, self.config.torso_body_name, scale_lower=-0.5, scale_upper=0.5
                 ),
                 ksim.JointDampingRandomizer(scale_lower=0.95, scale_upper=1.05),
                 ksim.JointZeroPositionRandomizer(scale_lower=-0.05, scale_upper=0.05),
@@ -995,9 +1237,28 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
                 noise=0.0,
             ),
             TrueHeightObservation(),
+            # world-frame base velocities from the IMU-site sensors (used by the tracking rewards only)
+            ksim.SensorObservation.create(physics_model=physics_model, sensor_name="base_link_vel", noise=0.0),
+            ksim.SensorObservation.create(physics_model=physics_model, sensor_name="base_link_ang_vel", noise=0.0),
+            *([BaseHeadingObservation(noise=0.05 if self.config.domain_randomize else 0.0)] if self.config.heading_obs else []),
         ]
 
     def get_commands(self, physics_model: ksim.PhysicsModel) -> list[ksim.Command]:
+        if self.config.velocity_tracking:
+            return [
+                LinearVelocityCommand(
+                    x_range=(self.config.target_speed_min, self.config.target_speed_max),
+                    y_range=(0.0, 0.0),
+                    x_zero_prob=0.0,
+                    y_zero_prob=1.0,
+                    switch_prob=self.config.ctrl_dt / 5,
+                ),
+                AngularVelocityCommand(scale=0.0, zero_prob=1.0, switch_prob=self.config.ctrl_dt / 5),
+                GaitFrequencyCommand(
+                    gait_freq_lower=self.config.gait_freq_lower,
+                    gait_freq_upper=self.config.gait_freq_upper,
+                ),
+            ]
         # NOTE: increase to 360
         return [
             LinearVelocityCommand(
@@ -1019,7 +1280,54 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         ]
 
     def get_rewards(self, physics_model: ksim.PhysicsModel) -> list[ksim.Reward]:
-        return [
+        shaping: list[ksim.Reward] = []
+        if self.config.gait_shaping:
+            shaping = [
+                ksim.LinearVelocityPenalty(index="y", scale=self.config.gait_lateral_penalty),
+                ksim.AngularVelocityPenalty(index="z", scale=self.config.gait_yaw_penalty),
+                ksim.ActionSmoothnessPenalty(scale=self.config.gait_smooth_penalty),
+            ]
+            if self.config.gait_step_reward:
+                shaping.append(ksim.FeetNoContactReward(window_size=5, scale=self.config.gait_step_reward))
+            if self.config.gait_single_support:
+                shaping.append(SingleSupportReward(scale=self.config.gait_single_support))
+            if self.config.feet_slip_penalty:
+                shaping.append(FeetSlipPenalty(ctrl_dt=self.config.ctrl_dt, scale=self.config.feet_slip_penalty))
+            if self.config.gait_swing_reward:
+                shaping.append(SwingDurationReward(ctrl_dt=self.config.ctrl_dt, t_min=self.config.gait_swing_tmin,
+                                                   t_max=self.config.gait_swing_tmax, scale=self.config.gait_swing_reward))
+            if self.config.gait_flip_penalty:
+                shaping.append(ContactFlipPenalty(scale=self.config.gait_flip_penalty))
+            if self.config.gait_clearance_reward:
+                shaping.append(FootClearanceReward(target=self.config.gait_clearance_target, scale=self.config.gait_clearance_reward))
+            if self.config.foot_lift_penalty:
+                shaping.append(FootLiftPenalty(max_lift=self.config.foot_lift_max, scale=self.config.foot_lift_penalty))
+            if self.config.joint_deviation_penalty:
+                from mujoco_scenes.mjcf import load_mjmodel
+                mj = load_mjmodel(os.path.join(self.config.robot_urdf_path, "robot.mjcf"), scene="smooth")
+                names = [mj.joint(i).name for i in range(1, mj.njnt)]
+                subs = [t.strip() for t in self.config.joint_deviation_joints.split(",") if t.strip()]
+                idx = tuple(i for i, n in enumerate(names) if any(t in n for t in subs))
+                shaping.append(JointDeviationPenalty(joint_indices=idx, scale=self.config.joint_deviation_penalty))
+            if self.config.roll_penalty:
+                shaping.append(BaseRollPenalty(scale=self.config.roll_penalty))
+            if self.config.joint_velocity_penalty:
+                shaping.append(MeanJointSpeedPenalty(scale=self.config.joint_velocity_penalty))
+            if self.config.heading_penalty:
+                shaping.append(HeadingPenalty(scale=self.config.heading_penalty))
+            if self.config.lateral_position_penalty:
+                shaping.append(LateralPositionPenalty(scale=self.config.lateral_position_penalty))
+        if self.config.velocity_tracking:
+            return [
+                DHHealthyReward(scale=0.5),
+                TerminationPenalty(scale=-5.0),
+                LinearVelocityTrackingReward(scale=self.config.track_reward_scale, error_scale=self.config.track_error_scale),
+                AngularVelocityTrackingReward(scale=0.75),
+                OrientationPenalty(scale=-2.0),
+                FeetContactPenalty(contact_obs_key="contact_observation_feet", scale=-2.0),
+                NaiveVelocityReward(scale=0.25),
+            ] + shaping
+        return shaping + [
             # JointDeviationPenalty(scale=-1.0),
             # JointDeviationPenalty(scale=-1.0),
             # DHControlPenalty(scale=-0.05),
@@ -1043,7 +1351,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         ]
 
     def get_model(self, key: PRNGKeyArray) -> ZbotModel:
-        return ZbotModel(key)
+        return ZbotModel(key, num_inputs=self.num_actor_inputs)
 
     def get_initial_model_carry(self, rng: PRNGKeyArray) -> Array:
         return jnp.zeros(0)
@@ -1063,6 +1371,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         ang_vel_cmd_1 = commands["angular_velocity_command"]
         gait_freq_cmd_1 = commands["gait_frequency_command"]
         last_action_n = observations["last_action_observation"]
+        heading_2 = observations["base_heading_observation"] if self.config.heading_obs else None
         return model.actor.forward(
             timestep_phase_4=timestep_phase_4,
             joint_pos_n=joint_pos_n,
@@ -1073,6 +1382,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
             ang_vel_cmd_1=ang_vel_cmd_1,
             gait_freq_cmd_1=gait_freq_cmd_1,
             last_action_n=last_action_n,
+            heading_2=heading_2,
         )
 
     def _run_critic(
@@ -1167,31 +1477,34 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         return ksim.Action(action=action_n, carry=jnp.zeros(0), aux_outputs=None)
 
 
-if __name__ == "__main__":
-    # python -m ksim_zbot.zbot2.walking run_environment=True
-    ZbotWalkingTask.launch(
-        ZbotWalkingTaskConfig(
-            num_envs=4096,
-            batch_size=256,
-            num_passes=10,
-            epochs_per_log_step=1,
-            # Simulation parameters.
-            dt=0.002,
-            ctrl_dt=0.02,
-            max_action_latency=0.005,
-            min_action_latency=0.0,
-            # log_full_trajectory_every_n_steps=5,
-            # log_full_trajectory_on_first_step=True,
-            valid_every_n_steps=5,
-            save_every_n_steps=5,
-            rollout_length_seconds=5.0,
-            # PPO parameters
-            gamma=0.97,
-            lam=0.95,
-            entropy_coef=0.001,
-            learning_rate=3e-4,
-            clip_param=0.3,
-            max_grad_norm=1.0,
-            export_for_inference=True,
-        ),
+def default_config(**overrides: object) -> ZbotWalkingTaskConfig:
+    """The training configuration (also used by sim/tools/export_policy.py to rebuild the task for a checkpoint)."""
+    kwargs: dict[str, object] = dict(
+        num_envs=4096,
+        batch_size=256,
+        num_passes=10,
+        epochs_per_log_step=1,
+        # Simulation parameters.
+        dt=0.002,
+        ctrl_dt=0.02,
+        max_action_latency=0.005,
+        min_action_latency=0.0,
+        valid_every_n_steps=5,
+        save_every_n_steps=5,
+        rollout_length_seconds=5.0,
+        # PPO parameters
+        gamma=0.97,
+        lam=0.95,
+        entropy_coef=0.001,
+        learning_rate=3e-4,
+        clip_param=0.3,
+        max_grad_norm=1.0,
+        export_for_inference=True,
     )
+    kwargs.update(overrides)
+    return ZbotWalkingTaskConfig(**kwargs)  # type: ignore[arg-type]
+
+
+if __name__ == "__main__":
+    # python -m sim.train.walking run_environment=True
+    ZbotWalkingTask.launch(default_config())

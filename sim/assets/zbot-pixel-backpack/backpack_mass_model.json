@@ -1,0 +1,184 @@
+{
+ "items": [
+  {
+   "name": "base frame PETG",
+   "mass_g": 198,
+   "com_cad_mm": [
+    -2.6,
+    52.7,
+    327.7
+   ],
+   "box_mm": [
+    160,
+    50,
+    152
+   ]
+  },
+  {
+   "name": "lid PETG",
+   "mass_g": 68,
+   "com_cad_mm": [
+    -3.9,
+    87.0,
+    327.4
+   ],
+   "box_mm": [
+    160,
+    19,
+    152
+   ]
+  },
+  {
+   "name": "torso insert PETG",
+   "mass_g": 31,
+   "com_cad_mm": [
+    -1.1,
+    28.3,
+    304.1
+   ],
+   "box_mm": [
+    72,
+    22,
+    117
+   ]
+  },
+  {
+   "name": "LiPo 3S 2200",
+   "mass_g": 200,
+   "com_cad_mm": [
+    -23.5,
+    57.6,
+    275.5
+   ],
+   "box_mm": [
+    106,
+    25,
+    34
+   ]
+  },
+  {
+   "name": "XY-CD63 cutoff",
+   "mass_g": 60,
+   "com_cad_mm": [
+    0.0,
+    58.0,
+    368.0
+   ],
+   "box_mm": [
+    62,
+    28,
+    56
+   ]
+  },
+  {
+   "name": "Waveshare adapter",
+   "mass_g": 15,
+   "com_cad_mm": [
+    -6.0,
+    53.0,
+    320.5
+   ],
+   "box_mm": [
+    42,
+    20,
+    33
+   ]
+  },
+  {
+   "name": "anti-spark switch",
+   "mass_g": 20,
+   "com_cad_mm": [
+    -61.0,
+    80.6,
+    358.5
+   ],
+   "box_mm": [
+    22,
+    15,
+    45
+   ]
+  },
+  {
+   "name": "fuse cable",
+   "mass_g": 25,
+   "com_cad_mm": [
+    -27.0,
+    80.0,
+    266.5
+   ],
+   "box_mm": [
+    40,
+    15,
+    15
+   ]
+  },
+  {
+   "name": "LiPo warner",
+   "mass_g": 10,
+   "com_cad_mm": [
+    59.5,
+    80.0,
+    310.0
+   ],
+   "box_mm": [
+    35,
+    14,
+    22
+   ]
+  },
+  {
+   "name": "Pololu buck",
+   "mass_g": 5,
+   "com_cad_mm": [
+    66.0,
+    47.0,
+    362.0
+   ],
+   "box_mm": [
+    18,
+    9,
+    20
+   ]
+  },
+  {
+   "name": "Raspberry Pi 4B",
+   "mass_g": 46,
+   "com_cad_mm": [
+    -5.0,
+    8.0,
+    322.5
+   ],
+   "box_mm": [
+    56,
+    20,
+    85
+   ]
+  },
+  {
+   "name": "cables + connectors",
+   "mass_g": 60,
+   "com_cad_mm": [
+    0.0,
+    60.0,
+    330.0
+   ],
+   "box_mm": [
+    150,
+    40,
+    140
+   ]
+  }
+ ],
+ "total_mass_kg": 0.738,
+ "com_cad_mm": [
+  -9.2,
+  56.4,
+  314.3
+ ],
+ "torso_mass_removed_kg": 0.4,
+ "cad_to_body_mm": [
+  0.0,
+  8.2,
+  -372.6
+ ]
+}

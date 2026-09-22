@@ -136,6 +136,182 @@ auf der GPU (JAX 0.6.2/CUDA, 94 % Util neben laufendem vLLM), Checkpoint + TF-Ex
 funktionieren. Ein Logger-Bug der gepinnten xax-Version ist in `sim/train/common.py`
 umschifft (JSON-Shim, siehe Kommentar dort).
 
+
+## Modell `assets/zbot-cad` — der gebaute Roboter aus dem WebUI-CAD (Stand 2026-09-08)
+
+**Die bisherigen Modelle `zbot-pixel`/`zbot-pixel-backpack` sind der falsche Roboter**: sie stammen aus den
+K-Scale-Assets des *Z-Bot 2* (Greifer-Hände, andere Beinkette). Der gebaute Roboter ist der Zeroth-01
+(`resources/cad/z001-opus-m-93de7567.glb`, genau das Modell der Servo-WebUI, Stummel-Arme). Alle
+Trainingsläufe v1–v10 unten liefen auf dem falschen Modell und dienen nur noch als Pipeline-Nachweis.
+
+`sim/tools/build_model_cad.py` erzeugt `assets/zbot-cad/` direkt aus dem CAD:
+
+* **Kinematik** aus `z001-joints-m-93de7567.json` (16 Revolute-Mates: Achse, Zentrum) und den FASTENED-Mates
+  (starre Links, gleiche Union-Find-Logik wie das Pose-Rig der WebUI). Beinkette hip_pitch → hip_yaw →
+  hip_roll → knee → ankle; Achsen so, wie das CAD sie definiert (das Gelenk `hip_yaw` dreht physisch um die
+  Längsachse, `hip_roll` um die Hochachse — Namen bleiben die der Hardware-Configs).
+* **Nullpose = reale Servo-Null (stehend)**: die CAD-Szenenpose ist verdreht; `hardware/model_zero_offsets.json`
+  (die Anzeige-Korrektur der WebUI) wird als Vorwärtskinematik angewandt, `hardware/model_invert.json` dreht
+  die Achse um, wo der reale Servo andersherum zählt → Sim-Gelenkwinkel = Servo-Gelenkwinkel.
+* **Gelenkgrenzen** aus `hardware/joint_limits.json` (Repo-Stand ist maßgeblich, auch wenn die neuen
+  Schultergrenzen noch nicht auf den Roboter gespielt sind).
+* **Geometrie**: je Link ein STL für gedruckte Teile und eines für die Servos (aus dem GLB, in Standpose,
+  Link-Frame). Nicht verbaute Originalelektronik (MilkV + Hat, Akku, alter BackPack + Waveshare, Speaker,
+  Milk-Kamera, Mikro, LCD-IMU-Display) und Schrauben sind entfernt; Kopf/Hals bleiben. Kollision nur
+  Fußsohlen-Boxen (unterste 12 mm der Fußnetze) gegen den Boden, Sites `left_foot`/`right_foot`.
+* **Massen — Educated Guess, Roboter noch nicht gewogen**: Servos 55 g (STS3215, Arme) / 62 g (STS3250,
+  Beine) als Quader an ihrer CAD-Position; gedruckte Teile: halbes Hüllvolumen × 0,75 g/cm³ (die GLB-Netze
+  sind nicht wasserdicht), Rucksack v3.1 738 g aus `add_backpack.py`. Ergebnis **2,92 kg** (Roboter 2,18 +
+  Rucksack 0,74), Basis (Torsomitte) 0,321 m hoch, Schwerpunkt 8 mm hinter der Basis, 0,265 m hoch.
+  Wiegen (Gesamt + je ein Servo) und `SERVO_MASS`/`PETG_DENSITY` im Skript nachziehen.
+* **IMU: Annahme.** Site `imu` sitzt auf dem Pi-Träger des Torso-Einsatzes (CAD −5, 16, 322 mm: Torsomitte-Höhe,
+  1 cm hinter der Mitte), Achsen = Körperachsen (x vorwärts, y links, z hoch). Der Rucksack-Spec enthält keine
+  IMU; reale Einbaulage/Achsen müssen hier (`build_model_cad.py --imu x,y,z`, Orientierung im Skript) und im
+  Pi-Deployment-Loop gespiegelt werden. `base`-Site (Torsomitte)
+  liefert `base_link_*` für die Belohnungen, die IMU-Sensoren `imu_acc`/`imu_gyro` sitzen an der IMU-Site.
+* Metadaten wie bisher (`metadata.json`: Servo-IDs aus `hardware/servo_ids.json`, Aktuatortypen, kp/kd),
+  Sys-ID-JSONs kopiert. `walking.py`: `torso_body_name` (Massen-Randomisierung) jetzt konfigurierbar,
+  Default `base`.
+
+Ansehen ohne Policy: `python sim/tools/show_model.py sim/assets/zbot-cad --out sheet.png` (4 Ansichten) oder
+`--viewer` (interaktiv, statisch in der Nullpose; `--physics` simuliert mit Haltefeder).
+
+**Statik der Nullpose:** mit Rucksack liegt der Schwerpunkt 8 mm hinter der Torsomitte und nur 16 mm vor der
+Fersenkante der Sohlenbox (−24…+77 mm); mit servoähnlichem PD (kp 16) kippt der Roboter aus der reinen Nullpose
+in 1–2 s nach hinten. Die Nullpose bleibt trotzdem exakt Servo-Null (Aktion 0 = Servo-Null fürs Deployment); die
+Policy muss die Vorneigung lernen. Wiegen (Gesamt, je ein STS3215/STS3250) würde die Massenschätzung absichern.
+
+## Modell-Variante mit Backpack v3.1 (`assets/zbot-pixel-backpack`)
+
+Erzeugt von `sim/tools/add_backpack.py` aus `zbot-pixel` (Aufruf: `python sim/tools/add_backpack.py`,
+braucht nur numpy):
+
+* **Rucksack als eigener Körper** `backpack` am Torso-Link, Frame = OnShape-Assembly-Frame des
+  Rucksack-CAD (`hardware/backpack_v2`), abgeleitet über die Schultergelenk-Anker und die
+  Torso-Rückwand: `lokal = CAD + (0, 8,2, −372,6) mm` im Frame von `Z_BOT2_MASTER_BODY_SKELETON`
+  (Rückwand im Sim bei x −46,3 ↔ Torso-Netz endet bei −45,6). Sichtbar als drei Meshes
+  (Grundrahmen, Deckel, Träger), keine Kollisionsgeometrie (Kollision bleibt Füße↔Boden).
+* **Massenmodell (Educated Guess, `backpack_mass_model.json`)**: 738 g aus 12 Posten (PETG-Teile
+  198/68/31 g, LiPo 200, XY-CD63 60, Pi 46, Kabel 60, …), Schwerpunkt im CAD-Frame
+  (−9, 56, 314) mm = 18 mm hinter der Rückwand; Trägheitstensor als Summe von Quadern.
+* **Torso-Link −0,40 kg** (1,546 → 1,146 kg, Trägheit proportional): Original-Akku 5,2 Ah,
+  MilkV + Hat, Speaker und alter BackPack/Waveshare sind im Build nicht vorhanden.
+* Ergebnis: Gesamtmasse 3,756 → **4,094 kg**, Roboter-Schwerpunkt verschiebt sich um
+  **10 mm nach hinten (−x im Sim) und 4 mm nach oben** (Stand qpos0, CAD-schwere Links).
+* Training/Rendern: `sim/tools/train_backpack.sh <exp>` (GPU 0, `GPU=1` für die zweite),
+  `sim/tools/render_policy.sh <ckpt.bin> <out.mp4> [s]` (offscreen/EGL, `imageio[ffmpeg]` liegt im venv).
+
+### Gespeicherte Policies (`sim/train/zbot_walking_task/best/`, je Checkpoint + ONNX/SavedModel/Metadaten + Messungen + Videos)
+
+| Ordner | Charakter | 5 s mit Stößen (16 Läufe) | Unruhe (Torso-Rollen p2p / Hüfte / Arme) |
+| --- | --- | --- | --- |
+| `cad_v4_heading_step380` | kräftig, 12 cm Schritte, 0,35 m/s, Hub 9 cm | 0 Stürze, 1,81 m, 1,8° Gier | 53° / 15° / 23° |
+| `cad_v6_small_ft_step585` | kleine Schritte (5 cm), 0,17 m/s, Hub 6 cm | 0 Stürze, 0,86 m, 2,3° Gier | 43° / 11° / 24° |
+| `cad_v9_calm_step185` | ruhig, 4 cm Schritte, 0,16 m/s; **30 s: 4,85 m nominal / 3,65 m mit Stößen, 0 Stürze** | 0 Stürze, 0,79 m, 2,4° Gier | 35° / 7° / 4° |
+| `cad_v10_calm2_step910` | ruhigste gehende, 3 cm Schritte, 0,12 m/s, Hub 4 cm; **30 s nominal: 5,03 m, 0 Stürze** | 0 Stürze, 0,63 m, 2,1° Gier | 26° / 5° / 3° |
+| `cad_v13_tiny_step690` | kleinste Schritte, 1,3 cm, 0,05 m/s, Hub 4 cm | 0 Stürze, 0,25 m, 2,5° Gier | 25° / 6° / 4° |
+
+Die Torso-Rollbewegung bleibt bei ≈ 25° Spitze-Spitze hängen (cad_v10/v13, auch mit dreifacher Rollstrafe): bei der
+schmalen Sohle (5,7 cm) muss das Gewicht für jeden Schritt seitlich über den Standfuß; weniger ginge nur mit
+Doppelstütz-Gang (Einbeinstand-Anteil < 90 %) oder breiterer Spur — offen.
+
+### Ergebnis (Stand 2026-09-08 11:30): der Roboter läuft geradeaus
+
+`sim/train/zbot_walking_task/best/cad_v4_heading_step380/` enthält den gewählten Checkpoint, die Task-Optionen,
+Messwerte und Videos (randomisiert 8 s, nominal 15 s). 16 Argmax-Rollouts × 5 s **mit** Randomisierung und Stößen:
+0/16 Stürze, 1,81 m Median (min 1,44), 12 cm seitlich, Gier 1,8° (max 7°), 3 Schritte/s, Schwung 320 ms,
+Fußhub 9 cm; nominal 2,0 m/5 s (0,41 m/s). Der Snapshot-Sweep (`snapshots/summary.txt`) zeigt ab Schritt 40 jeden
+10-Minuten-Checkpoint sturzfrei und ≤ 4° Gier — die Wahl ist also nicht vom Zufall eines Checkpoints abhängig.
+
+**Export für den Roboter:** `JAX_PLATFORMS=cpu python sim/tools/export_policy.py <ckpt.bin> <outdir>` schreibt
+`policy.onnx` (direkt aus den MLP-Gewichten gebaut, gegen JAX geprüft), das xax-SavedModel `tf_model/` und
+`policy_meta.json` (Eingangslayout, Gelenk-/Servo-Reihenfolge, Aktionssemantik) — für Schritt 380 liegt das unter
+`best/cad_v4_heading_step380/export/`. (`tf2onnx` 1.16 ist mit NumPy 2 kaputt und wurde deshalb nicht benutzt.)
+
+**Ruhiger Gang (ab 14:19):** `gait_analyze.py` misst jetzt auch die Unruhe: Torso-Rollwinkel Spitze-Spitze
+53° (cad_v4) bzw. 44° (cad_v6), Hüft-Yaw/-Roll im Mittel 11–15° ausgelenkt, Arme 23°. Gegenmittel in `walking.py`:
+`JointDeviationPenalty` (Summe |q| über `joint_deviation_joints`, Default Hüft-Yaw/-Roll + Arme), `BaseRollPenalty`
+(|Roll| des Torsos), `MeanJointSpeedPenalty` (mittlere |Gelenkgeschwindigkeit|), dazu stärkere Aktionsglättung und
+Seitenstrafe (Läufe cad_v8/cad_v9).
+
+**Mehrere Meter am Stück:** `sim/tools/long_walk.sh <ckpt> <outdir> [s=30] [overrides]` (GPU=<n> optional) misst 16
+Argmax-Rollouts über 30 s (Strecke, Stürze, Gangbild) und rendert ein 30-s-Video — Nachweis, dass die Policy nicht nur
+5 s hält. Ergebnisse in `<exp>/longwalk_step<N>/{nominal,randomized}/eval.txt`.
+
+**Kleine Schritte für Sim-to-Real (ab 12:00):** `cad_v6_small_ft` (GPU 0, Feintuning ab Schritt 380) und
+`cad_v7_small_scratch` (GPU 1, von Null) mit konservativem Setup: Ziel 0,12–0,25 m/s, Schwungband 0,2–0,4 s,
+Fußhub-Ziel 2 cm plus `FootLiftPenalty` ab 4 cm (`foot_lift_penalty=-0.5 foot_lift_max=0.04`), Aktionsglättung −0,1
+statt −0,02. Ziel: kürzere, flachere Schritte und ruhigere Servobefehle bei gleicher Kursstabilität.
+
+### Trainingsläufe mit dem Backpack-Modell (Stand 2026-09-07)
+
+Alle in `sim/train/zbot_walking_task/<exp>/` (gitignored), gestartet mit `sim/tools/train_backpack.sh` (Modell per
+`ASSETS=`, Default `zbot-cad`; v1–v10 liefen mit `zbot-pixel-backpack`)
+(startet eine transiente **systemd-User-Unit** `zbot-train-<exp>`, denn alles, was aus einer
+Editor-/Claude-Shell heraus läuft — auch mit `setsid nohup` — hängt in der cgroup des VS-Code-Fensters
+und stirbt mit ihr; stoppen mit `systemctl --user stop zbot-train-<exp>`; ein Neustart mit demselben
+`exp_dir` setzt vom letzten `checkpoints/ckpt.bin` fort):
+
+| Lauf | Task-Optionen | Beobachtung |
+| --- | --- | --- |
+| `backpack_v1` | Vendored-Defaults (NaiveVelocityReward) | 1,1 m/s, aber Schlittern, starke Kurven, Stürze — gestoppt |
+| `backpack_v2_track` | `velocity_tracking=True` (Vorwärts-Kommando 0,15–0,35 m/s, Kurshalten) | geradeaus, sturzfrei, ~0,16 m/s, eher Rutschen |
+| `backpack_v3_gait` | `velocity_tracking=True gait_shaping=True target_speed_min=0.2 target_speed_max=0.4` | Fuß-Abhebe-Belohnung, Drift-/Gier-/Ruck-Strafen; Schritt 295: 0,44 m/5 s, 1,2 m seitlich, 35° Gier, 1/16 Stürze — gestoppt |
+| `backpack_v4_slip` | v3 + `target_speed 0.25–0.45 track_reward_scale=3.0 track_error_scale=0.15 gait_step_reward=0.0 gait_single_support=0.3 feet_slip_penalty=-0.3` | Schritt 80: 1,26 m/5 s (min 1,12), 0,25 m/s, 0/16 Stürze, 11° Gier — geradeaus, aber **Trippeln** (11 Fußhebungen/s, 70 ms Schwung, 2 cm Hub); Snapshot Schritt 130 |
+| `backpack_v5_fast` | v4 mit 0,3–0,5 m/s, `gait_single_support=0.5 feet_slip_penalty=-0.4` | nach 8 min zugunsten v6/v7 abgebrochen |
+| `backpack_v6_swing` | v4 + `gait_swing_reward=1.0 gait_flip_penalty=-0.1` (Schwungdauer-Band 0,15–0,45 s) | von Null; nach 80 Schritten zugunsten v8 gestoppt |
+| `backpack_v7_swing_warm` | wie v6, `load_from_ckpt_path=` v4-Snapshot Schritt 130 | Schritt 285: echte Schritte (5,1/s, Schwung 220 ms, Hub 3,8 cm), aber 6/16 Stürze, 0,6 m seitlich, 26° Gier; Schwung-Reward sättigt am unteren Bandrand — gestoppt zugunsten v9 |
+| `backpack_v8_clear` | v7 + `gait_swing_tmin=0.25 gait_swing_tmax=0.6 gait_clearance_reward=0.5 gait_clearance_target=0.03`, Warmstart v7-Snapshot Schritt 180 | Schritt 325: **Gehen** (3,5 Schritte/s, Schwung 340 ms, Hub 5–6 cm, 95 % Einbeinstand), aber 1,1 m seitlich, 26° Gier, 3/16 Stürze. **Schritt 355: 0/16 Stürze, 1,58 m in 5 s (0,32 m/s), 0,30 m seitlich, 13° Gier, 3,3 Schritte/s, Schwung 360 ms** — Checkpoint in `validation_step355/` und `snapshots/`; nominal (ohne Randomisierung, `validation_step355_nominal/`, 15-s-Video): 0/16 Stürze, 1,62 m/5 s, seitlich 0,23 m, Gier 9° (Median); läuft weiter (GPU 0) |
+| `backpack_v9_clear_scratch` | Optionen wie v8, von Null | nach 15 min zugunsten v10 gestoppt |
+| `backpack_v10_heading` | v8 + `heading_penalty=-1.0 lateral_position_penalty=-0.5`, Warmstart v8-Snapshot Schritt 350 | läuft (GPU 1; erster Start 21:10 starb mit der Editor-Sitzung, Neustart 02:28 als systemd-Unit) |
+| **`cad_v1_mild`** | **Modell `zbot-cad`**, von Null: v8-Rewards + Critic-Driftstrafen, Schwungband 0,15–0,45 s | Schritt 110: 1,14 m/5 s, 3/16 Stürze, 27° Gier; Schritt 270: 6/16 Stürze, 41° Gier — 06:28 gestoppt |
+| **`cad_v2_strict`** | wie cad_v1, Schwungband 0,25–0,6 s | **Schritt 80: 0/16 Stürze, 1,18 m/5 s, 7 cm seitlich, 8° Gier, 2,7 Schritte/s, Schwung 340 ms, Hub 8 cm; Schritt 195: 0/16, 1,35 m, 19 cm seitlich, 10° Gier**; ab Schritt 235 wieder 25–36° Gier — 09:50 gestoppt (Snapshots 95/140/195 gesichert) |
+| `cad_v3_strict_fast` | wie cad_v2, `target_speed 0.3–0.5 heading_penalty=-2.0` | Snapshot 65: 1,44 m, aber 34° Gier — 08:01 zugunsten cad_v4 gestoppt |
+| **`cad_v4_heading`** | wie cad_v2 + `heading_obs=True` (Actor sieht [cos, sin] des Gierwinkels relativ zum Start) | **geradeaus ab Snapshot 15, sturzfrei ab 40**; Schritt 180: 1,92 m/5 s, 2° Gier; **Schritt 380: 0/16 Stürze, 1,81 m/5 s (0,35 m/s), 12 cm seitlich, 1,8° Gier (max 7°)** → `best/cad_v4_heading_step380/` (+ ONNX-Export); 11:45 pausiert bei Schritt 455 |
+| `cad_v5_heading_fast` | wie cad_v4, `target_speed 0.3–0.5` | Schritt 120: 1,84 m, 2,7° Gier, 1/16 Stürze — 11:45 pausiert |
+| `cad_v6_small_ft` | cad_v4 + kleine Schritte (s. o.), Feintuning ab `best/cad_v4_heading_step380` | jeder Snapshot 380–585 sturzfrei; Schritt 470: 0,84 m/5 s, ~5 cm Schritte, Hub 6 cm, 1,3° Gier → **`best/cad_v6_small_ft_step585/`** (+ Export); 14:19 gestoppt |
+| `cad_v7_small_scratch` | wie cad_v6, von Null | Snapshots 15–110: 0/16 Stürze, ~3 cm Schritte, Hub 5 cm, 3–4° Gier — 14:19 gestoppt |
+| `cad_v8_calm_ft` | cad_v6 + ruhiger Gang: `joint_deviation_penalty=-0.3` (Hüft-Yaw/-Roll, Arme nahe Null), `roll_penalty=-1.0`, `joint_velocity_penalty=-0.02`, Glättung −0,2, Seitenstrafe −1,0; Feintuning ab `best/cad_v6_small_ft_step585` | Schritt 675: Arme 24→10°, Hüfte 11→8°, Rollen nur 43→40° p2p (bleibt im Rocking-Muster der Ausgangspolicy) — 15:45 zugunsten cad_v10 gestoppt |
+| `cad_v9_calm_scratch` | wie cad_v8, von Null | Schritt 85: 0/16 Stürze, 0,51 m/5 s, Hub 4,3 cm, **Torso-Rollen 30° p2p, Hüfte 5,7°, Arme 3°**, 1,2° Gier; Snapshots 55–150 stabil (0 Stürze, ~30° Rollen) → **`best/cad_v9_calm_step185/`** (+ Export); **Langstrecke 30 s nominal: 4,85 m Median (4,6–5,3), 0/16 Stürze, 3° Gier** — 16:45 gestoppt |
+| `cad_v10_calm2_scratch` | wie cad_v9, `roll_penalty=-3.0 gait_single_support=0.0 joint_deviation_penalty=-0.5` (Doppelstütz erlaubt, Rollen stärker bestraft) | Schritt 105: 0/16 Stürze, 0,61 m/5 s, **Rollen 26° p2p, Hüfte 4,9°, Arme 2,5°, Hub 3,7 cm**, 1,7° Gier; Schritte 210–910 gleich (Rollen 24–26°, 0 Stürze, ~0,12 m/s, Plateau) → **`best/cad_v10_calm2_step910/`** — 23:38 gestoppt |
+| `cad_v11_tiny_scratch` | wie cad_v10, **2-cm-Schritte**: `target_speed 0.05–0.10 gait_swing 0.15–0.3 s gait_clearance_target=0.015 foot_lift_max=0.025 joint_velocity_penalty=-0.03` | Schritt 130: ruhig (Rollen 20°, Hüfte 4°, Arme 2°, Hub 3 cm), **aber tritt auf der Stelle** (0,10 m/5 s): bei Zielen ≤ 0,1 m/s ist `track_error_scale=0.15` zu lasch — 19:00 gestoppt |
+| `cad_v12_tiny_ft` | wie cad_v11 mit `track_error_scale=0.05`, Feintuning ab cad_v11-Snapshot | Schritt 250: kriecht mit 0,04 m/s (0,8 cm Schritte bei 4,9/s), ruhig (Rollen 22°) — 20:40 gestoppt |
+| `cad_v13_tiny_from_calm` | **Warmstart aus cad_v10** (läuft 0,12 m/s, 3,3 cm Schritte) mit `target_speed 0.05–0.10 track_reward_scale=5 track_error_scale=0.05 gait_swing 0.2–0.35 clearance 0.015 foot_lift_max 0.025` → Ziel 2-cm-Schritte | Schritt 690: 0/16 Stürze, 0,05 m/s, **1,3 cm Schritte** bei 3,9/s, Hub 4 cm, Rollen 25°, 2,5° Gier; Schritt 800 gleich (Plateau) → **`best/cad_v13_tiny_step690/`** — 23:38 gestoppt |
+
+Die Optionen `velocity_tracking`, `gait_shaping`, `target_speed_*`, `gait_*` sind lokale
+Ergänzungen in `walking.py` (Defaults reproduzieren den vendored Task). Werkzeuge:
+`progress.sh <exp>` (Reward-/Episodenkurven aus TensorBoard), `validate_policy.sh <ckpt> <out>`
+(16 Argmax-Rollouts → Weg/Geschwindigkeit/Stürze, Gangbild via `gait_analyze.py`: Schritte/s,
+Schwungdauer, Stützphasen, Fußhub, Video, Kontaktbogen), `start_autoval.sh` → `autoval.sh` (stündliche
+Validierung als losgelöster Watcher, Unit `zbot-autoval`, hebt dabei stündlich einen Checkpoint auf), `stop_run.sh <exp>`
+(einziger sauberer Weg, einen Lauf zu beenden), `zbot_watchdog.sh` (systemd-User-Timer `zbot-watchdog.timer`, alle
+10 min, `~/.config/systemd/user/`: belebt in `active_runs.txt` eingetragene Läufe und den Watcher nach Absturz,
+Logout oder Reboot per `<exp>/launch.sh` wieder — die Units haben zusätzlich `Restart=on-failure` — und kopiert den
+neuesten Checkpoint nach `<exp>/snapshots/` und `~/zbot-ckpt-backup/<exp>/`, weil xax nur den letzten behält;
+Protokoll `watchdog.log`; der Watcher wird nur wiederbelebt, solange `autoval_cmd.sh` existiert (löschen = aus); `validate_policy.sh` serialisiert sich über `flock /tmp/zbot-validate.lock`, weil zwei parallele CPU-Validierungen neben
+zwei Trainings den RAM sprengen (OOM-Kill des Watchers am 08.09.) → `<exp>/validation_step<N>/`). Reward-Werte in TensorBoard
+sind Mittel je Zeitschritt geteilt durch die Rollout-Länge (250): `dhhealthy 0,002` = volle 0,5.
+
+**Gelernte Lektion:** Weg/Geschwindigkeit/Stürze allein reichen als Metrik nicht — v4 „lief“ sauber
+geradeaus, hob die Füße aber nur 2 cm für je 70 ms (Kontakt-Chattering, im Video ein Zittern statt
+Schritte). `gait_analyze.py` deckt das auf (Fußkontakt- und Fußpositions-Observations aus dem
+Rollout-Datensatz). Gegenmittel in `walking.py`: `SwingDurationReward` (+1 je Zeitschritt einer
+Schwungphase von `gait_swing_tmin..tmax` s, −1 bei kürzeren, 0 bei längeren/Flugphasen; die Dauer
+ist bekannt, weil der Reward auf dem ganzen Rollout rechnet) und `ContactFlipPenalty` (Kontaktwechsel
+je Schritt). Weil die Policy den Schwung-Reward mit Schwüngen knapp über `tmin` sättigt, gibt es
+zusätzlich `FootClearanceReward` (Hub des Schwungfußes über seiner Standhöhe, gesättigt bei
+`gait_clearance_target`) und ein strengeres Band 0,25–0,6 s (v8).
+Der Actor sieht keine absolute Orientierung (nur IMU/Gelenke/Kommandos), der Critic schon; deshalb
+sind `HeadingPenalty` (|Gier| aus `qpos`) und `LateralPositionPenalty` (|y|) als Critic-sichtbare
+Driftstrafen ergänzt (v10) — sie bestrafen die akkumulierte Abweichung statt der Gierrate, die beim
+Gehen ohnehin oszilliert.
+Auf dem CAD-Modell zeigt der Snapshot-Sweep von `cad_v2_strict`, dass diese Critic-Strafen die Drift nicht
+stetig senken: der Gierwinkel nach 5 s pendelt von Checkpoint zu Checkpoint zwischen 5° und 36° (Schritte
+95/140/155/195 gut, 125/180/235/315 schlecht). Deshalb `heading_obs=True` (cad_v4): `BaseHeadingObservation`
+liefert dem Actor [cos ψ, sin ψ] des Gierwinkels relativ zur Startrichtung (+2 Eingänge, Rauschen 0,05 bei
+Randomisierung). **Deployment:** der Pi-Loop muss dafür den beim Policy-Start genullten IMU-Gierwinkel
+(Gyro-Integration bzw. Fusion mit Magnetometer) liefern; ohne `heading_obs` bleibt der Eingangsvektor wie bisher.
+
 ## Offene Punkte vor dem ersten ernsthaften Training
 
 Aus [docs/sim-context.md](../docs/sim-context.md) §8, aktualisiert:
