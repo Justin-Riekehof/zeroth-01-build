@@ -1,0 +1,86 @@
+{
+ "frame": "assembly frame of the pinned CAD (mm): +X robot left, +Y back, +Z up; rigid to the head/torso",
+ "imu_chip_centre_mm": [
+  27.42,
+  -15.37,
+  423.84
+ ],
+ "imu_axes_in_robot_frame": {
+  "x_imu": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "y_imu": [
+   0.0,
+   0.0,
+   1.0
+  ],
+  "z_imu": [
+   0.0,
+   1.0,
+   0.0
+  ]
+ },
+ "module_frame": "origin PCB centre on the back face, +Z out of the back, display -Z, +Y to the USB-C tab",
+ "R_module_to_robot": [
+  [
+   0.0,
+   -1.0,
+   0.0
+  ],
+  [
+   0.0,
+   0.0,
+   1.0
+  ],
+  [
+   -1.0,
+   0.0,
+   0.0
+  ]
+ ],
+ "t_module_to_robot_mm": [
+  27.615,
+  -15.86,
+  423.57
+ ],
+ "adapter_seat_above_pcb_mm": 0.5,
+ "adapter_clearance_mm": {
+  "adapter_h1": {
+   "hdr_h2": 21.766,
+   "usbc": 8.32,
+   "batt": 0.615,
+   "d1": 17.178,
+   "l1": 17.935,
+   "rp2040": 4.345,
+   "xtal": 7.857,
+   "qmi8658": 9.265,
+   "sw_boot": 0.205,
+   "sw_reset": 20.146
+  },
+  "adapter_h2": {
+   "hdr_h1": 21.766,
+   "usbc": 8.334,
+   "batt": 15.515,
+   "d1": 7.151,
+   "l1": 0.925,
+   "rp2040": 10.345,
+   "xtal": 13.335,
+   "qmi8658": 9.815,
+   "sw_boot": 20.146,
+   "sw_reset": 0.205
+  }
+ },
+ "display_flush": true,
+ "adapter_spacer_mm": 3.43,
+ "adapter_total_length_mm": 13.43,
+ "measured": [
+  "T_STACK 4.0 = PCB 1.6 + air gap 0.8 + display 1.6"
+ ],
+ "estimated": [
+  "HDR_H",
+  "batt height",
+  "LCD_D"
+ ]
+}

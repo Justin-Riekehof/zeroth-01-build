@@ -1,0 +1,129 @@
+{
+ "frame": "assembly frame of the pinned CAD (mm): +X robot left, +Y back, +Z up",
+ "eye_centre_xz": [
+  -27.5,
+  423.56
+ ],
+ "optical_axis_xz": [
+  -27.5,
+  423.56
+ ],
+ "lens_front_y": -18.86,
+ "pcb_front_y": -11.954,
+ "boss_holes_xz": [
+  [
+   -17.0,
+   435.522
+  ],
+  [
+   -38.0,
+   435.522
+  ],
+  [
+   -17.0,
+   423.022
+  ],
+  [
+   -38.0,
+   423.022
+  ]
+ ],
+ "boss_length_mm": 5.41,
+ "camera_to_robot": [
+  [
+   0.0,
+   -1.0,
+   0.0,
+   -15.0
+  ],
+  [
+   0.0,
+   0.0,
+   1.0,
+   -11.21
+  ],
+  [
+   -1.0,
+   0.0,
+   0.0,
+   437.522
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   1.0
+  ]
+ ],
+ "cable_slot": {
+  "x": [
+   -36.5,
+   -18.5
+  ],
+  "z": [
+   406.16,
+   409.16
+  ],
+  "ribbon_z": 407.66,
+  "bend_radius": 4.0,
+  "lead": 2.0
+ },
+ "fov_frustum_vs_head_mm3": 0.0,
+ "left_eye": {
+  "centre_xz": [
+   27.615,
+   423.57
+  ],
+  "opening_dia": 37.0,
+  "front_chamfer_dia": 37.8,
+  "tab_recess_to_radius": 22.3,
+  "tab_direction": "-X (head centre)",
+  "imu_vs_head": {
+   "lcd_panel": [
+    0.0,
+    0.69
+   ],
+   "pcb": [
+    0.0,
+    0.24
+   ],
+   "usbc": [
+    0.0,
+    1.96
+   ],
+   "hdr_h1": [
+    0.0,
+    1.98
+   ],
+   "hdr_h2": [
+    0.0,
+    2.02
+   ],
+   "batt": [
+    0.0,
+    3.62
+   ],
+   "sw_boot": [
+    0.0,
+    1.96
+   ],
+   "sw_reset": [
+    0.0,
+    2.02
+   ],
+   "adapter_h1": [
+    0.0,
+    2.18
+   ],
+   "adapter_h2": [
+    0.0,
+    2.16
+   ]
+  }
+ },
+ "overlap_mm3": {
+  "cam3_board": 0.0,
+  "cam3_module": 0.0,
+  "cam3_j1": 0.0
+ }
+}
