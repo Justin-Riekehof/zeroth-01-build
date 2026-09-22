@@ -3,7 +3,7 @@
  "sets": [
   {
    "id": "backpack_v3",
-   "label": "Backpack v4.2 \u2014 Pi quer, Waveshare am Deckel, Kameraschlitz",
+   "label": "Backpack v4.6 \u2014 Pi quer gedreht (SD +X, USB-C unten, USB-A \u2212X), Waveshare am Deckel",
    "file": "backpack_v3.glb",
    "visible": true,
    "parts": [
@@ -76,14 +76,14 @@
       },
       {
        "node": "bp3_c_pi",
-       "label": "Raspberry Pi 4B quer, USB/Ethernet zur Mitte",
+       "label": "Raspberry Pi 4B quer, SD-Kante +X, USB-C unten, USB/Ethernet -X",
        "color": "#c51a4a",
        "opacity": 0.55,
        "visible": false
       },
       {
        "node": "bp3_c_pi_plugs",
-       "label": "Pi: Ethernet + USB-A mit Steckern (28 mm, nach +X)",
+       "label": "Pi: Ethernet + USB-A mit Steckern (50 mm, nach -X)",
        "color": "#c51a4a",
        "opacity": 0.35,
        "visible": false
@@ -96,8 +96,15 @@
        "visible": false
       },
       {
+       "node": "bp3_c_pi_sd",
+       "label": "Pi: microSD gesteckt (3 mm Ueberstand) -> Fenster in der +X-Wand",
+       "color": "#c51a4a",
+       "opacity": 0.7,
+       "visible": false
+      },
+      {
        "node": "bp3_c_pi_usbc_plug",
-       "label": "Pi: USB-C Netzteil, 90-Grad-Stecker",
+       "label": "Pi: USB-C Netzteil, gerader Stecker + Kabel (35 mm nach unten)",
        "color": "#c51a4a",
        "opacity": 0.35,
        "visible": false
@@ -121,6 +128,13 @@
        "label": "anti-spark XT60 switch body (45 x 22 x 15)",
        "color": "#f08a24",
        "opacity": 0.55,
+       "visible": false
+      },
+      {
+       "node": "bp3_c_switch_bosses",
+       "label": "Schaltereinsatz: 2 Sockel \u00d85 x 3, in den Deckel eingelassen",
+       "color": "#f08a24",
+       "opacity": 0.8,
        "visible": false
       },
       {
@@ -326,7 +340,7 @@
       },
       {
        "node": "bp2_c_pi",
-       "label": "Raspberry Pi 4B quer, USB/Ethernet zur Mitte",
+       "label": "Raspberry Pi 4B quer, SD-Kante +X, USB-C unten, USB/Ethernet -X",
        "color": "#c51a4a",
        "opacity": 0.55,
        "visible": false
@@ -378,7 +392,7 @@
    "parts": [
     {
      "node": "imu_a_neck_mount_imu",
-     "label": "Hinterplatte mit IMU-Stegen (Druck, ersetzt Neck Mount + Adapter)",
+     "label": "Hinterplatte mit IMU-Stegen + Senkungen 5,5 x 3,5 (Druck, ersetzt Neck Mount + Adapter)",
      "color": "#caa21a",
      "opacity": 1.0
     }

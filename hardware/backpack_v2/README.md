@@ -30,6 +30,79 @@ Koordinaten in diesem Dokument: **Roboter-Frame des gepinnten Assemblys** (mm):
 
 
 
+## v4.6 (2026-09-22): Torso-Bohrungen Ø4,0
+
+* Die vier Durchgangsbohrungen des Grundrahmens für die Torsoschrauben (±35,01 / 261,56 und ±47,24 / 330,34) haben
+  jetzt **Ø4,0 mm** statt 3,4 (`D_TORSO_HOLE`) und die Senkung für den Zylinderkopf **Ø7,0 × 4,0 mm** statt 6,6 × 3,2
+  (`D_TORSO_CB`, `H_TORSO_CB`) [Vorgabe]. Die Senkung geht durch den 3-mm-Dom und 1 mm in die Platte, unter dem Kopf
+  bleiben 2 mm Platte, im Dom (Ø10) 1,5 mm Wand. Die Eckschrauben des Deckels bleiben bei Ø3,4 / Senkung 6,6 × 3,2.
+  Nur der Grundrahmen ist neu.
+
+## v4.5 (2026-09-22): Deckel — Cutoff-Lochabstand, Waveshare-Bohrungen, Sockel des Schaltereinsatzes
+
+* **XY-CD63:** Die Bohrungen auf der langen Seite (x) lagen 1,5 mm zu weit auseinander [am Modul gemessen]:
+  Abstand **58 → 56,5 mm** (`CUT_DX`), Löcher jetzt bei x ±28,25, mittig zum Modul; z 343,5 / 381,5 unverändert.
+* **Waveshare-Sockel am Deckel:** Bohrung **Ø1,9 → Ø2,2** (`D_WS_BORE`, +0,3 mm) [Vorgabe]. Pololu-Dome und
+  Schalterschrauben bleiben bei Ø1,9.
+* **Hauptschalter-Einsatz:** Der Einsatz hat an seinen zwei Schrauben eigene Sockel Ø5 × 3 mm (gleiches Maß wie die
+  Deckelpads) [Vorgabe]. Der Deckel bekommt dafür von außen zwei **Aussparungen Ø5,5 × 3,0 mm** (0,25 mm Spiel je
+  Seite) an den Schraubpositionen (x −64, z 338,5 / 378,5), so liegt der Einsatz plan auf. Damit die Schrauben weiter
+  greifen, sind die Innenpads von Ø5 × 3 auf **Ø7,5 × 6 mm** gewachsen: 2 mm Deckel + 6 mm Pad − 3 mm Aussparung =
+  **5 mm Gewindelänge** wie bisher (Bohrung Ø1,9 durchgehend). Die Aussparungen berühren den Ausschnitt 15,5 × 34,5
+  an einem Punkt (Sockelmitte 20 mm von der Schaltermitte, Ausschnitt-Ende 17,25). Der Ausschnitt geht jetzt durch die
+  ganze Padhöhe, die Pads enden also am Ausschnitt und ragen nicht in den Einsatzkörper. Die Sockel sind als
+  `placeholder_switch_bosses.stl` in der WebUI einblendbar.
+* Das Schalter-Pigtail läuft wegen der höheren Pads bei y 96 statt 98 (Prüfung ohne Befund). Grundrahmen unverändert.
+
+## v4.4 (2026-09-22): Pi um 180° gedreht — 35 mm für das Netzteil, 50 mm für USB-A, SD-Fenster rechts
+
+* **Vorgaben:** vor der USB-C-Kante (Netzteil) mindestens **35 mm** gerade Platz für Stecker und Kabel, vor der
+  Ethernet/USB-A-Kante **50 mm** für die Stecker. Außenmaße unverändert, Torsoschrauben müssen frei bleiben.
+* **Warum die Lage v4.3 nicht reicht:** Dort zeigt die USB-C-Kante nach oben, bis zur Decke (z 413,5) sind es 15 mm
+  (v4.2 rechnete mit einem 90°-Stecker). 35 mm unter der Decke zwingt die Platine auf z ≤ 378,5, damit läge sie auf
+  dem Schraubdom der linken Torsoschraube (−47,2 / 330,3, Dom bis y 44,1, Platine ab y 43,1). Der Dom muss frei
+  bleiben, sonst lässt sich der Rucksack nicht mehr vom Torso lösen (der Pi ist von der Torsoseite verschraubt).
+  Eine Suche über alle vier Drehlagen und Positionen (`SD_GAP`, 35/50-mm-Zonen, Dome, Wanne) ergibt: SD-Kante −X mit
+  USB-C oben hat keine Lösung, machbar sind nur SD-Kante +X mit USB-C unten (Pi quer) oder SD-Kante oben (Pi hochkant,
+  Fenster in der Decke, Kameraschlitz und Servobus-Durchführung im Weg).
+* **Neue Lage (Pi quer, um 180° gedreht):** x **−14…71**, z **337…393**. SD-Kante rechts (Roboter links, +X) mit
+  6,5 mm zur Wand, das **microSD-Fenster liegt jetzt in der +X-Wand** (z 353…377, Form wie v4.3, gegenüber der
+  LiPo-Schublade, die weiter unten bei z 256…294 sitzt). USB-C-Kante unten: **40,5 mm** bis zum Zwischenboden
+  (Zone x 52,8…66,8, gerader Stecker, Kabel nach unten). Ethernet/USB-A nach −X: **50 mm** Steckerzone x −64…−14
+  (bis zur Wand 63,5 mm), bei abgenommenem Deckel von hinten erreichbar. Die Platine liegt 1,7 mm über dem rechten
+  Schraubdom (z 335,3), die Steckerzone 1,7 mm über dem linken. Lochbild: x 9,5 / 67,5, z 340,5 / 389,5; Lüftungsschlitze
+  unter dem Pi auf x 15…62, z 346…381 mitgewandert.
+* **Pololu** weicht dem Steckerraum aus: von (67 / 385) nach **(−63 / 308)** links unten, Pads oben (Kabelzone bis
+  z 334, 0,8 mm neben dem linken Dom). Die **5-V-Messpins** im Deckel wandern nach x −60 / −54, z 325 (zwischen
+  XT60-Cradle und Schalterpad).
+* **Kabel neu:** 12 V OUT → Pololu an der Decke nach −X und an der −X-Wand hinunter (neben der Steckerzone); Pololu
+  5 V → USB-C unten quer über die Dome (y 54) zum Stecker; Pi USB-A → Waveshare vom −X-Ende der Steckerzone vor dem
+  Cutoff hinunter; Messleitungen kurz zum Deckel. Kameraband: aus dem Schlitz auf der Platte hinunter, über der
+  Pi-Oberkante (z 395…411) nach +X, dort gefaltet und über die Platine (über der GPIO-Leiste) hinunter zur CSI-Buchse
+  (26 / 348,5); als L-förmige Hülle modelliert.
+* Unverändert: Deckel bis auf die Messpins und Beschriftung, Waveshare, Cutoff, Schalter, LiPo-Schublade, Torsoschnittstelle.
+
+## v4.3 (2026-09-22): Pi 6 mm nach +X, microSD-Fenster in der rechten Seitenwand
+
+* **Befund:** In v4.2 lag die SD-Kante des Pi (x −77) nur 0,5 mm vor der Innenfläche der −X-Wand (x −77,5). Die
+  gesteckte microSD-Karte steht etwa 3 mm über die Platinenkante hinaus, der Pi ließ sich mit Karte nicht einbauen.
+* **Pi um 6 mm nach +X verschoben** [Vorgabe: mindestens 6 mm, 3 mm Karte + 3 mm Aufmaß]: x **−71…14** (vorher −77…8),
+  z unverändert 342,5…398,5. Abstand Platinenkante → Wand jetzt **6,5 mm** (`SD_GAP`). Außenmaße des Rucksacks
+  unverändert (160 × 69 × 162), nur das M2-Lochbild mit Standoffs und Senkungen (x −67,5 / −9,5, z 346 / 395) wandert
+  mit, ebenso die Steckerzone Ethernet/USB-A (jetzt x 14…42, davon bleiben 35 mm bis zur +X-Wand frei) und die
+  USB-C-Zone (x −66,8…−52,8). Die Pi-Kabelpunkte in `CABLES` sind um 6 mm mitgezogen (USB-A → Waveshare, 5 V → USB-C).
+  Geprüft: Lüftungsschlitze unter dem Pi (x −69…−20, z 352…387) und die Senkungen (z 343,8…348,3 / 392,8…397,3)
+  überschneiden sich weiterhin nicht; die Servobus-Durchführung (x 11…22, z 300…335) liegt unter der Pi-Lage.
+* **microSD-Fenster in der −X-Wand** (Roboter rechts, gegenüber der LiPo-Schublade) [Vorgabe]: Der Kartenschlitz des
+  Pi 4B sitzt auf der Platinenunterseite mittig auf der 56-mm-Kante, die Karte liegt also zwischen Platte und Platine
+  bei y ≈ 41,4…42,4, z ≈ 365…376. Fenster `sd_window_tool()`: 24 mm breit (z 358,5…382,5), Boden = Plattenoberkante
+  y 41,1, 6,4 mm senkrecht, dann 45°-Dach auf einen 4-mm-First bei y 57,5 (Druck mit der Platte auf dem Bett ohne
+  Support, keine Brücke > 4 mm), Ecken R 1, Eintrittskante außen 1 mm angefast. Die Karte wird durch das Fenster
+  gesteckt und am 3-mm-Überstand gezogen; die Hülle `placeholder_pi_sd.stl` (Karte gesteckt) ist in der WebUI
+  einblendbar und liegt kollisionsfrei im Fenster.
+* Sonst unverändert: Deckel, Waveshare, Pololu, Cutoff, Schalter, LiPo-Schublade, Kabelwege. Druckdateien
+  `print/pixel-backpack-v4_1-base.stl` neu, der Deckel ist identisch.
+
 ## v4.2 (2026-09-19): Pi quer, Waveshare am Deckel, Kameraschlitz, Pololu-Lochbild
 
 * **Raspberry Pi quer, USB/Ethernet zur Mitte** [Vorgabe]: x −77…8, z 342,5…398,5. Die USB-A- und Ethernet-Stecker
@@ -243,8 +316,8 @@ Quelle: `resources/cad/z001-opus-m-93de7567.glb`, Knoten `Torso <1>` und `BackPa
 | Bohrung im Torso | **Ø 4,0 mm, ≥ 8 mm tief → M3-Einschmelzhülsen** (Außen-Ø ≈ 4,6) |
 | Original-Backpack | 105,3 × 24 × 79,6 mm (X ±52,65, Y 38,1–62,1, Z 256,1–335,8); Ø 3,2 Durchgang + Ø 6,5 Senkung ab 3 mm Plattendicke; nur zwei Seitenholme (X ±29,6…52,65) liegen auf |
 
-Der neue Grundrahmen übernimmt: Ø 3,4 Durchgang, Ø 6,6 Senkung, Schraubenköpfe bündig bei
-Y 44,1 (Bossen), **M3×8 Zylinderkopf von hinten in die vorhandenen Hülsen**.
+Der neue Grundrahmen übernimmt: Ø 4,0 Durchgang und Ø 7,0 × 4,0 Senkung (seit v4.6, vorher 3,4 / 6,6 × 3,2),
+Schraubenköpfe bündig bei Y 44,1 (Bossen), **M3×8 Zylinderkopf von hinten in die vorhandenen Hülsen**.
 
 ## 2. Bauraum-Ableitung (v2)
 
@@ -328,6 +401,11 @@ XY-CD63 OUT (−X-Kante) → 12 V ─┬─ Durchführung X −36…−24 / Z 30
 Pi USB-A → Durchführung X −36…−24 / Z 336–348 → Waveshare USB-C
 Torso-Servobus → Plattenausschnitt X ±20 / Z 300–336 → Waveshare (um die Platinenunterkante)
 ```
+
+**Abschaltreihenfolge:** Der Pi hängt über den Pololu am XY-CD63-Ausgang und wird beim Auslösen
+hart getrennt. Damit die SD-Karte das nicht mehr sieht, liest der Pi-Service die Packspannung über
+den Servobus (Register 62) und fährt das OS bei **10,8 V für 10 s** selbst herunter. Der XY-CD63 muss
+deshalb **unter 10,8 V**, z. B. auf 10,5 V, eingestellt sein — siehe [docs/pi-service.md](../../docs/pi-service.md).
 
 12-V-Pfad (rechts/unten) und USB/Signal (Mitte/oben) laufen in getrennten Fächern bzw.
 Durchführungen; die Kreuzung Pigtail ↔ Servobus liegt im rechten Winkel unter der

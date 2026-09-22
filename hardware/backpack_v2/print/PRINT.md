@@ -1,5 +1,19 @@
 # Pixel Backpack v4 — Druckdateien
 
+v4.6 (2026-09-22): **Grundrahmen**: Durchgangsbohrungen der vier Torsoschrauben Ø4,0 (vorher 3,4), Senkung Ø7,0 × 4,0
+(vorher 6,6 × 3,2). Deckel unverändert.
+
+v4.5 (2026-09-22): **Deckel**: Cutoff-Bohrungen auf der langen Seite 1,5 mm enger (56,5 mm), Waveshare-Sockelbohrungen Ø2,2,
+Aussparungen Ø5,5 × 3 mm für die Sockel des Schaltereinsatzes mit höheren Innenpads (5 mm Gewinde bleiben). Nur der Deckel ist neu.
+
+v4.4 (2026-09-22): **Pi um 180° gedreht** — SD-Kante rechts (+X) mit microSD-Fenster in der +X-Wand, USB-C-Kante unten mit
+**40 mm** Platz für Netzteilstecker und Kabel, Ethernet/USB-A nach −X mit **50 mm** Steckerzone; Pololu links unten. Beide
+Druckteile neu (Deckel: nur die 5-V-Messpins und ihre Beschriftung sind gewandert).
+
+v4.3 (2026-09-22): **Pi 6 mm nach +X** (Platinenkante → Seitenwand 6,5 mm statt 0,5 mm, die gesteckte microSD-Karte
+passt jetzt) und **microSD-Fenster in der rechten Seitenwand** (−X, gegenüber der LiPo-Schublade): 24 mm breit, 45°-Dach,
+ohne Support. Außenmaße unverändert, nur der Grundrahmen ist neu, der Deckel ist identisch mit v4.2.
+
 v4.2 (2026-09-19): **Pi quer** (USB/Ethernet zur Mitte, von hinten steckbar), **Waveshare am Deckel** auf vier
 Kunststoffsockeln (M2, Bohrung Ø1,9), **Kameraschlitz** 18 × 3 mm oben links in der Grundplatte, Pololu-Dome diagonal
 (13,5 × 16,0, M2), 5-V-Messpins im Deckel verlegt, Warner 3 mm höher. Für den Pi einen **USB-C-Stecker mit 90°-Abgang**
@@ -15,7 +29,7 @@ Gesamttiefe ab Torsowand **69 mm** (vorher 52). Der Torso-Einsatz entfällt, es 
 
 | Datei | Teil | Bett-Auflage | Größe (mm) | Support |
 | --- | --- | --- | --- | --- |
-| `pixel-backpack-v4_1-base.stl` | Grundrahmen: Pi-Standoffs (M2 von der Torsoseite, gesenkt), Waveshare-Standoffs, Pololu, LiPo-Schublade | Grundplatte (Torsoseite) unten | 160 × 162 × 67 | keiner |
+| `pixel-backpack-v4_1-base.stl` | Grundrahmen: Pi-Standoffs (M2 von der Torsoseite, gesenkt), microSD-Fenster, Pololu, LiPo-Schublade | Grundplatte (Torsoseite) unten | 160 × 162 × 67 | keiner |
 | `pixel-backpack-v4_2-lid.stl` | Rückdeckel: XY-CD63 (von außen verschraubt), Schalter, Sicherung, XT60-Paare, Warner | **Außenseite unten** | 160 × 162 × 19 | keiner |
 
 ## Lagenaufbau (y ab Torso-Rückwand 38,1 mm)
@@ -48,13 +62,16 @@ der ersten Lage, kein Problem.
 * **XY-CD63:** 4× M3×10 Zylinderkopf von außen durch den Deckel, Köpfe 0,4 mm versenkt.
 * **Raspberry Pi:** 4× M2×8 Zylinderkopf (Ø4 × 2) von der Torsoseite durch Grundplatte und Standoffs, M2-Mutter auf
   der Platine. Senkung Ø4,5 × 2,4 mm, Köpfe 0,4 mm versenkt, die Platte liegt plan am Torso. Der Pi lässt sich nur
-  bei abgenommenem Rucksack lösen.
+  bei abgenommenem Rucksack lösen. Die **microSD-Karte** wird durch das Fenster in der Seitenwand (+X, Seite der
+  LiPo-Schublade) gesteckt und gezogen; sie steht 3 mm über die Platine und endet 3,5 mm vor der Wand. Netzteil mit
+  geradem USB-C-Stecker von unten, USB-A/Ethernet-Stecker nach −X.
 * **XY-CD63** mit dem Display nach innen einsetzen (Klemmen oben, VIN zum Schalter hin). Im Deckel sitzen an Stelle der
   früheren Display-/Tasterfenster Lüftungsschlitze.
-* **Waveshare:** 4× M2×6 von der Bauteilseite in die Deckelsockel (Metallsockel vorher entfernen).
+* **Waveshare:** 4× M2×6 von der Bauteilseite in die Deckelsockel (Bohrung Ø2,2; Metallsockel vorher entfernen).
 * **Pololu:** 2× M2×6 in die diagonalen Dome.
-* **Hauptschalter:** von außen in den Ausschnitt (15 × 34) einsetzen, 2× M2 durch seine Befestigungslöcher in den Deckel.
-  Gewinde im Deckel 5 mm tief (2 mm Deckel + 3 mm Verstärkung); Schraubenlänge = Flanschdicke + ca. 5 mm.
+* **Hauptschalter:** von außen in den Ausschnitt (15 × 34) einsetzen, seine zwei Sockel Ø5 × 3 sitzen in den Aussparungen
+  Ø5,5 × 3 des Deckels; 2× M2 durch seine Befestigungslöcher in den Deckel. Gewinde im Deckel 5 mm tief (unter der
+  Aussparung 2 mm Deckel + 6 mm Pad − 3 mm); Schraubenlänge = Flanschdicke + ca. 5 mm.
 * Reihenfolge: Pi (von der Torsoseite) und Pololu in den Grundrahmen schrauben, Waveshare an den Deckel → Grundrahmen an den Torso →
   Servobus und Pi-Kabel durch die Durchführung legen → Deckel mit Cutoff, Schalter, Sicherung, XT60 und
   Warner bestücken → verkabeln → Deckel aufsetzen → LiPo von links einschieben.
