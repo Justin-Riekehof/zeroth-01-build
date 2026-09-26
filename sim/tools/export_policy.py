@@ -49,8 +49,19 @@ import mujoco  # noqa: E402
 from mujoco_scenes.mjcf import load_mjmodel  # noqa: E402
 mj = load_mjmodel(str(ROOT / "sim/assets" / assets / "robot.mjcf"), scene="smooth"); joints = [mj.joint(i).name for i in range(1, mj.njnt)]
 meta = json.load(open(ROOT / "sim/assets" / assets / "metadata.json"))
+_imu = meta.get("imu", {})
+if _imu.get("frame") == "imu":
+    _ax = _imu.get("axes_in_body", {})
+    imu_desc = ("RAW SENSOR AXES of the head IMU (QMI8658 on the Waveshare RP2040-LCD-1.28, left eye) -- feed the "
+                f"sensor readings straight through, do NOT rotate. x_imu={_ax.get('x_imu')}, y_imu={_ax.get('y_imu')}, "
+                f"z_imu={_ax.get('z_imu')} expressed in body axes (x fwd, y left, z up). Standing still the "
+                "accelerometer reads about +9.81 on the chip's Y axis. R_body_from_imu is in the model metadata.")
+elif _imu:
+    imu_desc = "body frame (x fwd, y left, z up) -- rotate raw readings with R_body_from_imu from the model metadata first"
+else:
+    imu_desc = "IMU frame = body frame (x fwd, y left, z up)"
 layout = [("timestep_phase", 4, "gait clock [cos, sin] x2 (walking.py TimestepPhaseObservation)"), ("joint_pos", NUM_OUTPUTS, "joint angles rad, MuJoCo joint order, 0 = servo zero"),
-          ("joint_vel", NUM_OUTPUTS, "joint velocities rad/s"), ("imu_acc", 3, "accelerometer m/s^2, IMU frame = body frame (x fwd, y left, z up)"),
+          ("joint_vel", NUM_OUTPUTS, "joint velocities rad/s"), ("imu_acc", 3, f"accelerometer m/s^2, {imu_desc}"),
           ("imu_gyro", 3, "gyro rad/s, same frame"), ("lin_vel_cmd", 2, "commanded forward/lateral speed m/s"), ("ang_vel_cmd", 1, "commanded yaw rate rad/s"),
           ("gait_freq_cmd", 1, "commanded gait frequency Hz"), ("last_action", NUM_OUTPUTS, "previous action")]
 if heading_obs: layout.append(("heading", 2, "[cos psi, sin psi]: yaw relative to the start heading (IMU yaw zeroed at policy start)"))
@@ -58,7 +69,7 @@ task_keys = ["velocity_tracking", "gait_shaping", "target_speed_min", "target_sp
 json.dump({"checkpoint": str(ckpt), "assets": assets, "task_config": {k: cfg.get(k) for k in task_keys if k in cfg},
            "input": {"size": n_in, "layout_in_order": [{"name": n, "size": s, "meaning": m} for n, s, m in layout]},
            "output": {"size": NUM_OUTPUTS, "meaning": f"target joint angle rad (tanh-bounded, x action_scale={action_scale}), MuJoCo joint order, 0 = servo zero; a PD loop (sim: kp 16, kd 3) tracks it at {1/float(cfg.get('ctrl_dt', 0.02)):.0f} Hz"},
-           "joint_order": joints, "servo_ids": {j: meta["joint_name_to_metadata"][j]["id"] for j in joints},
+           "imu": _imu, "joint_order": joints, "servo_ids": {j: meta["joint_name_to_metadata"][j]["id"] for j in joints},
            "actuator_types": {j: meta["joint_name_to_metadata"][j]["actuator_type"] for j in joints}, "onnx_vs_jax_max_abs_diff": err,
            "files": ["policy.onnx", "tf_model/", "ckpt.bin", "policy_meta.json"]}, open(out / "policy_meta.json", "w"), indent=1)
 shutil.copy(ckpt, out / "ckpt.bin")

@@ -99,10 +99,63 @@
   },
   "control_frequency": 50,
   "source": "resources/cad/z001-opus-m-93de7567 via sim/tools/build_model_cad.py",
-  "imu_cad_mm": [
-    -5.0,
-    16.0,
-    322.0
-  ],
-  "imu_note": "assumed on the torso-insert Pi carrier, axes = body axes (x fwd, y left, z up)"
+  "imu": {
+    "cad_mm": [
+      27.42,
+      -15.37,
+      423.84
+    ],
+    "pos_body_m": [
+      0.02175,
+      0.02742,
+      0.11428
+    ],
+    "site_quat_wxyz": [
+      0.5,
+      0.5,
+      -0.5,
+      -0.5
+    ],
+    "frame": "imu",
+    "R_body_from_imu": [
+      [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ]
+    ],
+    "axes_in_body": {
+      "x_imu": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "y_imu": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "z_imu": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    "note": "sim imu_acc/imu_gyro are the raw QMI8658 axes -- the Pi feeds the sensor readings straight to the policy",
+    "source": "hardware/head_imu/imu_pose.json (Waveshare RP2040-LCD-1.28, QMI8658, left eye)"
+  },
+  "mass_model": {
+    "source": "hardware/mass_model.json",
+    "total_mass_kg": 2.627
+  }
 }
