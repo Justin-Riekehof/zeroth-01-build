@@ -1,0 +1,167 @@
+{
+ "_comment": "Masses of everything on this robot that is not a printed part, for the sim mass model. One entry per component. confidence: V = manufacturer/official datasheet, D = distributor spec page, S = derived estimate (reasoning in 'note'). Consumed by sim/tools/build_mass_model.py, which places each item at the position the CAD gives it. NOTHING here has been weighed yet - a kitchen scale beats every S entry, especially cutoff_xycd63, antispark_switch and the LiPo variant.",
+ "petg_density_kg_m3": 750,
+ "_petg_note": "Bambu PETG 1.27 g/cm3 solid, printed with 4 walls / 40 % gyroid -> ~0.59 of solid. Used for every printed part, including the backpack shells.",
+
+ "components": {
+  "feetech_sts3215_12v": {
+   "mass_g": 55.0, "confidence": "V",
+   "source": "https://www.feetechrc.com/525603.html (spec sheet ST-3215-C018: 'The Weight 55 +/- 1g')",
+   "note": "arm joints; 45.2 x 24.7 x 35 mm"
+  },
+  "feetech_sts3250": {
+   "mass_g": 74.5, "confidence": "V",
+   "source": "https://www.feetechrc.com/en/562636.html (ST-3250: 'Weight: 74.5 +/- 1g')",
+   "note": "leg joints; same case as the 3215 but coreless motor, +19.5 g. The model used 62 g until 2026-09-23."
+  },
+
+  "lipo_3s_2200": {
+   "mass_g": 180.0, "confidence": "D",
+   "source": "https://gensace.de/collections/soaring (Soaring 30C ~174 g) / https://genstattu.com/... (Adventure 60C 185 g)",
+   "note": "Gens Ace 3S 2200 mAh XT60. Variant not recorded: 168-185 g across the range (higher C-rate ~ +10 g); 180 g is the middle. The 25 mm deep CAD pocket fits the 23-25 mm (45C/60C) bodies. Heaviest single part - weigh it."
+  },
+  "raspberry_pi_4b": {
+   "mass_g": 46.0, "confidence": "D",
+   "source": "https://community.element14.com/products/raspberry-pi/w/documents/4320/raspberry-pi-4-model-b---technical-specifications",
+   "note": "Raspberry Pi Ltd publishes no mass; 46 g is the distributor figure, owners measure 46-47 g."
+  },
+  "waveshare_servo_adapter": {
+   "mass_g": 16.0, "confidence": "D",
+   "source": "https://botland.store/drivers-for-servos/24907-bus-servo-adapter-a-controller-for-stsc-series-serial-bus-servos-uart-waveshare-25514-5904422385736.html",
+   "note": "Bus Servo Adapter (A) V1.1, 42 x 33 mm. Waveshare gives no mass; 14-16 g across distributors."
+  },
+  "pololu_d24v50f5": {
+   "mass_g": 3.0, "confidence": "V",
+   "source": "https://www.pololu.com/product/2851/specs",
+   "note": "'without included optional headers'"
+  },
+  "cutoff_xycd63": {
+   "mass_g": 42.0, "confidence": "S",
+   "source": "relay datasheet https://files.seeedstudio.com/wiki/Grove-SPDT_Relay_30A/res/SLA-05VDC-SL-C_Datasheet.pdf (20 g) + PCB/terminal build-up",
+   "note": "No datasheet for the module. Songle SLA-05VDC-SL-A relay 20 g [V] + FR4 56x62x1.6 mm ~11.5 g + 2 screw terminal blocks ~6 g + display/MCU/passives ~4 g. Distributor weights of 51/71 g look like packaged weights. +-10 g - weigh it."
+  },
+  "antispark_switch": {
+   "mass_g": 16.0, "confidence": "S",
+   "source": "cross-check: 22.6 g for a cased XT60 electronic switch (amazon B0GXVF2J4G)",
+   "note": "Body only: the 22 g of a complete unit minus the XT60 pair counted separately as xt60_pair. PCB ~2.4 g + MOSFETs/cap ~3 g + body/heatshrink ~2 g + stubs. +-8 g."
+  },
+  "fuse_holder_30a": {
+   "mass_g": 11.0, "confidence": "S",
+   "source": "build-up: ATC/ATO inline holder body ~8 g + 30 A blade fuse ~2.5 g",
+   "note": "Holder + fuse only. The XT60s of the inline fuse cable are xt60_pair entries, its wire is in the cable table."
+  },
+  "lipo_warner": {
+   "mass_g": 9.0, "confidence": "D",
+   "source": "https://hobbyking.com/en_us/hobbykingtm-lipoly-low-voltage-alarm-2s-6s.html (38 x 25 x 11 mm, 9 g)",
+   "note": "acoustic low-voltage alarm on the balancer port; market range 5-14 g"
+  },
+  "xt60_pair": {
+   "mass_g": 6.1, "confidence": "D",
+   "source": "https://www.progressiverc.com/products/xt60-connectors ('6.1 grams per pair')",
+   "note": "male + female plugged, without wire"
+  },
+
+  "waveshare_rp2040_lcd_128": {
+   "mass_g": 9.0, "confidence": "S",
+   "source": "build-up; packaged weight 16 g at https://thepihut.com/products/waveshare-rp2040-1-28-ips-lcd-board-with-accelerometer-gyroscope",
+   "note": "head IMU board (QMI8658). D 39.5 mm PCB 3.7 g + round IPS glass/backlight/FPC ~3 g + USB-C, battery connector, RP2040/flash/passives ~1.5 g. Waveshare publishes no mass."
+  },
+  "pi_camera_module_3": {
+   "mass_g": 4.0, "confidence": "S",
+   "source": "official brief (dimensions only): https://datasheets.raspberrypi.com/camera/camera-module-3-product-brief.pdf",
+   "note": "PCB 25 x 24 x 1 mm ~1.1 g + lens barrel/AF actuator ~1.5-2 g + 200 mm FPC ribbon ~1.5 g. Raspberry Pi Ltd publishes no mass; 12-14 g quotes are boxed weights."
+  },
+
+  "plug_usb_bundle": {
+   "mass_g": 8.0, "confidence": "S",
+   "source": "estimate: USB-A + Ethernet + HDMI plug bodies at the Pi's port side",
+   "note": "the plug bodies sitting in the pi_plugs envelope, without their cable (cables are in the cable table)"
+  },
+  "plug_usbc": {
+   "mass_g": 3.0, "confidence": "S",
+   "source": "estimate: moulded right-angle USB-C plug body",
+   "note": "5 V power plug at the Pi"
+  },
+  "plug_molex_pair": {
+   "mass_g": 1.0, "confidence": "S",
+   "source": "estimate: 2 x Molex 5264 3-circuit housing with crimps, ~0.35 g each",
+   "note": "the two servo-bus plugs on the Waveshare adapter"
+  },
+  "plug_dc_barrel": {
+   "mass_g": 4.0, "confidence": "S",
+   "source": "estimate: 5.5 x 2.1 mm barrel plug, moulded body",
+   "note": "12 V input of the Waveshare adapter"
+  },
+  "plug_jst_xh": {
+   "mass_g": 1.0, "confidence": "S",
+   "source": "estimate: JST-XH 4-circuit housing + crimps",
+   "note": "balancer plug of the warner"
+  },
+  "screw_terminal_pair": {
+   "mass_g": 2.0, "confidence": "S",
+   "source": "estimate: wire ferrules + screw heads in one terminal block of the cutoff",
+   "note": "the metal actually sitting in the VIN / OUT terminal envelopes, on top of the block already counted in cutoff_xycd63"
+  },
+  "screws_m3_set4": {
+   "mass_g": 5.0, "confidence": "S",
+   "source": "estimate: 4 x M3x10 steel (~1.1 g each) + heat-set inserts",
+   "note": "cutoff mounting"
+  },
+  "screws_m25_set4": {
+   "mass_g": 4.0, "confidence": "S",
+   "source": "estimate: 4 x M2.5x8 steel + nuts/standoffs",
+   "note": "Pi mounting"
+  },
+  "servo_harness": {
+   "mass_g": 25.0, "confidence": "S",
+   "source": "estimate: ~3.5 m of 3-wire bus cable to 16 daisy-chained servos at ~7 g/m",
+   "note": "NOT in the CAD: the wiring that runs from the backpack through the torso into the legs and arms. Lumped at the torso centre - it is really spread along the limbs, so it slightly under-weights the legs."
+  }
+ },
+
+ "wire": {
+  "_comment": "Cable masses: each named run of hardware/backpack_v2/backpack_v4.py CABLES gets a gauge and a conductor count; build_mass_model.py multiplies by the length of its CAD centreline.",
+  "gauge": {
+   "awg14_silicone": {
+    "g_per_m": 27.0, "confidence": "S",
+    "source": "geometry from https://zz-wire.com/index.php?a=show&c=content&id=1066 (400 x 0.08 mm strands, OD 3.5 mm)",
+    "note": "copper 2.011 mm2 -> 18.0 g/m + silicone 6.93 mm2 -> 9.0-9.7 g/m. Model checked against a published 6 AWG figure to within 8 %."
+   },
+   "awg18_silicone": {
+    "g_per_m": 10.5, "confidence": "S",
+    "source": "same geometric model: copper 0.823 mm2 -> 7.4 g/m + silicone jacket ~3 g/m",
+    "note": "5 V / low-current runs"
+   },
+   "awg22_pvc": {
+    "g_per_m": 4.4, "confidence": "S",
+    "source": "same model: copper 0.326 mm2 -> 2.9 g/m + PVC ~1.5 g/m",
+    "note": "balancer lead, test leads"
+   },
+   "servo_bus_26awg": {
+    "g_per_m": 2.2, "confidence": "S",
+    "source": "same model: copper 0.129 mm2 -> 1.16 g/m + PVC 0.73 mm2 -> 1.0 g/m",
+    "note": "per conductor of a Molex 5264 3-wire bus cable"
+   },
+   "usb_cable": {
+    "g_per_m": 25.0, "confidence": "S",
+    "source": "estimate for a shielded 4-core USB cable",
+    "note": "whole cable, so conductors = 1"
+   }
+  },
+  "cables": {
+   "lipo_xt60_lead":      {"gauge": "awg14_silicone",  "conductors": 2},
+   "lipo_balancer":       {"gauge": "awg22_pvc",       "conductors": 4},
+   "fuse_leg_1":          {"gauge": "awg14_silicone",  "conductors": 2},
+   "fuse_leg_2":          {"gauge": "awg14_silicone",  "conductors": 2},
+   "switch_in_lead":      {"gauge": "awg14_silicone",  "conductors": 2},
+   "switch_out_pigtail":  {"gauge": "awg14_silicone",  "conductors": 2},
+   "out_to_pololu":       {"gauge": "awg18_silicone",  "conductors": 2},
+   "out_to_waveshare":    {"gauge": "awg14_silicone",  "conductors": 2},
+   "servo_bus_a":         {"gauge": "servo_bus_26awg", "conductors": 3},
+   "servo_bus_b":         {"gauge": "servo_bus_26awg", "conductors": 3},
+   "pi_usb_to_waveshare": {"gauge": "usb_cable",       "conductors": 1},
+   "pololu_5v_usbc":      {"gauge": "awg18_silicone",  "conductors": 2},
+   "test_leads_5v":       {"gauge": "awg22_pvc",       "conductors": 2}
+  }
+ }
+}

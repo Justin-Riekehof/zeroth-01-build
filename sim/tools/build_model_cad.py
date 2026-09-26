@@ -14,15 +14,20 @@ instead of the upstream K-Scale Z-Bot 2 assets (a different robot: gripper hands
   not yet uploaded to the robot).
 * Frame: sim x forward, y left, z up (the CAD assembly frame is X left, Y back, Z up); base body at the
   torso centre, feet on the floor.
-* Masses (educated guess -- the robot has not been weighed): servos by type (STS3215 55 g, STS3250 62 g) as
-  box inertias at their CAD position; printed parts from mesh volume x 750 kg/m3 (PETG, 4 walls, 40 %
-  gyroid; non-watertight meshes fall back to half the convex-hull volume); backpack v3.1 from the mass
-  model in sim/tools/add_backpack.py.
-* IMU: site `imu` at --imu x,y,z (CAD mm, site axes = body axes: x forward, y left, z up). Default: on the Pi
-  carrier of the torso insert (CAD -5, 16, 322 mm = torso centre height, 1 cm behind the centre) -- an assumption,
-  the real mounting position/orientation must be mirrored here and in the Pi deployment loop.
+* Masses: everything that is not printed comes from hardware/mass_model.json (datasheet masses at the
+  position the CAD puts them: servos by type, the backpack v4.2 components, cables, the two head modules;
+  built by sim/tools/build_mass_model.py). Printed parts from their real mesh volume x 750 kg/m3 (PETG,
+  4 walls, 40 % gyroid): the GLB exports are full of T-junction cracks, so sim/tools/meshfix.py stitches
+  them closed first -- without that the old half-convex-hull fallback over-estimated hollow shells by 2-3x
+  (the head came out 88 g against 30 g of real volume). The robot has still not been weighed -- the
+  effective PETG density is the remaining guess.
+* IMU: site `imu` at the QMI8658 chip of the head module (hardware/head_imu/imu_pose.json), with the site
+  axes rotated onto the real chip axes, so `imu_acc`/`imu_gyro` in the sim are what the real sensor puts on
+  the wire. `--imu-frame body` instead aligns the site with the body axes (x forward, y left, z up) -- then
+  the Pi has to rotate the raw readings by R_body_from_imu from metadata.json before feeding the policy.
 Sensor / site / geom names are the ones sim/train/walking.py expects.
-Usage: python sim/tools/build_model_cad.py [--out sim/assets/zbot-cad] [--imu x,y,z] [--no-backpack]
+Usage: python sim/tools/build_model_cad.py [--out sim/assets/zbot-cad] [--imu x,y,z] [--imu-frame imu|body]
+       [--no-backpack]
 """
 from __future__ import annotations
 import argparse, collections, json, os, re, shutil, sys
@@ -36,13 +41,18 @@ JOINTS = ROOT / "resources/cad/z001-joints-m-93de7567.json"
 HW = ROOT / "hardware"
 SRC_ASSETS = ROOT / "sim/assets/zbot-pixel"           # sys-ID actuator JSONs
 BACKPACK_STL = ROOT / "hardware/backpack_v2/stl_v3"   # *_robotframe.stl = CAD assembly frame, mm
+BACKPACK_PARTS = ("base", "lid")                      # v4.2 prints; the v3.1 torso insert is gone
+MASS_MODEL = HW / "mass_model.json"                   # datasheet masses, built by sim/tools/build_mass_model.py
 sys.path.insert(0, str(ROOT))
-from sim.tools.add_backpack import ITEMS as BACKPACK_ITEMS  # noqa: E402
+from sim.tools.meshfix import solid_props  # noqa: E402
 
 EXCLUDE = [r"^milkv", r"^bus_servo_adaptor", r"^backpack", r"^battery", r"^electronics_mount", r"^\[draft\]_speaker",
-           r"^milk_camera", r"^mic$", r"^mic_", r"^lcd_imu", r"^hex_socket", r"^chamfered"]
-SERVO_MASS = {"feetech_sts3215_12v": 0.055, "feetech_sts3250": 0.062}
-PETG_DENSITY = 750.0
+           r"^milk_camera", r"^mic$", r"^mic_", r"^lcd_imu", r"^hex_socket", r"^chamfered",
+           r"^eye_mount"]   # the K-Scale eye mount is not in this build either: the head module sits on the ridges
+                            # of the reworked neck mount (hardware/head_imu), the right eye carries the camera
+MASS = json.load(open(MASS_MODEL))
+SERVO_MASS = {k: v / 1000.0 for k, v in MASS["servo_mass_g"].items()}
+PETG_DENSITY = float(MASS["petg_density_kg_m3"])
 R_SIM = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])   # CAD -> sim
 LEG_JOINTS = ("hip_pitch", "hip_yaw", "hip_roll", "knee_pitch", "ankle_pitch")
 ACT_ORDER = ["left_shoulder_yaw", "left_shoulder_pitch", "left_elbow_yaw", "right_shoulder_yaw", "right_shoulder_pitch",
@@ -65,6 +75,26 @@ def rot(axis, theta):
     return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * K @ K
 
 
+def mass_items(group):
+    """Datasheet components of one group: (mass kg, centre in CAD m, box in CAD m, name)."""
+    return [(i["mass_g"] / 1000.0, np.array(i["com_cad_mm"]) / 1000.0, np.array(i["box_mm"]) / 1000.0, i["name"])
+            for i in MASS["items"] if i["group"] == group]
+
+
+def quat_of(R):
+    """MuJoCo quaternion (w x y z) of a rotation matrix whose columns are the frame's axes in the parent frame."""
+    t = np.trace(R)
+    if t > 0:
+        w = np.sqrt(1.0 + t) / 2.0
+        q = np.array([w, (R[2, 1] - R[1, 2]) / (4 * w), (R[0, 2] - R[2, 0]) / (4 * w), (R[1, 0] - R[0, 1]) / (4 * w)])
+    else:
+        i = int(np.argmax(np.diag(R))); j, k = (i + 1) % 3, (i + 2) % 3
+        s = np.sqrt(1.0 + R[i, i] - R[j, j] - R[k, k]) * 2.0
+        q = np.zeros(4); q[0] = (R[k, j] - R[j, k]) / s
+        q[1 + i], q[1 + j], q[1 + k] = 0.25 * s, (R[j, i] + R[i, j]) / s, (R[k, i] + R[i, k]) / s
+    return q / np.linalg.norm(q)
+
+
 def box_inertia(m, d):
     return m / 12.0 * np.diag([d[1] ** 2 + d[2] ** 2, d[0] ** 2 + d[2] ** 2, d[0] ** 2 + d[1] ** 2])
 
@@ -82,12 +112,7 @@ def part_props(name: str, mesh: trimesh.Trimesh, motor_type: str | None):
     lo, hi = mesh.bounds; d = hi - lo
     if motor_type:
         m = SERVO_MASS[motor_type]; return m, (lo + hi) / 2, box_inertia(m, d), "servo"
-    m2 = mesh.copy(); m2.merge_vertices()
-    if m2.is_watertight and m2.volume > 1e-9:
-        m = m2.volume * PETG_DENSITY; m2.density = PETG_DENSITY
-        return m, m2.center_mass, m2.moment_inertia, "volume"
-    hull = mesh.convex_hull; m = 0.5 * hull.volume * PETG_DENSITY
-    return m, hull.centroid, box_inertia(m, d), "hull/2"
+    return solid_props(mesh, PETG_DENSITY)   # stitches the GLB's T-junction cracks, then real volume/inertia
 
 
 def fmt(v, n=6):
@@ -97,9 +122,21 @@ def fmt(v, n=6):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "sim/assets/zbot-cad"))
-    ap.add_argument("--imu", default="-5,16,322", help="IMU position in CAD mm (default: on the Pi carrier of the torso insert, torso centre height; axes = body axes)")
+    ap.add_argument("--imu", default=None, help="IMU position in CAD mm (default: the QMI8658 chip centre from hardware/head_imu/imu_pose.json)")
+    ap.add_argument("--imu-frame", default="imu", choices=("imu", "body"),
+                    help="'imu' (default): site axes = the real chip axes, the sim sensors output raw QMI8658 readings. "
+                         "'body': site axes = body axes (x fwd, y left, z up), the Pi must rotate the raw readings first.")
     ap.add_argument("--no-backpack", action="store_true")
     args = ap.parse_args(); out = Path(args.out)
+
+    # ---- IMU pose: chip position + chip axes, from the head module's CAD pose ----------------------------------
+    imu_pose = json.load(open(HW / "head_imu/imu_pose.json"))
+    imu_cad_mm = np.array([float(x) for x in args.imu.split(",")]) if args.imu else np.array(imu_pose["imu_chip_centre_mm"], float)
+    ax_cad = imu_pose["imu_axes_in_robot_frame"]
+    # columns = the chip's x/y/z axes expressed in the sim body frame
+    R_imu = np.column_stack([R_SIM @ np.array(ax_cad[k], float) for k in ("x_imu", "y_imu", "z_imu")])
+    assert abs(np.linalg.det(R_imu) - 1.0) < 1e-9 and np.allclose(R_imu.T @ R_imu, np.eye(3), atol=1e-9), R_imu
+    R_site = R_imu if args.imu_frame == "imu" else np.eye(3)
 
     J = json.load(open(JOINTS)); joints = {j["name"]: j for j in J["joints"]}
     limits = json.load(open(HW / "joint_limits.json")); servo_ids = json.load(open(HW / "servo_ids.json"))
@@ -189,18 +226,24 @@ def main():
                 mm = m.copy(); mm.vertices = (R_SIM @ (m.vertices - origin[L]).T).T
                 meshes.append(mm)
             merged = trimesh.util.concatenate(meshes); fn = f"{lname}_{kind}.stl"; merged.export(out / "meshes" / fn); gl.append((fn, kind))
+        if L == root:   # electronics rigid to the torso: the two modules in the head (no neck joint)
+            for m, c, dd, n in mass_items("head") + mass_items("torso"):
+                parts.append((m, c, box_inertia(m, dd))); report.append((lname, n, m, "datasheet"))
         M, com, I = combine(parts); com_s = R_SIM @ (com - origin[L]); I_s = R_SIM @ I @ R_SIM.T
         inertial[L] = (M, com_s, I_s); geoms[L] = gl
-    # backpack (rigid on the base)
+    # backpack (rigid on the base): datasheet components + the printed shells from their mesh volume
     bp = None
     if not args.no_backpack:
         parts = []
-        for n, mg, c, dd in BACKPACK_ITEMS:
-            m = mg / 1000.0; c = np.array(c) / 1000.0; dd = np.array(dd) / 1000.0; parts.append((m, c, box_inertia(m, dd)))
-        M, com, I = combine(parts); bp = (M, R_SIM @ (com - base_cad), R_SIM @ I @ R_SIM.T)
-        for part in ("base", "lid", "insert"):
+        for m, c, dd, n in mass_items("backpack"):
+            parts.append((m, c, box_inertia(m, dd))); report.append(("backpack", n, m, "datasheet"))
+        for part in BACKPACK_PARTS:
             m = trimesh.load(str(BACKPACK_STL / f"backpack_v3_{part}_robotframe.stl"), force="mesh")
-            m.vertices = (R_SIM @ (m.vertices / 1000.0 - base_cad).T).T; m.export(out / "meshes" / f"backpack_{part}.stl")
+            m.vertices = m.vertices / 1000.0
+            mass, com_p, I_p, how = solid_props(m, PETG_DENSITY)
+            parts.append((mass, com_p, I_p)); report.append(("backpack", f"{part} PETG", mass, how))
+            m.vertices = (R_SIM @ (m.vertices - base_cad).T).T; m.export(out / "meshes" / f"backpack_{part}.stl")
+        M, com, I = combine(parts); bp = (M, R_SIM @ (com - base_cad), R_SIM @ I @ R_SIM.T)
 
     # ---- feet: collision box = bottom 12 mm slab of the foot link mesh (link frame) ----------------------------
     feet = {}
@@ -208,7 +251,7 @@ def main():
         L = link_of_joint[f"{side}_ankle_pitch"]; m = trimesh.load(str(out / "meshes" / f"{link_names[L]}_printed.stl"), force="mesh")
         v = m.vertices; zmin = v[:, 2].min(); sl = v[v[:, 2] < zmin + 0.012]; lo, hi = sl.min(0), sl.max(0)
         feet[side] = ((lo + hi) / 2, (hi - lo) / 2, zmin)
-    imu_sim = to_sim(np.array([float(x) for x in args.imu.split(",")]) / 1000.0)
+    imu_sim = to_sim(imu_cad_mm / 1000.0); imu_quat = quat_of(R_site)
     base_z = base_cad[2] - z_floor + 0.001
 
     # ---- MJCF ---------------------------------------------------------------------------------------------------
@@ -226,7 +269,7 @@ def main():
     for L in link_mesh:
         for fn, kind in geoms[L]: w(f'    <mesh name="{fn}" file="meshes/{fn}" />')
     if bp:
-        for part in ("base", "lid", "insert"): w(f'    <mesh name="backpack_{part}.stl" file="meshes/backpack_{part}.stl" />')
+        for part in BACKPACK_PARTS: w(f'    <mesh name="backpack_{part}.stl" file="meshes/backpack_{part}.stl" />')
     w('  </asset>\n  <worldbody>')
     w(f'    <body name="base" pos="0 0 {base_z:.6f}" childclass="robot">\n      <freejoint name="floating_base" />')
     def emit(L, ind):
@@ -236,11 +279,13 @@ def main():
             w(f'{sp}<geom name="{lname}_{kind}_visual" material="{"servo" if kind == "servos" else "printed"}_material" type="mesh" mesh="{fn}" class="visual" />')
         if L == root:
             w(f'{sp}<site name="base" pos="0 0 0" size="0.005" />')
-            w(f'{sp}<site name="imu" pos="{fmt(imu_sim)}" size="0.006" rgba="0 1 0 1" />   <!-- IMU on the torso-insert Pi carrier (build option imu=x,y,z in CAD mm; axes = body axes) -->')
+            w(f'{sp}<!-- IMU: QMI8658 of the Waveshare RP2040-LCD-1.28 in the left eye (hardware/head_imu/imu_pose.json).')
+            w(f'{sp}     The head has no joint, so the chip is rigid to the base. Site axes = {"the real chip axes: x_imu to the robot right, y_imu up, z_imu backwards" if args.imu_frame == "imu" else "the body axes (x fwd, y left, z up)"}. -->')
+            w(f'{sp}<site name="imu" pos="{fmt(imu_sim)}" quat="{fmt(imu_quat)}" size="0.006" rgba="0 1 0 1" />')
             if bp:
-                w(f'{sp}<body name="backpack" pos="0 0 0">\n{sp}  <!-- backpack v3.1, {bp[0]*1000:.0f} g educated guess (sim/tools/add_backpack.py mass model) -->')
+                w(f'{sp}<body name="backpack" pos="0 0 0">\n{sp}  <!-- backpack v4.2 (hardware/backpack_v2), {bp[0]*1000:.0f} g: components from hardware/mass_model.json (datasheets), printed shells from mesh volume -->')
                 w(f'{sp}  <inertial pos="{fmt(bp[1])}" mass="{bp[0]:.4f}" fullinertia="{bp[2][0,0]:.3e} {bp[2][1,1]:.3e} {bp[2][2,2]:.3e} {bp[2][0,1]:.3e} {bp[2][0,2]:.3e} {bp[2][1,2]:.3e}" />')
-                for part in ("base", "lid", "insert"): w(f'{sp}  <geom name="backpack_{part}_visual" material="backpack_{part}_material" type="mesh" mesh="backpack_{part}.stl" class="visual" />')
+                for part in BACKPACK_PARTS: w(f'{sp}  <geom name="backpack_{part}_visual" material="backpack_{part}_material" type="mesh" mesh="backpack_{part}.stl" class="visual" />')
                 w(f'{sp}</body>')
         for side in ("left", "right"):
             if L == link_of_joint[f"{side}_ankle_pitch"]:
@@ -266,13 +311,27 @@ def main():
     w('    <framelinvel name="base_link_vel" objtype="site" objname="base" />\n    <frameangvel name="base_link_ang_vel" objtype="site" objname="base" />')
     w('    <force name="left_foot_force" site="left_foot" />\n    <force name="right_foot_force" site="right_foot" />\n  </sensor>\n</mujoco>')
     (out / "robot.mjcf").write_text("\n".join(o) + "\n")
+    total_mass = sum(v[0] for v in inertial.values()) + (bp[0] if bp else 0)
     meta = {"joint_name_to_metadata": {n: {"id": servo_ids[n], "actuator_type": actuator_type(n), "kp": "16.0", "kd": "3.0"} for n in tree_order},
             "control_frequency": 50, "source": "resources/cad/z001-opus-m-93de7567 via sim/tools/build_model_cad.py",
-            "imu_cad_mm": [float(x) for x in args.imu.split(",")], "imu_note": "assumed on the torso-insert Pi carrier, axes = body axes (x fwd, y left, z up)"}
+            "imu": {"cad_mm": [round(float(x), 3) for x in imu_cad_mm],
+                    "pos_body_m": [round(float(x), 5) for x in imu_sim],
+                    "site_quat_wxyz": [round(float(x), 6) for x in imu_quat],
+                    "frame": args.imu_frame,
+                    "R_body_from_imu": [[round(float(v), 6) for v in row] for row in R_imu],
+                    "axes_in_body": {"x_imu": [round(float(v), 3) for v in R_imu[:, 0]],
+                                     "y_imu": [round(float(v), 3) for v in R_imu[:, 1]],
+                                     "z_imu": [round(float(v), 3) for v in R_imu[:, 2]]},
+                    "note": ("sim imu_acc/imu_gyro are the raw QMI8658 axes -- the Pi feeds the sensor readings "
+                             "straight to the policy" if args.imu_frame == "imu" else
+                             "sim imu_acc/imu_gyro are in body axes -- the Pi must map raw readings with R_body_from_imu "
+                             "before feeding the policy"),
+                    "source": "hardware/head_imu/imu_pose.json (Waveshare RP2040-LCD-1.28, QMI8658, left eye)"},
+            "mass_model": {"source": "hardware/mass_model.json", "total_mass_kg": round(total_mass, 4)}}
     json.dump(meta, open(out / "metadata.json", "w"), indent=2)
 
     # ---- report ---------------------------------------------------------------------------------------------------
-    total = sum(v[0] for v in inertial.values()) + (bp[0] if bp else 0)
+    total = total_mass
     print(f"model -> {out}\nlinks: {len(link_mesh)}  joints: {len(order)}  excluded occurrences: {len(excluded)}  orphans->torso: {orphans}")
     print(f"total mass {total:.3f} kg (robot {total - (bp[0] if bp else 0):.3f} + backpack {bp[0] if bp else 0:.3f}); base at z={base_z:.3f} m; floor at CAD z={z_floor*1000:.1f} mm")
     for L in link_mesh:
