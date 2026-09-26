@@ -3,21 +3,20 @@
 > Building the open-source Zeroth-01 humanoid — from 3D print to RL policy on real hardware.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/build-whole_body_assembled-yellowgreen.svg)](#build-log)
+[![Status](https://img.shields.io/badge/build-untethered_demos-green.svg)](#build-log)
 [![Compute](https://img.shields.io/badge/onboard-Raspberry_Pi_4-red.svg)](#this-build)
 
 <!-- ─────────────────────────────────────────────────────────────
 HERO SPOT — own footage only.
-Currently: whole body running teach-in demos next to the live CAD
-model. Upgrade when it walks untethered (swap the GIF, keep the
-caption honest).
+Currently: untethered push-ups, everything on board. Upgrade when
+it walks on a trained policy (swap the GIF, keep the caption honest).
 ────────────────────────────────────────────────────────────── -->
 
-![Zeroth-01 whole body — kneeling, standing up and waving, with the CAD model in sync](media/whole-body-demo.gif)
+![Zeroth-01 doing push-ups untethered — battery and Raspberry Pi in the backpack, animated eye on the head display](media/push-ups.gif)
 
-*Whole body assembled: kneeling, standing back up and waving via taught-in demo sequences — the [Web GUI](src/servo_gui/)'s CAD model mirrors every move live (3× time-lapse; power & control still tethered to the bench PSU and a laptop).*
+*Untethered push-ups: no bench PSU, no USB cable. The 3S LiPo and the Raspberry Pi ride in the [backpack](hardware/backpack_v2/), the Pi executes the taught-in sequence locally and the browser only sends the intent. The left eye is a round LCD driven by the head IMU, the right eye is the Camera Module 3 — its live stream is the window open on the laptop in the background (≈7× time-lapse).*
 
-> 🚧 **Current status:** whole body assembled & calibrated — all 16 servos on the daisy chain, per-joint limits & mount offsets measured, teach-in motion demos running. **Wireless mode is live:** the onboard Raspberry Pi executes demos locally, the browser only sends intents. Next: C++ serial tooling, MuJoCo sim.
+> 🚧 **Current status:** whole body assembled & calibrated — all 16 servos on the daisy chain, per-joint limits & mount offsets measured, teach-in demos running **untethered** on battery and Wi-Fi. Head sensors are in: IMU display + camera. In simulation, five walking variants are trained on the CAD-accurate model. Next: **export and deploy the first policy on the robot, then measure the sim-to-real gap.**
 
 Based on the **[Zeroth-01 by K-Scale Labs / Zeroth Robotics](https://github.com/zeroth-robotics/zeroth-bot)**. This repo documents my independent build of the platform and the software I write on top of it.
 
@@ -43,7 +42,9 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 | --------------- | ------------------------------------------------------ |
 | Platform        | K-Scale Zeroth-01 (~40 cm humanoid)                    |
 | Actuators       | Feetech STS3215 (arms) · STS3250 (legs/torso, planned) |
-| Onboard compute | Raspberry Pi 4 Model B Rev 1.5 (2 GB)                 |
+| Onboard compute | Raspberry Pi 4 Model B Rev 1.5 (4 GB)                 |
+| Head sensors    | Waveshare RP2040-LCD-1.28 (round LCD + QMI8658 IMU) in the left eye · Camera Module 3 in the right |
+| Power           | 3S LiPo in the backpack, XY-CD63 low-voltage cutoff, Pololu buck for the Pi |
 | Printing        | Bambu Lab P2S — PETG                                   |
 | Training rig    | Linux workstation, 2× RTX 3090 (local, no cloud)       |
 
@@ -51,12 +52,13 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 
 - **Phase 0 — Printing** ✅ : all body parts printed in PETG on the Bambu Lab P2S — [print timelapse](media/print-timelapse.gif), print notes in [hardware/](hardware/)
 - **Phase 1 — Arms** (STS3215) ✅ : assembled, IDs flashed (11–13 / 21–23), center-calibrated, per-joint safe limits measured on the bench (one torn elbow bracket later) — [hardware/joint_limits.json](hardware/joint_limits.json)
-- **Phase 2 — Legs & torso** (STS3250): *in progress* — **whole body assembled & calibrated** (IDs 31–35 / 41–45, mount offsets incl. a +90° hip, hand-trimmed zeros), first **teach-in motion demos** running on the full body ([demos/](demos/)); RL locomotion still ahead
+- **Phase 2 — Legs & torso** (STS3250) ✅ : **whole body assembled & calibrated** (IDs 31–35 / 41–45, mount offsets incl. a +90° hip, hand-trimmed zeros), **teach-in motion demos** running on the full body ([demos/](demos/)) — kneeling, waving, push-ups; the first whole-body sequences, still on the bench PSU, are in [this earlier clip](media/whole-body-demo.gif)
 - **Servo test GUI** ✅ : browser tool for bring-up, testing, teach-in and visualization ([src/servo_gui/](src/servo_gui/), see [Software](#software))
-- **Backpack v3.1 (CAD)** 🛠️ : rear electronics housing for the 3S LiPo, XY-CD63 low-voltage cutoff, inline fuse, anti-spark switch, Waveshare adapter and Pololu buck, plus a torso insert that carries the Pi 4B in the now-empty battery bay — derived from the pinned CAD (torso hole pattern, interior cavity, arm/leg sweep envelopes); every part modelled with its connectors and wire zones, every cable as a tube with its minimum bend radius and checked against parts and envelopes; three support-free PETG parts, shown on the model in the GUI's *Attachments* panel incl. cables ([hardware/backpack_v2/](hardware/backpack_v2/))
+- **Backpack (CAD → built)** ✅ : rear electronics housing for the 3S LiPo, XY-CD63 low-voltage cutoff, inline fuse, anti-spark switch, Waveshare adapter and Pololu buck, plus a torso insert that carries the Pi 4B in the now-empty battery bay — derived from the pinned CAD (torso hole pattern, interior cavity, arm/leg sweep envelopes); every part modelled with its connectors and wire zones, every cable as a tube with its minimum bend radius and checked against parts and envelopes; three support-free PETG parts, shown on the model in the GUI's *Attachments* panel incl. cables ([hardware/backpack_v2/](hardware/backpack_v2/)). **Printed, wired and in use** — it is what makes the robot untethered: the hero GIF above is running entirely off this pack
+- **Head sensors** ✅ : the two eye sockets carry the electronics — a Waveshare RP2040-LCD-1.28 (round 1.28" LCD + QMI8658 IMU) on the left, a Camera Module 3 on the right. The LCD runs its own MicroPython firmware ([src/head_display/](src/head_display/)) that draws an animated eye and streams one IMU JSON line per frame over USB serial; the eye reacts to the robot's own attitude, so tipping the body moves the gaze. The camera is served as MJPEG on demand ([src/pi_service/head.py](src/pi_service/head.py)) — the first viewer starts `rpicam-vid`, the last one leaving stops it, so nothing runs while nobody is watching. Neither device sits on the servo bus, and a missing one is a status field rather than an exception
 - **Onboard compute / wireless mode** ✅ : shared motion core ([src/zbot_core/](src/zbot_core/)) + intent service on the Raspberry Pi ([src/pi_service/](src/pi_service/)) — demos execute on the robot, the GUI switches between USB (bench) and wireless (Pi) mode; one-command deploy ([docs/pi-service.md](docs/pi-service.md))
-- **Phase 2 — Legs & torso** (STS3250): planned — RL locomotion
-- **Phase 3 — Full integration**: planned
+- **Simulation model & walking policies** ✅ : MuJoCo model generated from the *built* robot rather than the upstream CAD — backpack geometry, datasheet masses from the stitched meshes and the head IMU in its real place and orientation. Five walking variants trained on it on the local GPU rig, with an unattended training queue and a checkpoint picker ([sim/](sim/README.md)). Export tooling is engine-independent, so the same Feetech model runs in the sim and on the robot
+- **Phase 3 — Sim-to-real**: *next* — export a policy to ONNX, run it on the Pi and measure where the simulation and the real robot disagree
 
 Milestones are tagged as releases (`v0.1-parts-printed`, `v0.2-arms-assembled`, `v0.3-first-motion`, …) so the build history is easy to follow chronologically.
 
@@ -122,6 +124,26 @@ Details in [src/servo_gui/README.md](src/servo_gui/README.md); all conventions,
 units, IDs and workflows are collected in the
 **[User Manual](docs/User_Manual.md)**.
 
+### Head display & camera — [src/head_display/](src/head_display/) · [src/pi_service/head.py](src/pi_service/head.py)
+
+The head carries the two sensors that are *not* on the servo bus, one per eye socket.
+
+- **Animated eye + IMU** — the left eye is a Waveshare RP2040-LCD-1.28, a round
+  1.28" display with a QMI8658 IMU on the same board. It runs its own MicroPython
+  firmware: every frame it draws the eye and streams one JSON line of telemetry
+  over USB serial (acceleration in mg, rate in dps, temperature, supply voltage).
+  Because the IMU sits behind the eye, the robot's attitude *is* the gaze — tip
+  the body and the eye looks along. Moods (`neutral`, `happy`, `sleepy`,
+  `surprised`), blinking and an explicit `look x y` are accepted as commands, so
+  the head can react to what the motion engine is doing
+- **Camera Module 3** — the right eye, served as MJPEG on demand. The first HTTP
+  viewer starts `rpicam-vid`, the last one leaving stops it a few seconds later;
+  nothing runs while nobody is watching. The GUI shows the stream next to the CAD
+  model, which is how the robot's own view ends up on the laptop in the hero GIF
+- **Never in the way of the servos** — both devices live in their own daemon
+  threads with their own locks. A missing or unplugged one becomes a status field
+  in `/status`, never an exception on the motion path
+
 ### Other
 
 - **Python bench scripts** — first-contact servo test ([src/tests/](src/tests/))
@@ -130,7 +152,13 @@ units, IDs and workflows are collected in the
 
 ## Simulation & RL
 
-MuJoCo/ksim-based training pipeline: train locomotion policies locally on the GPU rig, export to ONNX, run inference on the robot. The build-specific MuJoCo model (16 DoF, real servo IDs, sys-ID'd STS3250/STS3215 actuator split) is generated from the upstream CAD assets by [sim/tools/build_model.py](sim/tools/build_model.py); the walking task runs on the GPU rig via `python -m sim.train.walking`. Setup, stack decision (post-K-Scale-shutdown state of the ecosystem) and sim-to-real notes live in [sim/README.md](sim/README.md).
+MuJoCo/ksim-based training pipeline: train locomotion policies locally on the GPU rig, export to ONNX, run inference on the robot.
+
+The model is generated from **the robot that actually exists**, not from the upstream CAD ([sim/tools/build_model_cad.py](sim/tools/build_model_cad.py)): 16 DoF with the real servo IDs, the sys-ID'd STS3250/STS3215 actuator split, the backpack geometry, link masses derived from datasheet values and stitched mesh volumes, and the head IMU at its real position and orientation. That last detail matters more than it sounds — a policy that learns to balance on an IMU mounted somewhere the sensor is not will not transfer.
+
+Five walking variants are trained on that model, driven by an unattended training queue with a checkpoint picker, so the GPU never idles between stages. The export path is engine-independent: the same Feetech actuator model runs in simulation and on the robot.
+
+What is **not** done yet is the interesting part: none of these policies has run on the real robot. That is the next step, together with measuring where simulation and hardware disagree. Setup, stack decision (post-K-Scale-shutdown state of the ecosystem), the per-variant notes and the sim-to-real notes live in [sim/README.md](sim/README.md).
 
 ## Repository structure
 
@@ -140,7 +168,8 @@ hardware/   servo docs & configs (IDs, joint limits, mount offsets), print notes
             backpack_v2/ (CadQuery model + STLs of the electronics backpack)
 demos/      teach-in motion sequences (JSON, created & played via the GUI)
 src/        servo_gui/ (web GUI) · zbot_core/ (shared motion core) ·
-            pi_service/ (onboard intent API) · tests/ (bench scripts) · cpp/ (planned)
+            pi_service/ (onboard intent API) · head_display/ (MicroPython eye +
+            IMU firmware) · tests/ (bench scripts) · cpp/ (planned)
 resources/  pinned CAD snapshots (immutable OnShape version pins)
 sim/        training configs, MJCF/URDF, sim-to-real notes
 policies/   exported ONNX policies
@@ -155,17 +184,11 @@ media/      photos, print timelapses, hero GIF
 
 ## Roadmap
 
-> **🔴 Highest priority — before anything else that touches the robot: re-flash the Pi's SD card on the laptop to restore SSH access.**
-> Since the laptop reset on 2026-09-05 no machine can SSH into the robot: its `authorized_keys` held only that laptop's key. The only card reader is in the Windows laptop, and Windows cannot write the ext4 `rootfs` where the keys live — so the card gets re-flashed with Raspberry Pi Imager, this time with **both** dev keys. Until then every deploy is blocked, and the robot is still missing Pi service **v6** and the ±95° shoulder limits (`push_ups` loses ~28° per shoulder).
+> **▶ Next up: get a trained policy onto the robot and find out how far the simulation is off.**
+> Five walking variants are trained on the CAD-accurate model and the export path is ready; nothing has run on hardware yet. The two steps below are the whole point of the project, and the second one is where the surprises live.
 >
-> Step by step, with every command: **[docs/pi-bringup.md → Runbook: re-flash from the Windows laptop](docs/pi-bringup.md#runbook-re-flash-from-the-windows-laptop)**. In short:
->
-> 1. Laptop: new SSH key → append it to [hardware/dev_authorized_keys](hardware/dev_authorized_keys) → commit & push
-> 2. Robot on, old card: back up its demos over HTTP (`/demos`), then shut down cleanly
-> 3. Imager: Pi OS Lite (64-bit) · `pixel2` · `justin` · Wi-Fi · SSH public-key only with **both** key lines
-> 4. First boot: `ssh-keygen -R 192.168.178.147`, then `ssh justin@192.168.178.147`
-> 5. Pi-local setup: `pi_setup.sh`, `~/venv`, `connection.json`
-> 6. `deploy_pi.ps1`, verify (`/status`, `/limits`, `get_throttled`) — then `git pull` + SSH check on the workstation
+> 1. **Deploy the first policies** — export a checkpoint to ONNX, run inference on the Pi against the real servo bus, start on the tether/stand before the floor
+> 2. **Measure the sim-to-real gap** — compare commanded vs. achieved joint angles, step timing and attitude between MuJoCo and the robot, and feed what differs back into the actuator model and the mass model rather than into reward tweaks
 
 - [x] Build plan & repository
 - [x] Print all body parts in PETG (Bambu Lab P2S)
@@ -175,12 +198,16 @@ media/      photos, print timelapses, hero GIF
 - [x] First arm motion demos → new hero GIF
 - [x] Phase 2 assembly: legs & torso (STS3250, IDs 31–35 / 41–45) → whole body assembled, calibrated (mount offsets, limits) — teach-in demos (kneeling, waving) run on the full body
 - [x] Onboard the Raspberry Pi: shared motion core (`zbot_core`), Pi intent service with watchdog scaffold + one-command deploy, GUI wireless mode — demos run untethered from the laptop's USB port
-- [ ] **Restore SSH/deploy access to the Pi — highest priority, see the top of this section:** re-flash the SD card on the laptop with both dev keys, rebuild the Pi-local setup, deploy Pi service v6 + the widened shoulder limits
-- [ ] C++ serial tooling against the bench setup: Feetech packet parser, tick ↔ radian conversion, RAII serial-port wrapper
+- [x] Restore SSH/deploy access to the Pi: dev keys in the repo, one-command deploy working again
+- [x] Head sensors: IMU display in the left eye, Camera Module 3 in the right — animated eye driven by the robot's own attitude, MJPEG stream on demand ([src/head_display/](src/head_display/))
+- [x] Backpack built and wired: 3S LiPo, cutoff, fuse, buck and the Pi ride on the robot — demos run untethered on battery and Wi-Fi
 - [x] Simulation setup: build-specific MJCF model (16 DoF, sys-ID'd Feetech actuators) running in MuJoCo/ksim — GPU training pipeline verified end-to-end ([sim/](sim/README.md))
-- [ ] Train a locomotion policy in simulation
+- [x] Rebuild the model from the *built* robot: backpack geometry, datasheet masses, head IMU in its real pose
+- [x] Train locomotion policies in simulation — five walking variants on an unattended training queue
+- [ ] **Deploy the first policies on the robot** — export to ONNX, inference on the Pi against the real servo bus
+- [ ] **Sim-to-real gap** — measure where MuJoCo and the hardware disagree (joint tracking, step timing, attitude) and correct the actuator/mass model, not the rewards
+- [ ] C++ serial tooling against the bench setup: Feetech packet parser, tick ↔ radian conversion, RAII serial-port wrapper
 - [ ] Real-time C++ control node (rclcpp) with ONNX Runtime inference on the Pi 4
-- [ ] Sim-to-real: deploy the walking policy on the robot
 - [ ] Phase 3: full integration — locomotion + arms
 
 ## Upstream & acknowledgements
