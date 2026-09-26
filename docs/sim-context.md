@@ -46,7 +46,7 @@ Beide Typen: **1:345 Getriebe, 12 V, Position-Control-only** (interner PD-Regler
 | Ausgangs-Backlash | ~15 Counts ≈ **1,3°** | identisch (anzunehmen) | `[OK]` / `[V]` für 3250 |
 | Thermische Abschaltung | 70 °C | 70 °C; Anstieg ~3,75 °C/min bei 40 % Last → Trip nach ~8 min | `[OK]` |
 | Überspannungsschutz | >14 V / <4 V | identisch | `[OK]` |
-| Masse | — | — | `[?]` **beide wiegen** (Küchenwaage reicht), dann Link-Inertials korrigieren |
+| Masse | STS3215 **55 ± 1 g**, STS3250 **74,5 ± 1 g** (Feetech-Datenblätter) | im Sim-Modell gesetzt (`hardware/electronics_masses.json`) | `[V]` Datenblatt, Nachwiegen schadet nicht |
 
 **Bus-Feedback (real verfügbar, für Reward-Design und Telemetrie relevant):** Position, Geschwindigkeit, Spannung (Reg 62, 0,1-V-Einheiten), Strom (1 = 6,5 mA), Temperatur (°C direkt), Last (Skala 1000 = 100 % Torque-Duty). `[OK]`
 
@@ -60,7 +60,7 @@ Beide Typen: **1:345 Getriebe, 12 V, Position-Control-only** (interner PD-Regler
 - **Servo-IDs real:** Arme links 11/12/13, rechts 21/22/23 `[OK]`. Beine: 30er/40er-Schema nach K-Scale `[V]` — die exakte ID→Gelenk-Zuordnung gegen die tatsächlichen Metadaten prüfen, nicht raten.
 - **Neutralstellung:** Servo-Mitte = Count 2048 = 180°. Nullwinkel-Kalibrierung der Gelenke ist real bereits durchgeführt `[OK]`. Der Sim-Nullpunkt muss mit dieser realen Referenzpose übereinstimmen.
 - **Hüft-Roll-Anschlag:** mechanischer Anschlag im gedruckten Teil, erlaubt Abduktion ~90°, blockiert Adduktion. Ist **Absicht** (Selbstkollisionsschutz). URDF-`lower`/`upper` des Hip-Roll-Joints müssen exakt darauf liegen. `[V]` konkrete Radiant-Werte aus dem URDF ziehen und gegen das gedruckte Teil gegenprüfen.
-- **Link-Massen:** CAD-Inertials gehen von Vollmaterial aus. Real: PETG (~1,27 g/cm³) mit 4 Wänden + 40 % Gyroid → effektive Dichte deutlich niedriger. **Vorgehen:** Gesamtroboter wiegen, Summe der URDF-Link-Massen dagegen normieren, Servo-Massen (gemessen, s. §3) als separate, korrekte Punktmassen einsetzen. `[?]`
+- **Link-Massen:** im Modell `zbot-cad` umgesetzt (Stand 2026-09-23): gedruckte Teile aus dem Netzvolumen × 0,75 g/cm³ (PETG 1,27 mit 4 Wänden + 40 % Gyroid), Servos und alle Elektronikbauteile als separate Posten mit Datenblattmasse an ihrer CAD-Position (`hardware/electronics_masses.json` → `mass_model.json`). Gesamt 2,627 kg. Die GLB-Netze werden dafür erst mit `sim/tools/meshfix.py` an ihren T-Stoß-Rissen zugenäht (ohne Geometrieänderung); der frühere Fallback „halbes Hüllvolumen“ überschätzte hohle Schalen um das 2–3-fache (Kopf 88 statt 30 g). **Offen:** Gesamtroboter wiegen und die effektive PETG-Dichte (0,75 g/cm³) dagegen normieren. `[?]`
 - **Gesamtmasse Roboter:** `[?]` noch nicht gemessen — blockiert eine saubere Inertial-Kalibrierung.
 
 ---
@@ -114,8 +114,8 @@ Diese Punkte sind bei dieser Hardware nicht optional, sie sind der Unterschied z
 ## 8. Offene Punkte, die vor dem ersten Trainingslauf geschlossen sein sollten
 
 - `[?]` STS3250-Leerlaufgeschwindigkeit (Datenblatt)
-- `[?]` Massen STS3215 / STS3250 / Gesamtroboter (wiegen)
-- `[?]` IMU-Typ, Einbaulage, Datenrate
+- `[V]` Massen STS3215 (55 g) / STS3250 (74,5 g) aus den Feetech-Datenblättern; alle übrigen Elektronikmassen mit Quelle in `hardware/electronics_masses.json` → `[?]` bleibt nur **Gesamtroboter + bestückter Rucksack wiegen** (die `S`-Posten XY-CD63 ±10 g und Anti-Spark ±8 g dominieren die Restunsicherheit)
+- `[V]` IMU-Typ und Einbaulage: **QMI8658** auf dem Waveshare RP2040-LCD-1.28 im linken Auge, Pose und Achsen in `hardware/head_imu/imu_pose.json`, im Sim-Modell als gedrehte Site abgebildet (`sim/README.md`) → `[?]` bleibt die **Datenrate/Filterkonfiguration** des realen Chips
 - `[V]` Bein-Servo-IDs → Gelenk-Zuordnung
 - `[V]` Hip-Roll-Limits in Radiant aus URDF
 - `[V]` Ob die K-Scale-Asset-Pipeline noch funktioniert

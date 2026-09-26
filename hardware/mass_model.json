@@ -1,0 +1,658 @@
+{
+ "generated_by": "sim/tools/build_mass_model.py",
+ "frame": "CAD assembly frame of resources/cad/z001-opus-m-93de7567 (mm): +X robot left, +Y back, +Z up",
+ "note": "Masses are datasheet/manufacturer values (see electronics_masses.json); positions come from the backpack v4.2 placeholders and the head poses. Printed parts are NOT here - build_model_cad.py derives those from mesh volume x PETG density.",
+ "petg_density_kg_m3": 750,
+ "servo_mass_g": {
+  "feetech_sts3215_12v": 55.0,
+  "feetech_sts3250": 74.5
+ },
+ "servo_source": {
+  "feetech_sts3215_12v": "https://www.feetechrc.com/525603.html (spec sheet ST-3215-C018: 'The Weight 55 +/- 1g')",
+  "feetech_sts3250": "https://www.feetechrc.com/en/562636.html (ST-3250: 'Weight: 74.5 +/- 1g')"
+ },
+ "total_g": 430.3,
+ "group_g": {
+  "backpack": 392.3,
+  "head": 13.0,
+  "torso": 25.0
+ },
+ "com_cad_mm": [
+  -13.2,
+  63.5,
+  317.2
+ ],
+ "unused_components": [],
+ "items": [
+  {
+   "name": "LiPo 3S 2200 (Gens Ace)",
+   "group": "backpack",
+   "mass_g": 180.0,
+   "com_cad_mm": [
+    -23.5,
+    57.6,
+    275.5
+   ],
+   "box_mm": [
+    106.0,
+    25.0,
+    34.0
+   ],
+   "confidence": "D",
+   "source": "https://gensace.de/collections/soaring (Soaring 30C ~174 g) / https://genstattu.com/... (Adventure 60C 185 g)",
+   "note": "Gens Ace 3S 2200 mAh XT60. Variant not recorded: 168-185 g across the range (higher C-rate ~ +10 g); 180 g is the middle. The 25 mm deep CAD pocket fits the 23-25 mm (45C/60C) bodies. Heaviest single part - weigh it."
+  },
+  {
+   "name": "XY-CD63 cutoff",
+   "group": "backpack",
+   "mass_g": 42.0,
+   "com_cad_mm": [
+    -0.0,
+    88.1,
+    368.0
+   ],
+   "box_mm": [
+    62.0,
+    28.0,
+    56.0
+   ],
+   "confidence": "S",
+   "source": "relay datasheet https://files.seeedstudio.com/wiki/Grove-SPDT_Relay_30A/res/SLA-05VDC-SL-C_Datasheet.pdf (20 g) + PCB/terminal build-up",
+   "note": "No datasheet for the module. Songle SLA-05VDC-SL-A relay 20 g [V] + FR4 56x62x1.6 mm ~11.5 g + 2 screw terminal blocks ~6 g + display/MCU/passives ~4 g. Distributor weights of 51/71 g look like packaged weights. +-10 g - weigh it."
+  },
+  {
+   "name": "Raspberry Pi 4B",
+   "group": "backpack",
+   "mass_g": 46.0,
+   "com_cad_mm": [
+    -34.5,
+    51.85,
+    370.5
+   ],
+   "box_mm": [
+    85.0,
+    17.5,
+    56.0
+   ],
+   "confidence": "D",
+   "source": "https://community.element14.com/products/raspberry-pi/w/documents/4320/raspberry-pi-4-model-b---technical-specifications",
+   "note": "Raspberry Pi Ltd publishes no mass; 46 g is the distributor figure, owners measure 46-47 g."
+  },
+  {
+   "name": "Waveshare bus servo adapter",
+   "group": "backpack",
+   "mass_g": 16.0,
+   "com_cad_mm": [
+    55.5,
+    93.1,
+    314.5
+   ],
+   "box_mm": [
+    42.0,
+    16.0,
+    33.0
+   ],
+   "confidence": "D",
+   "source": "https://botland.store/drivers-for-servos/24907-bus-servo-adapter-a-controller-for-stsc-series-serial-bus-servos-uart-waveshare-25514-5904422385736.html",
+   "note": "Bus Servo Adapter (A) V1.1, 42 x 33 mm. Waveshare gives no mass; 14-16 g across distributors."
+  },
+  {
+   "name": "Pololu D24V50F5",
+   "group": "backpack",
+   "mass_g": 3.0,
+   "com_cad_mm": [
+    67.0,
+    48.5,
+    385.0
+   ],
+   "box_mm": [
+    17.8,
+    8.8,
+    20.3
+   ],
+   "confidence": "V",
+   "source": "https://www.pololu.com/product/2851/specs",
+   "note": "'without included optional headers'"
+  },
+  {
+   "name": "anti-spark switch",
+   "group": "backpack",
+   "mass_g": 16.0,
+   "com_cad_mm": [
+    -64.0,
+    97.6,
+    358.5
+   ],
+   "box_mm": [
+    15.0,
+    15.0,
+    34.0
+   ],
+   "confidence": "S",
+   "source": "cross-check: 22.6 g for a cased XT60 electronic switch (amazon B0GXVF2J4G)",
+   "note": "Body only: the 22 g of a complete unit minus the XT60 pair counted separately as xt60_pair. PCB ~2.4 g + MOSFETs/cap ~3 g + body/heatshrink ~2 g + stubs. +-8 g."
+  },
+  {
+   "name": "XT60 fuse holder + fuse",
+   "group": "backpack",
+   "mass_g": 11.0,
+   "com_cad_mm": [
+    -27.0,
+    97.6,
+    266.5
+   ],
+   "box_mm": [
+    40.0,
+    15.0,
+    15.0
+   ],
+   "confidence": "S",
+   "source": "build-up: ATC/ATO inline holder body ~8 g + 30 A blade fuse ~2.5 g",
+   "note": "Holder + fuse only. The XT60s of the inline fuse cable are xt60_pair entries, its wire is in the cable table."
+  },
+  {
+   "name": "LiPo warner",
+   "group": "backpack",
+   "mass_g": 9.0,
+   "com_cad_mm": [
+    55.5,
+    97.0,
+    280.0
+   ],
+   "box_mm": [
+    35.0,
+    14.0,
+    22.0
+   ],
+   "confidence": "D",
+   "source": "https://hobbyking.com/en_us/hobbykingtm-lipoly-low-voltage-alarm-2s-6s.html (38 x 25 x 11 mm, 9 g)",
+   "note": "acoustic low-voltage alarm on the balancer port; market range 5-14 g"
+  },
+  {
+   "name": "XT60 pair LiPo-fuse",
+   "group": "backpack",
+   "mass_g": 6.1,
+   "com_cad_mm": [
+    16.0,
+    94.0,
+    266.5
+   ],
+   "box_mm": [
+    40.0,
+    8.0,
+    15.0
+   ],
+   "confidence": "D",
+   "source": "https://www.progressiverc.com/products/xt60-connectors ('6.1 grams per pair')",
+   "note": "male + female plugged, without wire"
+  },
+  {
+   "name": "XT60 pair fuse-switch",
+   "group": "backpack",
+   "mass_g": 6.1,
+   "com_cad_mm": [
+    -61.0,
+    94.0,
+    296.0
+   ],
+   "box_mm": [
+    16.0,
+    8.0,
+    40.0
+   ],
+   "confidence": "D",
+   "source": "https://www.progressiverc.com/products/xt60-connectors ('6.1 grams per pair')",
+   "note": "male + female plugged, without wire"
+  },
+  {
+   "name": "Pi port-side plugs",
+   "group": "backpack",
+   "mass_g": 8.0,
+   "com_cad_mm": [
+    22.0,
+    51.1,
+    370.5
+   ],
+   "box_mm": [
+    28.0,
+    16.0,
+    56.0
+   ],
+   "confidence": "S",
+   "source": "estimate: USB-A + Ethernet + HDMI plug bodies at the Pi's port side",
+   "note": "the plug bodies sitting in the pi_plugs envelope, without their cable (cables are in the cable table)"
+  },
+  {
+   "name": "Pi USB-C power plug",
+   "group": "backpack",
+   "mass_g": 3.0,
+   "com_cad_mm": [
+    -65.8,
+    51.6,
+    406.0
+   ],
+   "box_mm": [
+    14.0,
+    17.0,
+    15.0
+   ],
+   "confidence": "S",
+   "source": "estimate: moulded right-angle USB-C plug body",
+   "note": "5 V power plug at the Pi"
+  },
+  {
+   "name": "Waveshare servo plugs",
+   "group": "backpack",
+   "mass_g": 1.0,
+   "com_cad_mm": [
+    55.5,
+    93.6,
+    352.0
+   ],
+   "box_mm": [
+    42.0,
+    15.0,
+    42.0
+   ],
+   "confidence": "S",
+   "source": "estimate: 2 x Molex 5264 3-circuit housing with crimps, ~0.35 g each",
+   "note": "the two servo-bus plugs on the Waveshare adapter"
+  },
+  {
+   "name": "Waveshare DC plug",
+   "group": "backpack",
+   "mass_g": 4.0,
+   "com_cad_mm": [
+    27.5,
+    94.1,
+    314.0
+   ],
+   "box_mm": [
+    12.0,
+    14.0,
+    28.0
+   ],
+   "confidence": "S",
+   "source": "estimate: 5.5 x 2.1 mm barrel plug, moulded body",
+   "note": "12 V input of the Waveshare adapter"
+  },
+  {
+   "name": "cutoff VIN terminals",
+   "group": "backpack",
+   "mass_g": 2.0,
+   "com_cad_mm": [
+    -15.5,
+    87.1,
+    404.0
+   ],
+   "box_mm": [
+    31.0,
+    14.0,
+    16.0
+   ],
+   "confidence": "S",
+   "source": "estimate: wire ferrules + screw heads in one terminal block of the cutoff",
+   "note": "the metal actually sitting in the VIN / OUT terminal envelopes, on top of the block already counted in cutoff_xycd63"
+  },
+  {
+   "name": "cutoff OUT terminals",
+   "group": "backpack",
+   "mass_g": 2.0,
+   "com_cad_mm": [
+    15.5,
+    87.1,
+    404.0
+   ],
+   "box_mm": [
+    31.0,
+    14.0,
+    16.0
+   ],
+   "confidence": "S",
+   "source": "estimate: wire ferrules + screw heads in one terminal block of the cutoff",
+   "note": "the metal actually sitting in the VIN / OUT terminal envelopes, on top of the block already counted in cutoff_xycd63"
+  },
+  {
+   "name": "warner balancer plug",
+   "group": "backpack",
+   "mass_g": 1.0,
+   "com_cad_mm": [
+    29.0,
+    95.5,
+    280.0
+   ],
+   "box_mm": [
+    14.0,
+    7.0,
+    10.0
+   ],
+   "confidence": "S",
+   "source": "estimate: JST-XH 4-circuit housing + crimps",
+   "note": "balancer plug of the warner"
+  },
+  {
+   "name": "cutoff screws",
+   "group": "backpack",
+   "mass_g": 5.0,
+   "com_cad_mm": [
+    -0.0,
+    101.96,
+    362.5
+   ],
+   "box_mm": [
+    63.5,
+    13.0,
+    43.5
+   ],
+   "confidence": "S",
+   "source": "estimate: 4 x M3x10 steel (~1.1 g each) + heat-set inserts",
+   "note": "cutoff mounting"
+  },
+  {
+   "name": "Pi screws",
+   "group": "backpack",
+   "mass_g": 4.0,
+   "com_cad_mm": [
+    -44.5,
+    43.02,
+    370.5
+   ],
+   "box_mm": [
+    62.6,
+    10.0,
+    53.6
+   ],
+   "confidence": "S",
+   "source": "estimate: 4 x M2.5x8 steel + nuts/standoffs",
+   "note": "Pi mounting"
+  },
+  {
+   "name": "cable lipo_xt60_lead",
+   "group": "backpack",
+   "mass_g": 2.6,
+   "com_cad_mm": [
+    27.88,
+    72.5,
+    267.5
+   ],
+   "box_mm": [
+    11.0,
+    42.0,
+    8.0
+   ],
+   "confidence": "S",
+   "source": "geometry from https://zz-wire.com/index.php?a=show&c=content&id=1066 (400 x 0.08 mm strands, OD 3.5 mm)",
+   "note": "48 mm x 2 x awg14_silicone (27.0 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable lipo_balancer",
+   "group": "backpack",
+   "mass_g": 0.58,
+   "com_cad_mm": [
+    28.5,
+    78.0,
+    273.0
+   ],
+   "box_mm": [
+    5.0,
+    32.0,
+    7.0
+   ],
+   "confidence": "S",
+   "source": "same model: copper 0.326 mm2 -> 2.9 g/m + PVC ~1.5 g/m",
+   "note": "33 mm x 4 x awg22_pvc (4.4 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable fuse_leg_1",
+   "group": "backpack",
+   "mass_g": 0.49,
+   "com_cad_mm": [
+    -2.5,
+    94.0,
+    266.5
+   ],
+   "box_mm": [
+    9.0,
+    5.0,
+    5.0
+   ],
+   "confidence": "S",
+   "source": "geometry from https://zz-wire.com/index.php?a=show&c=content&id=1066 (400 x 0.08 mm strands, OD 3.5 mm)",
+   "note": "9 mm x 2 x awg14_silicone (27.0 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable fuse_leg_2",
+   "group": "backpack",
+   "mass_g": 1.59,
+   "com_cad_mm": [
+    -56.33,
+    94.0,
+    271.67
+   ],
+   "box_mm": [
+    14.0,
+    5.0,
+    15.5
+   ],
+   "confidence": "S",
+   "source": "geometry from https://zz-wire.com/index.php?a=show&c=content&id=1066 (400 x 0.08 mm strands, OD 3.5 mm)",
+   "note": "30 mm x 2 x awg14_silicone (27.0 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable switch_in_lead",
+   "group": "backpack",
+   "mass_g": 1.71,
+   "com_cad_mm": [
+    -62.5,
+    95.0,
+    325.75
+   ],
+   "box_mm": [
+    5.0,
+    5.0,
+    31.5
+   ],
+   "confidence": "S",
+   "source": "geometry from https://zz-wire.com/index.php?a=show&c=content&id=1066 (400 x 0.08 mm strands, OD 3.5 mm)",
+   "note": "32 mm x 2 x awg14_silicone (27.0 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable switch_out_pigtail",
+   "group": "backpack",
+   "mass_g": 4.85,
+   "com_cad_mm": [
+    -45.0,
+    93.0,
+    397.38
+   ],
+   "box_mm": [
+    38.0,
+    10.0,
+    34.5
+   ],
+   "confidence": "S",
+   "source": "geometry from https://zz-wire.com/index.php?a=show&c=content&id=1066 (400 x 0.08 mm strands, OD 3.5 mm)",
+   "note": "90 mm x 2 x awg14_silicone (27.0 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable out_to_pololu",
+   "group": "backpack",
+   "mass_g": 1.48,
+   "com_cad_mm": [
+    36.8,
+    70.0,
+    401.6
+   ],
+   "box_mm": [
+    38.0,
+    36.0,
+    11.0
+   ],
+   "confidence": "S",
+   "source": "same geometric model: copper 0.823 mm2 -> 7.4 g/m + silicone jacket ~3 g/m",
+   "note": "71 mm x 2 x awg18_silicone (10.5 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable out_to_waveshare",
+   "group": "backpack",
+   "mass_g": 6.68,
+   "com_cad_mm": [
+    16.8,
+    78.0,
+    372.0
+   ],
+   "box_mm": [
+    16.0,
+    24.0,
+    82.0
+   ],
+   "confidence": "S",
+   "source": "geometry from https://zz-wire.com/index.php?a=show&c=content&id=1066 (400 x 0.08 mm strands, OD 3.5 mm)",
+   "note": "124 mm x 2 x awg14_silicone (27.0 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable servo_bus_a",
+   "group": "backpack",
+   "mass_g": 0.64,
+   "com_cad_mm": [
+    29.33,
+    65.83,
+    333.17
+   ],
+   "box_mm": [
+    27.5,
+    57.0,
+    38.0
+   ],
+   "confidence": "S",
+   "source": "same model: copper 0.129 mm2 -> 1.16 g/m + PVC 0.73 mm2 -> 1.0 g/m",
+   "note": "98 mm x 3 x servo_bus_26awg (2.2 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable servo_bus_b",
+   "group": "backpack",
+   "mass_g": 0.8,
+   "com_cad_mm": [
+    36.67,
+    66.17,
+    332.17
+   ],
+   "box_mm": [
+    32.5,
+    57.0,
+    54.0
+   ],
+   "confidence": "S",
+   "source": "same model: copper 0.129 mm2 -> 1.16 g/m + PVC 0.73 mm2 -> 1.0 g/m",
+   "note": "122 mm x 3 x servo_bus_26awg (2.2 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable pi_usb_to_waveshare",
+   "group": "backpack",
+   "mass_g": 2.18,
+   "com_cad_mm": [
+    30.5,
+    65.5,
+    336.5
+   ],
+   "box_mm": [
+    28.0,
+    36.0,
+    52.0
+   ],
+   "confidence": "S",
+   "source": "estimate for a shielded 4-core USB cable",
+   "note": "87 mm x 1 x usb_cable (25.0 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable pololu_5v_usbc",
+   "group": "backpack",
+   "mass_g": 3.08,
+   "com_cad_mm": [
+    3.75,
+    57.25,
+    405.25
+   ],
+   "box_mm": [
+    130.0,
+    12.0,
+    12.0
+   ],
+   "confidence": "S",
+   "source": "same geometric model: copper 0.823 mm2 -> 7.4 g/m + silicone jacket ~3 g/m",
+   "note": "147 mm x 2 x awg18_silicone (10.5 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "cable test_leads_5v",
+   "group": "backpack",
+   "mass_g": 0.45,
+   "com_cad_mm": [
+    63.67,
+    73.33,
+    399.0
+   ],
+   "box_mm": [
+    5.0,
+    50.0,
+    5.0
+   ],
+   "confidence": "S",
+   "source": "same model: copper 0.326 mm2 -> 2.9 g/m + PVC ~1.5 g/m",
+   "note": "51 mm x 2 x awg22_pvc (4.4 g/m), centroid of the CAD centreline"
+  },
+  {
+   "name": "servo harness (not in CAD)",
+   "group": "torso",
+   "mass_g": 25.0,
+   "com_cad_mm": [
+    0.0,
+    20.0,
+    300.0
+   ],
+   "box_mm": [
+    120.0,
+    60.0,
+    200.0
+   ],
+   "confidence": "S",
+   "source": "estimate: ~3.5 m of 3-wire bus cable to 16 daisy-chained servos at ~7 g/m",
+   "note": "NOT in the CAD: the wiring that runs from the backpack through the torso into the legs and arms. Lumped at the torso centre - it is really spread along the limbs, so it slightly under-weights the legs."
+  },
+  {
+   "name": "head IMU module (RP2040-LCD-1.28)",
+   "group": "head",
+   "mass_g": 9.0,
+   "com_cad_mm": [
+    27.61,
+    -16.86,
+    423.57
+   ],
+   "box_mm": [
+    39.5,
+    9.0,
+    39.5
+   ],
+   "confidence": "S",
+   "source": "build-up; packaged weight 16 g at https://thepihut.com/products/waveshare-rp2040-1-28-ips-lcd-board-with-accelerometer-gyroscope",
+   "note": "left eye; head IMU board (QMI8658). D 39.5 mm PCB 3.7 g + round IPS glass/backlight/FPC ~3 g + USB-C, battery connector, RP2040/flash/passives ~1.5 g. Waveshare publishes no mass."
+  },
+  {
+   "name": "Pi Camera Module 3",
+   "group": "head",
+   "mass_g": 4.0,
+   "com_cad_mm": [
+    -27.5,
+    -14.21,
+    425.02
+   ],
+   "box_mm": [
+    25.0,
+    12.4,
+    24.0
+   ],
+   "confidence": "S",
+   "source": "official brief (dimensions only): https://datasheets.raspberrypi.com/camera/camera-module-3-product-brief.pdf",
+   "note": "right eye; PCB 25 x 24 x 1 mm ~1.1 g + lens barrel/AF actuator ~1.5-2 g + 200 mm FPC ribbon ~1.5 g. Raspberry Pi Ltd publishes no mass; 12-14 g quotes are boxed weights."
+  }
+ ]
+}

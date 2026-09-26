@@ -137,7 +137,7 @@ funktionieren. Ein Logger-Bug der gepinnten xax-Version ist in `sim/train/common
 umschifft (JSON-Shim, siehe Kommentar dort).
 
 
-## Modell `assets/zbot-cad` — der gebaute Roboter aus dem WebUI-CAD (Stand 2026-09-08)
+## Modell `assets/zbot-cad` — der gebaute Roboter aus dem WebUI-CAD (Stand 2026-09-23)
 
 **Die bisherigen Modelle `zbot-pixel`/`zbot-pixel-backpack` sind der falsche Roboter**: sie stammen aus den
 K-Scale-Assets des *Z-Bot 2* (Greifer-Hände, andere Beinkette). Der gebaute Roboter ist der Zeroth-01
@@ -159,16 +159,40 @@ Trainingsläufe v1–v10 unten liefen auf dem falschen Modell und dienen nur noc
   Link-Frame). Nicht verbaute Originalelektronik (MilkV + Hat, Akku, alter BackPack + Waveshare, Speaker,
   Milk-Kamera, Mikro, LCD-IMU-Display) und Schrauben sind entfernt; Kopf/Hals bleiben. Kollision nur
   Fußsohlen-Boxen (unterste 12 mm der Fußnetze) gegen den Boden, Sites `left_foot`/`right_foot`.
-* **Massen — Educated Guess, Roboter noch nicht gewogen**: Servos 55 g (STS3215, Arme) / 62 g (STS3250,
-  Beine) als Quader an ihrer CAD-Position; gedruckte Teile: halbes Hüllvolumen × 0,75 g/cm³ (die GLB-Netze
-  sind nicht wasserdicht), Rucksack v3.1 738 g aus `add_backpack.py`. Ergebnis **2,92 kg** (Roboter 2,18 +
-  Rucksack 0,74), Basis (Torsomitte) 0,321 m hoch, Schwerpunkt 8 mm hinter der Basis, 0,265 m hoch.
-  Wiegen (Gesamt + je ein Servo) und `SERVO_MASS`/`PETG_DENSITY` im Skript nachziehen.
-* **IMU: Annahme.** Site `imu` sitzt auf dem Pi-Träger des Torso-Einsatzes (CAD −5, 16, 322 mm: Torsomitte-Höhe,
-  1 cm hinter der Mitte), Achsen = Körperachsen (x vorwärts, y links, z hoch). Der Rucksack-Spec enthält keine
-  IMU; reale Einbaulage/Achsen müssen hier (`build_model_cad.py --imu x,y,z`, Orientierung im Skript) und im
-  Pi-Deployment-Loop gespiegelt werden. `base`-Site (Torsomitte)
-  liefert `base_link_*` für die Belohnungen, die IMU-Sensoren `imu_acc`/`imu_gyro` sitzen an der IMU-Site.
+* **Massen aus Datenblättern** (Stand 2026-09-23, `hardware/electronics_masses.json` → `mass_model.json`):
+  Alles, was nicht gedruckt ist, steht mit Datenblattmasse, Quelle und Vertrauensgrad (`V` Hersteller /
+  `D` Distributor / `S` hergeleitet) in `hardware/electronics_masses.json`;
+  `sim/tools/build_mass_model.py` (braucht `.cad/bin/python`) setzt jeden Posten an die Stelle, die das CAD
+  ihm gibt — Rucksackbauteile auf ihre v4.2-Platzhalterboxen, Kabel über die Länge ihrer Mittellinien
+  (14 AWG Silikon ≈ 27 g/m je Ader), Kopfmodule auf ihre Einbaulage — und schreibt `hardware/mass_model.json`.
+  Gedruckte Teile aus ihrem **echten** Netzvolumen × 0,75 g/cm³ — auch die Rucksackschalen (vorher pauschal
+  240 + 71 g geraten, real 189 + 53 cm³ → 142 + 40 g).
+* **Gedruckte Teile: Risse im GLB zunähen statt Hüllvolumen raten.** Die GLB-Netze sind nicht wasserdicht,
+  aber nicht wegen echter Löcher: an T-Stößen ist eine Kante auf einer Seite geteilt, auf der anderen nicht
+  (Torso 907 offene Kanten, Kopf 76). Der alte Fallback „halbes Hüllvolumen" überschätzt hohle Schalen damit
+  um das 2–3-fache. `sim/tools/meshfix.py` (aus `hardware/head_imu/neck_mount_imu.py` übernommen) teilt die
+  ungeteilte Kante an diesen Punkten — **keine neue Geometrie, nichts verschoben** — danach ist die Fläche
+  geschlossen und Volumen/Schwerpunkt/Trägheit sind integrierbar. Gegenprobe: der so geflickte Kopf ergibt
+  30,4 g, die separat modellierte reale Kopfschale (`hardware/head_cam`) 31,2 g; Hinterplatte 29,0 vs. 28,4 g.
+  Strenge 2-Mannigfaltigkeit wird **nicht** verlangt (die Netze haben 10–20 Kanten mit >2 Flächen und
+  Null-Volumen-Splitter, die die Integrale nicht stören), und bis zu 2 mm Restkante bleiben erlaubt — sonst
+  fiele die linke Hand auf das Hüllvolumen zurück (37,7 g) und wäre asymmetrisch zur rechten (beide 46,9 g).
+  Korrekturen u. a.: Kopf 88 → 30 g, Torso 430 → 377 g, Hüft-Roll 41 → 21 g.
+  Wichtigste Massenkorrektur: **STS3250 wiegt 74,5 g** (Datenblatt), nicht die bisher angenommenen 62 g —
+  10 Beinservos, also +125 g tief unten. Ergebnis **2,627 kg** (Roboter 2,053 + Rucksack 0,574), also 290 g
+  weniger als die alte Schätzung, Schwerpunkt **10 mm tiefer**. Offen bleibt nur noch das Wiegen (Gesamt,
+  je ein Servo, bestückter Rucksack) — die dicksten `S`-Posten sind XY-CD63 (±10 g) und Anti-Spark (±8 g),
+  und die effektive PETG-Dichte von 0,75 g/cm³ ist weiter geschätzt.
+* **IMU: reale Einbaulage und Achslage.** Site `imu` sitzt auf dem QMI8658 des Waveshare RP2040-LCD-1.28 im
+  **linken Auge** (`hardware/head_imu/imu_pose.json`, CAD 27,4 / −15,4 / 423,8 mm → im Körperframe 2,2 cm vorn,
+  2,7 cm links, 11,4 cm über der Torsomitte). Der Kopf hat kein Gelenk, die IMU ist also starr an `base`.
+  Die Site ist auf die **echten Chipachsen gedreht** (x_imu nach rechts, y_imu nach oben, z_imu nach hinten,
+  Quaternion 0,5 / 0,5 / −0,5 / −0,5) — `imu_acc`/`imu_gyro` im Sim sind damit genau das, was der reale Sensor
+  ausgibt, der Pi-Loop reicht die Rohwerte ohne Drehung durch. Prüfwert: stehender Roboter → Beschleunigung
+  **+9,81 auf der Chip-Y-Achse**; Gierrate +1 rad/s → Gyro `[0, +1, 0]` (im Sim verifiziert).
+  `metadata.json` enthält Position, Quaternion und `R_body_from_imu`. Wer lieber in Körperachsen beobachtet:
+  `build_model_cad.py --imu-frame body`, dann muss der Pi die Rohwerte mit `R_body_from_imu` drehen.
+  `base`-Site (Torsomitte) liefert wie bisher `base_link_*` für die Belohnungen.
 * Metadaten wie bisher (`metadata.json`: Servo-IDs aus `hardware/servo_ids.json`, Aktuatortypen, kp/kd),
   Sys-ID-JSONs kopiert. `walking.py`: `torso_body_name` (Massen-Randomisierung) jetzt konfigurierbar,
   Default `base`.
@@ -176,10 +200,18 @@ Trainingsläufe v1–v10 unten liefen auf dem falschen Modell und dienen nur noc
 Ansehen ohne Policy: `python sim/tools/show_model.py sim/assets/zbot-cad --out sheet.png` (4 Ansichten) oder
 `--viewer` (interaktiv, statisch in der Nullpose; `--physics` simuliert mit Haltefeder).
 
-**Statik der Nullpose:** mit Rucksack liegt der Schwerpunkt 8 mm hinter der Torsomitte und nur 16 mm vor der
-Fersenkante der Sohlenbox (−24…+77 mm); mit servoähnlichem PD (kp 16) kippt der Roboter aus der reinen Nullpose
-in 1–2 s nach hinten. Die Nullpose bleibt trotzdem exakt Servo-Null (Aktion 0 = Servo-Null fürs Deployment); die
-Policy muss die Vorneigung lernen. Wiegen (Gesamt, je ein STS3215/STS3250) würde die Massenschätzung absichern.
+**Statik der Nullpose:** mit Rucksack liegt der Schwerpunkt 8 mm hinter der Torsomitte und nur 17 mm vor der
+Fersenkante der Sohlenbox (−24…+79 mm); mit servoähnlichem PD (kp 16) kippt der Roboter aus der reinen Nullpose
+nach hinten. Die Nullpose bleibt trotzdem exakt Servo-Null (Aktion 0 = Servo-Null fürs Deployment); die
+Policy muss die Vorneigung lernen. Die Massenarbeit vom 2026-09-23 hat die Reserve kaum verändert (16,6 → 16,7 mm),
+wohl aber die Verteilung: 164 g weniger im Rucksack, 290 g weniger insgesamt, Schwerpunkt 10 mm tiefer.
+
+**Modell neu bauen** nach Änderungen an Hardware-JSONs, Rucksack-CAD, Kopfmodulen oder Massen:
+
+```bash
+.cad/bin/python sim/tools/build_mass_model.py            # hardware/mass_model.json (braucht cadquery)
+~/Documents/stash/ksim-zbot/.venv/bin/python sim/tools/build_model_cad.py
+```
 
 ## Modell-Variante mit Backpack v3.1 (`assets/zbot-pixel-backpack`)
 
@@ -200,6 +232,54 @@ braucht nur numpy):
   **10 mm nach hinten (−x im Sim) und 4 mm nach oben** (Stand qpos0, CAD-schwere Links).
 * Training/Rendern: `sim/tools/train_backpack.sh <exp>` (GPU 0, `GPU=1` für die zweite),
   `sim/tools/render_policy.sh <ckpt.bin> <out.mp4> [s]` (offscreen/EGL, `imageio[ffmpeg]` liegt im venv).
+
+### Neu trainierte Policies `cad2_*` (Stand 2026-09-23/24) — gültig für das aktuelle Modell
+
+**Die `cad_*`-Policies weiter unten sind überholt.** Sie liefen auf dem alten Massenmodell (Kopf 88 statt
+30 g, STS3250 62 statt 74,5 g, Rucksack v3.1) und auf einer IMU, die als Körperachsen-Site im Torso saß.
+Ihre Beobachtungen passen nicht mehr zum Modell — nicht wiederverwenden, nur als Vergleichszahlen lesen.
+
+Alle fünf Rezepte neu trainiert, Auswahl per `sim/tools/pick_best.py` über den Snapshot-Sweep
+(16 Argmax-Rollouts × 5 s mit Randomisierung und Stößen):
+
+| Run | Schritt | Tempo | Stürze | Gier | Torso-Rollen p2p | Charakter |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cad2_v4_heading` | 320 | 0,31 m/s | 0/16 | 1,9° | 51° | kräftig, große Schritte |
+| `cad2_v6_small_ft` | 335 | 0,19 m/s | 0/16 | 1,4° | 44° | kleine Schritte (Fine-Tune aus v4) |
+| `cad2_v9_calm` | 45 | 0,11 m/s | 0/16 | 2,0° | 30° | ruhig |
+| `cad2_v10_calm2` | 850 | 0,13 m/s | 0/16 | 2,2° | 27° | ruhigster Geher |
+| `cad2_v13_tiny` | 905 | 0,07 m/s | 0/16 | 2,5° | **25°** | kleinste Schritte (Fine-Tune aus v10) |
+
+Bestätigt sich: **das Torso-Rollen bleibt bei ~25° hängen**, auch mit korrigierten Massen. Die 5,7-cm-Sohle
+ist der begrenzende Faktor, nicht die Massenverteilung.
+
+**Vorsicht bei `cad2_v9_calm`:** der Sweep krönt Schritt 45, einen sehr frühen Checkpoint. Er bewertet Tempo
+und Ruhe über 5 s, nicht Robustheit. Vor einem Einsatz gegen einen späteren Checkpoint über 30 s mit Stößen
+gegenprüfen. Für die Fine-Tune-Eltern setzt `train_queue.sh` deshalb `--min-step` auf die Hälfte des Budgets.
+
+### Trainings-Queue (`sim/tools/train_queue.sh`)
+
+Fährt mehrere Varianten nacheinander auf **einer** GPU, unbeaufsichtigt, als systemd-User-Unit `zbot-queue`:
+
+```bash
+GPU=1 sim/tools/train_queue.sh start      # Definition: sim/train/zbot_walking_task/queue/queue.txt
+sim/tools/train_queue.sh status
+sim/tools/train_queue.sh stop
+```
+
+Je Stage: `train_backpack.sh` starten, auf `max_steps` warten, aus `active_runs.txt` austragen (sonst
+belebt der Watchdog einen fertigen Lauf wieder), dann den Snapshot-Sweep **im Hintergrund** auf der CPU
+anwerfen, während die nächste Stage schon die GPU nutzt. Ein Fine-Tune wartet nur auf den Sweep seines
+eigenen Elternlaufs und holt sich dessen Checkpoint über `pick_best.py`.
+
+Zwei Fallen, die dabei Zeit gekostet haben und jetzt im Skript kommentiert sind:
+
+* **Die Overrides des Laufs müssen in den Sweep.** Das Eval baut das Netz aus der Task-Config; mit
+  `heading_obs=True` ist der Actor 64 statt 62 Eingänge breit, und ohne die Overrides scheitert *jeder*
+  Checkpoint beim Deserialisieren (`changed shape from (256, 62) to (256, 64)`) — der Sweep produziert
+  dann stillschweigend nichts, und die abhängige Fine-Tune-Stage fällt aus.
+* **Fine-Tunes zählen den Schrittzähler weiter**, weil xax den State mit den Gewichten lädt. `max_steps`
+  ist also absolut: Elternschritt + Budget.
 
 ### Gespeicherte Policies (`sim/train/zbot_walking_task/best/`, je Checkpoint + ONNX/SavedModel/Metadaten + Messungen + Videos)
 
