@@ -235,6 +235,10 @@ braucht nur numpy):
 
 ### Neu trainierte Policies `cad2_*` (Stand 2026-09-23/24) — gültig für das aktuelle Modell
 
+**Versioniert in [`sim/policies/`](policies/)** (ONNX + Checkpoint + `policy_meta.json` + Messwerte je
+Variante, ~7 MB pro Policy). Die Deployment-Schnittstelle steht in `policy_meta.json`, die Fallstricke
+in [`sim/policies/README.md`](policies/README.md) — insbesondere die **rohen IMU-Chipachsen**.
+
 **Die `cad_*`-Policies weiter unten sind überholt.** Sie liefen auf dem alten Massenmodell (Kopf 88 statt
 30 g, STS3250 62 statt 74,5 g, Rucksack v3.1) und auf einer IMU, die als Körperachsen-Site im Torso saß.
 Ihre Beobachtungen passen nicht mehr zum Modell — nicht wiederverwenden, nur als Vergleichszahlen lesen.
