@@ -12,6 +12,7 @@ from zbot_core.config import ConfigStore
 
 tmp = Path(tempfile.mkdtemp())
 server.CFG = ConfigStore(tmp)
+server.CFG.write_motion_limits({"max_speed": 3400, "max_acc": 254})   # this suite checks playback semantics, not the power limits (default 300/30)
 server.ENGINE.cfg = server.CFG
 server.CFG.servo_ids_path.write_text(json.dumps({"a": 11, "b": 12}))
 server.CFG.limits_path.write_text(json.dumps({

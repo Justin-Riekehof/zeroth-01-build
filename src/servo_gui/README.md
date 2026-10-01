@@ -42,7 +42,11 @@ GLB manually from the pinned URL and drag & drop it into the GUI window.
 1. **Connection** — pick the COM port of the Waveshare bus servo adapter and *Connect*
    (12 V on, jumper on B, one servo attached — same bench setup as
    `src/tests/servos/sts3250_test.py`). Or leave **Simulation** checked to try
-   everything without hardware.
+   everything without hardware. Once connected, the **battery gauge** under the
+   connection state shows the pack voltage the servos measure on their rail
+   (`/api/battery`, register 62 of the first configured servo that answers) with
+   an estimated LiPo percentage; in wireless mode it comes from the Pi service,
+   which also halts the Pi itself before the hardware low-voltage cutoff.
 2. **Servo** — click the part in the 3D model that corresponds to the servo on the
    bench. Clicking a motor also **ticks it in the *Servos* list** (and colours it
    orange); clicking it again unticks it, and the list/region chips highlight the
@@ -74,6 +78,14 @@ negative = one direction, positive = the other.
 The **gauge axis** dropdown only orients the visualization ring; it does not affect
 the hardware.
 
+**Center pose override.** *⌂ center* (single servo, group and on the Pi) normally moves
+to 0° on every joint. Pose the model with the sliders and click **⌂ set model pose as
+center pose**: the pose is stored in
+[hardware/center_pose.json](../../hardware/center_pose.json) and every center action
+moves there from then on (clamped to the joint limits, mount offsets applied; joints at
+0° are not listed). **⌂ reset center pose** returns to the plain mount pose. The
+override is deployed to the Pi with the other calibration files.
+
 **Mount offset / re-zeroing.** If a joint can't be mounted exactly at center (gear
 spline resolution, or a deliberate ±90° mount), select it and use **⊙ set current
 position as zero**: move to center, hand-turn the output to where zero should be
@@ -85,9 +97,15 @@ stay in CAD-frame degrees; the offset is applied transparently.
 
 ## Teach-in demos
 
-Pose the 3D model with the per-joint sliders, then *+ add step (current pose)* in
-the **Demos** section — each step stores the target angles of all configured joints
-plus its own speed/accel/pause. *save demo* writes the sequence as JSON into
+Pose the 3D model with the per-joint sliders, then *+ model pose* in the **Demos**
+section — each step stores the target angles of all configured joints plus its own
+speed/accel/pause and an optional **title** (shown in the editor and in the playback
+log). *+ center* appends an exact center step (center pose override where set, 0°
+elsewhere). Steps can be reordered with **▲ ▼** or by dragging the **⠿n** handle, copied
+with **⧉ dup**, **⟲ robot** overwrites a step with the robot's current physical pose
+(**⟳ update** does the same with the 3D model pose), and **▶ to here** plays the saved demo only up to that step (the pose is
+held there — handy for checking a step while teaching in). The **Attachments** panel, its
+sets and groups fold with the chevrons; the state is remembered per browser. *save demo* writes the sequence as JSON into
 [demos/](../../demos/) in the repo; the dropdown lists all saved demos for playback
 (simulation or hardware). Playback clamps every target to the joint limits, skips
 servos not on the bus, animates the model live, and holds the final pose

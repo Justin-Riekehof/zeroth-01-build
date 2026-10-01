@@ -225,6 +225,11 @@ that mode the list comes from the robot, not the repo.
 - **Always shut down cleanly.** GUI "shutdown Pi" button, or `sudo shutdown -h
   now`. Cut the main switch only after the ACT LED stops; the servos keep
   holding through the shutdown.
+- **Let the service catch the empty pack.** The battery monitor in the Pi
+  service halts the OS at 10.8 V (10 s hold) — that only protects the card if
+  the XY-CD63 is set **below** that, e.g. 10.5 V. Check the module's threshold
+  after every change to the power wiring; `curl /status | jq .battery` shows
+  what the servos read. Details: [pi-service.md](pi-service.md).
 - Re-check `vcgencmd get_throttled` after any change to the power wiring.
 - Prefer High Endurance cards (Samsung PRO Endurance, SanDisk Max Endurance),
   64 GB rather than 32 — endurance scales with capacity. Avoid Extreme / Evo /

@@ -32,7 +32,7 @@ Get-ChildItem $Stage -Recurse -Force -Directory |
     Where-Object { $_.Name -in ".venv", "__pycache__", ".pytest_cache" } |
     Remove-Item -Recurse -Force
 New-Item -ItemType Directory -Force "$Stage\hardware" | Out-Null
-foreach ($f in "servo_ids.json", "joint_limits.json", "joint_offsets.json") {
+foreach ($f in "servo_ids.json", "joint_limits.json", "joint_offsets.json", "center_pose.json", "motion_limits.json") {
     $p = Join-Path $RepoRoot "hardware\$f"
     if (Test-Path $p) { Copy-Item $p "$Stage\hardware\$f" }
 }

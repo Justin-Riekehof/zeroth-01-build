@@ -111,7 +111,7 @@ for ek, em in sorted(env.items()):
     row = {pk: iv(em, pm) for pk, pm in parts.items()}
     if any(v > 60 for v in row.values()): print(f"  {ek:20s} {row}")
 print("\n== envelopes vs envelopes (overlaps > 20 mm3) ==")
-keys = sorted(env); allowed = {("warner", "warner_plug"), ("pi", "pi_plugs"), ("pi", "pi_usbc_plug"), ("pi", "cam_ribbon"), ("pololu", "pololu_wires"), ("waveshare", "waveshare_servo_plugs"), ("waveshare", "waveshare_plugs"), ("cutoff", "cutoff_vin_wires"), ("cutoff", "cutoff_out_wires"), ("pi", "pi_screws"), ("cutoff", "cutoff_screws")}
+keys = sorted(env); allowed = {("warner", "warner_plug"), ("pi", "pi_plugs"), ("pi", "pi_usbc_plug"), ("pi", "cam_ribbon"), ("pololu", "pololu_wires"), ("waveshare", "waveshare_servo_plugs"), ("waveshare", "waveshare_plugs"), ("cutoff", "cutoff_vin_wires"), ("cutoff", "cutoff_out_wires"), ("pi", "pi_screws"), ("pi", "pi_sd"), ("switch", "switch_bosses"), ("cutoff", "cutoff_screws")}
 for i, a in enumerate(keys):
     for b in keys[i + 1:]:
         if (a, b) in allowed or (b, a) in allowed: continue

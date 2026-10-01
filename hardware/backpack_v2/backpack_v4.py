@@ -39,14 +39,33 @@ XI = XW - T_OW; ZI0, ZI1 = Z_BOT + T_OW, Z_TOP - T_OW   # +-77.5, 256.5..413.5
 Z_TRAY1 = ZI0 + 38.0; Z_DIV1 = Z_TRAY1 + T_IW           # 294.5 / 296.5
 PACK_X = (-76.5, 29.5); STRAP_X = (31.0, 35.0)
 
-# --- vordere Lage (v4.2, 2026-09-19): Pi quer, USB/Ethernet zur Mitte, Waveshare am Deckel ----------------------------
-PI_X, PI_Z = (-77.0, 8.0), (342.5, 398.5)               # Pi 4B 85 x 56 quer, USB/Ethernet-Kante bei +X [Vorgabe]; oberhalb der Torsoschraube (-47,2/330,3)
-PI_HOLES = [(PI_X[0] + 3.5, PI_Z[0] + 3.5), (PI_X[0] + 61.5, PI_Z[0] + 3.5),
-            (PI_X[0] + 3.5, PI_Z[1] - 3.5), (PI_X[0] + 61.5, PI_Z[1] - 3.5)]   # Lochbild 58 x 49, vom USB-fernen Ende
+# --- vordere Lage: Pi quer (v4.2), Waveshare am Deckel ------------------------------------------------------------------
+# v4.3 (2026-09-22): SD_GAP 6,5 mm zwischen SD-Kante und Seitenwand + microSD-Fenster in der Seitenwand [Vorgabe].
+# v4.4 (2026-09-22): Netzteilstecker braucht >= 35 mm gerade vor der USB-C-Kante [Vorgabe] (v4.3: 15 mm fuer einen 90-Grad-Stecker).
+# In der Lage v4.3 (SD-Kante -X, USB-C-Kante oben) ist das nicht erfuellbar: 35 mm unter der Decke (413,5) zwingt die Platine auf
+# z <= 378,5, dann liegt sie auf dem Schraubdom der Torsoschraube (-47,2 / 330,3), der frei bleiben muss (Rucksack laesst sich
+# sonst nicht mehr vom Torso loesen). Loesung: Pi um 180 Grad in der Ebene gedreht - SD-Kante an +X (Fenster in der +X-Wand),
+# USB-C-Kante unten mit 40 mm bis zum Zwischenboden, Ethernet/USB-A nach -X (50 mm Steckerzone, von hinten erreichbar), Platine
+# knapp ueber dem +X-Schraubdom (z 337 > 335,3). Aussenmasse unveraendert. Der Pololu weicht nach links unten aus.
+SD_GAP = 6.5                                            # Platinenkante (SD-Seite) -> Innenflaeche der Seitenwand
+SD_SIDE = +1                                            # Seitenwand mit dem microSD-Fenster: +1 = +X-Wand (Roboter links), -1 = -X-Wand
+PI_X = (XI - SD_GAP - 85.0, XI - SD_GAP)                # -14 .. 71: SD-Kante bei x 71, Ethernet/USB-A-Kante bei x -14
+PI_Z = (337.0, 393.0)                                   # USB-C-Kante unten (337 -> 40,5 mm bis zum Zwischenboden 296,5), ueber dem Dom (47,2/330,3)
+Z_USBC_FREE = PI_Z[0] - Z_DIV1                          # 40,5 >= 35 [Vorgabe]
+assert Z_USBC_FREE >= 35.0 and PI_Z[0] > TORSO_HOLES[3][1] + 5.0
+# microSD (Pi 4B: Unterseite, mittig auf der 56-mm-Kante, Karte 11 x 15 x 1, ~3 mm Ueberstand) -> Fenster in der Seitenwand zum
+# Stecken/Ziehen [Vorgabe]: 24 mm breit (z), ab Plattenoberkante 6,4 mm gerade, dann 45-Grad-Dach auf 4 mm Steg (Druck ohne Support,
+# Platte liegt auf dem Bett), Eintrittskante aussen 1 mm angefast, Ecken R 1.
+SD_Z = (PI_Z[0] + PI_Z[1]) / 2                          # 365 Kartenmitte
+SD_CARD = dict(x=(PI_X[1] - 12.0, PI_X[1] + 3.0), z=(SD_Z - 5.5, SD_Z + 5.5))   # Karte gesteckt: 12 mm im Halter, 3 mm frei
+SD_WIN = dict(hw=12.0, y0=Y_PL1, y_str=Y_PL1 + 6.4, hw_top=2.0, y_top=Y_PL1 + 6.4 + 10.0)   # z-Halbbreite, Unter-/Knick-/Firsthoehe
+PI_HOLES = [(PI_X[1] - 3.5, PI_Z[0] + 3.5), (PI_X[1] - 61.5, PI_Z[0] + 3.5),
+            (PI_X[1] - 3.5, PI_Z[1] - 3.5), (PI_X[1] - 61.5, PI_Z[1] - 3.5)]   # Lochbild 58 x 49, 3,5 mm von der SD-Kante
 D_PI_SHAFT, D_PI_CB, H_PI_CB = 2.4, 4.5, 2.4          # Pi von der Torsoseite verschraubt: M2 Durchgang, Senkung fuer Zylinderkopf 4 x 2 (Aufmass 0,5 / 0,4) [Vorgabe]
-PI_PLUGS = dict(x=(PI_X[1], PI_X[1] + 28.0), z=PI_Z)    # Ethernet + USB-A mit Steckern, frei nach +X
-PI_USBC = dict(x=(PI_X[0] + 11.2 - 7.0, PI_X[0] + 11.2 + 7.0), z=(PI_Z[1], PI_Z[1] + 15.0))   # USB-C an der Oberkante, 90-Grad-Stecker [Vorgabe]
-PI_CSI = (PI_X[0] + 45.0, PI_Z[1] - 11.5)               # Kamerabuchse (CSI) ~ nahe der Oberkante
+PI_PLUGS = dict(x=(PI_X[0] - 50.0, PI_X[0]), z=PI_Z)    # Ethernet + USB-A mit Steckern: 50 mm nach -X [Vorgabe] (bis zur Wand 63,5 mm frei)
+assert PI_PLUGS["x"][0] >= -XI and PI_PLUGS["z"][0] > TORSO_HOLES[2][1] + 5.0   # Steckerzone in der Wanne, ueber dem -X-Schraubdom
+PI_USBC = dict(x=(PI_X[1] - 11.2 - 7.0, PI_X[1] - 11.2 + 7.0), z=(PI_Z[0] - 35.0, PI_Z[0]))   # USB-C 11,2 mm von der SD-Kante, gerader Stecker + Kabel 35 mm nach unten [Vorgabe]
+PI_CSI = (PI_X[1] - 45.0, PI_Z[0] + 11.5)               # Kamerabuchse (CSI) zwischen HDMI und Klinke, 11,5 mm von der USB-C-Kante
 _cs = json.load(open(os.path.join(HERE, "..", "head_cam", "cam3_pose.json")))["cable_slot"]
 CAM_SLOT = dict(x=tuple(_cs["x"]), z=tuple(_cs["z"]))   # Kamera-Flachband: gleiche Achse + Hoehe wie der Schlitz in der Kopfplatte [Vorgabe]
 # Waveshare am Deckel: Bauteilseite zum Torso, Servostecker an der oberen Kante (42 mm Zone), DC/USB-C-Seite dadurch bei -X;
@@ -58,10 +77,11 @@ WS_DX, WS_DZ = 37.0, 28.0                               # Lochbild
 WS_HOLES = [((WS_X[0] + WS_X[1]) / 2 + sx * WS_DX / 2, (WS_Z[0] + WS_Z[1]) / 2 + sz * WS_DZ / 2) for sx in (-1, 1) for sz in (-1, 1)]
 H_WS_BOSS, D_WS_BOSS = 4.0, 5.5                         # Sockel am Deckel
 D_M2_BORE = 1.9                                         # M2 in Kunststoffsockeln (wie die Kameradome) [Vorgabe]
-POL_C = (67.0, 385.0)                                   # Pololu in der vorderen Lage, Loetpads oben
+D_WS_BORE = D_M2_BORE + 0.3                             # v4.5: Waveshare-Sockel 0,3 mm weiter (2,2) [Vorgabe]
+POL_C = (-63.0, 308.0)                                  # Pololu in der vorderen Lage links unten (v4.4: Platz des Pi-Steckerraums), Loetpads oben
 POL_HOLES = [(POL_C[0] - 6.75, POL_C[1] + 8.0), (POL_C[0] + 6.75, POL_C[1] - 8.0)]   # diagonal 13,5 x 16,0 (Pololu-Zeichnung) [Vorgabe]
 PASS_A = dict(x=(11.0, 22.0), z=(300.0, 335.0))         # Durchfuehrung ins Torso-Fenster (Servobus)
-TEST_PINS = [(POL_C[0] - 8.0, POL_C[1] + 15.0), (POL_C[0] - 2.0, POL_C[1] + 15.0)]   # 5V / GND im Deckel (vorher z 411/416: Loch auf der Deckelkante)
+TEST_PINS = [(-60.0, 325.0), (-54.0, 325.0)]            # 5V / GND im Deckel: zwischen XT60-Cradle (z <= 318) und Schalterpad (z >= 336)
 
 # --- Elektronikebene / Kabelebene (am Deckel) ----------------------------------------------------
 CUT_X1, CUT_Z0 = 31.0, 340.0                            # XY-CD63 62 x 56, mittig, am DECKEL verschraubt
@@ -71,8 +91,9 @@ CUT_TERM_H = 16.0                                       # Kabelzone ueber dem Mo
 # 2026-09-19: Modul mit dem Display nach INNEN montiert [Vorgabe] (Relais zu hoch fuer die andere Richtung), Klemmen oben ->
 # um die Hochachse gedreht: VIN (Blick aufs Display links) liegt jetzt bei -X zum Schalter, OUT bei +X zu Pololu/Waveshare
 CUT_VIN_X, CUT_OUT_X = (CUT_X1 - 62.0, CUT_X1 - 31.0), (CUT_X1 - 31.0, CUT_X1)
-CUT_HOLES = [(CUT_X1 - 2.0, CUT_Z0 + 3.5), (CUT_X1 - 60.0, CUT_Z0 + 3.5),
-             (CUT_X1 - 2.0, CUT_Z0 + 41.5), (CUT_X1 - 60.0, CUT_Z0 + 41.5)]
+CUT_DX = 56.5                                           # v4.5: Lochabstand auf der langen Seite 58 -> 56,5 (am Modul gemessen 1,5 mm enger) [Vorgabe]
+CUT_HOLES = [(CUT_X1 - 31.0 + CUT_DX / 2, CUT_Z0 + 3.5), (CUT_X1 - 31.0 - CUT_DX / 2, CUT_Z0 + 3.5),
+             (CUT_X1 - 31.0 + CUT_DX / 2, CUT_Z0 + 41.5), (CUT_X1 - 31.0 - CUT_DX / 2, CUT_Z0 + 41.5)]   # +-28,25 / z 343,5 + 381,5, mittig zum Modul
 D_CUT_SHAFT, D_CUT_CB, H_CUT_CB, D_CUT_PAD = 3.3, 6.0, 3.4, 12.0   # Durchgang, Senkung, Tiefe, Verdickung im Deckel
 Y_CUT_TOP = Y_RIM - 3.0                                 # 102.1 Auflage des Moduls an den Deckelpads
 Y_WS_BOARD = Y_RIM - H_WS_BOSS                          # 101.1 Rueckseite der Waveshare-Platine
@@ -81,7 +102,13 @@ Y_WS_BOARD = Y_RIM - H_WS_BOSS                          # 101.1 Rueckseite der W
 # Bohrungen Ø1,9 fuer M2 (wie die Kameradome) durch Deckel + 3 mm Verstaerkung innen. Die alte Innenhalterung entfaellt.
 SW_C = (-64.0, 358.5)                                  # an der bisherigen Stelle
 SW_INSERT, SW_CLEAR = (15.0, 34.0), 0.25
-SW_SCREW_DZ, D_SW_PAD, H_SW_PAD = 40.0, 5.0, 3.0
+# v4.5 (2026-09-22): Der Einsatz hat an den Schrauben eigene Sockel (Ø5 x 3 mm hoch, wie die Deckelpads) [Vorgabe]. Sie werden von
+# aussen in Ø5,5 x 3 mm tiefe Aussparungen eingelassen (0,25 mm Spiel je Seite); die Innenpads sind dafuer auf 6 mm Hoehe und Ø7,5
+# gewachsen, so bleiben unter der Aussparung wieder 5 mm Gewindelaenge (2 mm Deckel + 6 mm Pad - 3 mm Aussparung).
+SW_SCREW_DZ, D_SW_PAD, H_SW_PAD = 40.0, 7.5, 6.0
+SW_BOSS = dict(d=5.0, h=3.0)                           # Sockel am Einsatz
+D_SW_RECESS, H_SW_RECESS = SW_BOSS["d"] + 2 * SW_CLEAR, SW_BOSS["h"]   # 5,5 x 3,0 von aussen
+assert T_LID + H_SW_PAD - H_SW_RECESS >= 5.0
 SW_SCREWS = [(SW_C[0], SW_C[1] - SW_SCREW_DZ / 2), (SW_C[0], SW_C[1] + SW_SCREW_DZ / 2)]
 SW_BODY = dict(x=(SW_C[0] - SW_INSERT[0] / 2, SW_C[0] + SW_INSERT[0] / 2), z=(SW_C[1] - SW_INSERT[1] / 2, SW_C[1] + SW_INSERT[1] / 2),
                y=(Y_CAB + 0.1, Y_RIM))                 # Schalterkoerper hinter dem Deckel, Tiefe 15 [S]
@@ -95,6 +122,9 @@ WARN = dict(x=(38.0, 73.0), z=(269.0, 291.0), y=(Y_CAB, Y_CAB + 14.0))   # v4.2:
 WARN_RIBS = ((36.0, 38.0), (73.0, 75.0))
 CORNER_SCREWS = [(-74.0, 260.0), (74.0, 260.0), (-74.0, 410.0), (74.0, 410.0)]
 D_M3_CLEAR, D_M3_HEAD, H_M3_HEAD = 3.4, 6.6, 3.2
+D_TORSO_HOLE = 4.0                                      # v4.6: Durchgang der vier Torsoschrauben Ø4,0 [Vorgabe] (Deckel-Eckschrauben bleiben 3,4)
+D_TORSO_CB, H_TORSO_CB = 7.0, 4.0                       # v4.6: Senkung der Torsoschrauben Ø7,0 x 4,0 [Vorgabe]: 3 mm Dom + 1 mm in die Platte, Restwand im Dom 1,5, unter dem Kopf 2 mm
+assert T_BOSS + T_PLATE - H_TORSO_CB >= 2.0
 D_M3_INS, H_M3_INS, D_M25_TAP, D_M2_TAP = 4.0, 6.0, 2.2, 1.7
 
 def box(x0, x1, y0, y1, z0, z1):
@@ -181,6 +211,23 @@ def corner_block(x, z, y0, y1):
     wedge_x = cq.Workplane("XY", origin=(0, 0, za)).polyline([(xw, y0), (xi, y0), (xw, y0 - abs(xi - xw))]).close().extrude(zb - za)
     wedge_z = cq.Workplane("YZ", origin=(xa, 0, 0)).polyline([(y0, zw), (y0, zi), (y0 - abs(zi - zw), zw)]).close().extrude(xb - xa)
     return blk.union(wedge_x).union(wedge_z)
+def sd_window_tool(r=1.0, c=1.0, side=None):
+    """Cut tool for the microSD window in the side wall SD_SIDE (v4.3: -X, v4.4: +X): a 'house' profile in the YZ plane (flat bottom on the
+    plate, vertical flanks, 45-degree roof to a short ridge -> prints support-free with the plate on the bed), corners
+    rounded with r, and a 45-degree chamfer c of the entry edge on the outer face (x = -XW). One ruled loft, one solid."""
+    w = SD_WIN; base_pts = [(w["y0"] - 3.0 + r, -w["hw"] + r), (w["y0"] - 3.0 + r, w["hw"] - r), (w["y_str"] - r * 0.41, w["hw"] - r),
+                            (w["y_top"] - r, w["hw_top"] - r * 0.41), (w["y_top"] - r, -w["hw_top"] + r * 0.41), (w["y_str"] - r * 0.41, -w["hw"] + r)]
+    # (y, z) polygon shrunk by ~r; offset2D(r) gives the nominal outline with rounded corners, offset2D(r + c) the chamfer outline.
+    # The bottom edge runs 3 mm below the plate top so the window's floor is the plate itself (no lip to lift the card over).
+    pts = [(y, z + SD_Z) for (y, z) in base_pts]
+    sd = SD_SIDE if side is None else side
+    def wire(x, d): return cq.Workplane("YZ", origin=(x, 0, 0)).polyline(pts).close().offset2D(d).val()
+    secs = [wire(sd * (XW + 1.3), r + c), wire(sd * XW, r + c), wire(sd * (XW - c), r), wire(sd * (XI - 1.0), r)]   # outside -> chamfer -> straight through the wall
+    t = cq.Workplane("XY").add(cq.Solid.makeLoft(secs, True))
+    assert t.val().Volume() > 0, "sd window tool inverted"
+    xa, xb = sorted((sd * (XW + 2.0), sd * (XI - 1.0)))
+    return t.intersect(box(xa, xb, Y_PL1, Y_RIM, Z_BOT, Z_TOP))   # never below the plate top
+
 def union_all(parts):
     r = parts[0]
     for p in parts[1:]: r = r.union(p)
@@ -212,16 +259,17 @@ def build_base():
     TOP = ((ZI1, 1), (Z_TOP, -1)); XWALL = ((XI, 1), (XW, -1))
     c = []
     for (x, z) in TORSO_HOLES:
-        c.append(soft_cyl(x, z, Y0 - 1, Y_FL1 + 1, D_M3_CLEAR, ((Y0, 1),))); c.append(soft_cyl(x, z, Y_FL1 - H_M3_HEAD, Y_FL1 + 1, D_M3_HEAD, ((Y_FL1, -1),)))
+        c.append(soft_cyl(x, z, Y0 - 1, Y_FL1 + 1, D_TORSO_HOLE, ((Y0, 1),))); c.append(soft_cyl(x, z, Y_FL1 - H_TORSO_CB, Y_FL1 + 1, D_TORSO_CB, ((Y_FL1, -1),)))
     for (x, z) in CORNER_SCREWS: c.append(soft_cyl(x, z, Y_RIM - H_M3_INS, Y_RIM + 1, D_M3_INS, ((Y_RIM, -1),)))
     for (x, z) in PI_HOLES:                                                # Pi: M2 von der Torsoseite durch Platte + Standoff, Kopf versenkt
         c.append(soft_cyl(x, z, Y0 - 1, Y_PI + 1.0, D_PI_SHAFT, ((Y_PI, -1),), c=0.4))
         c.append(soft_cyl(x, z, Y0 - 1, Y0 + H_PI_CB, D_PI_CB, ((Y0, 1),), c=0.4))
     for (x, z) in POL_HOLES: c.append(soft_cyl(x, z, Y_PL1 - 1.0, Y_PL1 + 4.0, D_M2_BORE, ((Y_PL1 + 3.0, -1),), c=0.3))
     c.append(soft_tool(PASS_A["x"][0], PASS_A["x"][1], Y0 - 1, Y_PL1 + 1, PASS_A["z"][0], PASS_A["z"][1], "y", PL, c=0.8, r=3.0))
-    for z in range(352, 390, 8): c.append(soft_tool(-69.0, -20.0, Y0 - 1, Y_PL1 + 1, z, z + 3.0, "y", PL, c=0.6, r=1.2))    # Lueftung unter dem Pi (frei von Standoffs/Senkungen)
+    for z in range(346, 381, 8): c.append(soft_tool(15.0, 62.0, Y0 - 1, Y_PL1 + 1, z, z + 3.0, "y", PL, c=0.6, r=1.2))     # Lueftung unter dem Pi (frei von Standoffs/Senkungen, v4.4 mitgewandert)
     c.append(soft_tool(CAM_SLOT["x"][0], CAM_SLOT["x"][1], Y0 - 1, Y_PL1 + 1, CAM_SLOT["z"][0], CAM_SLOT["z"][1], "y", PL, c=0.6, r=1.0))   # Kamera-Flachband
     c.append(soft_tool(XI - 1, XW + 1, Y_PL1, Y_RIM + 1, ZI0, Z_TRAY1, "x", XWALL, c=1.0, r=2.0))                            # LiPo-Schublade
+    c.append(sd_window_tool())                                                                                                 # v4.3/4.4: microSD-Fenster in der Seitenwand SD_SIDE
     c.append(soft_tool(STRAP_X[0], STRAP_X[1], 46.0, 70.0, Z_BOT - 1, ZI0 + 1, "z", FLOOR, c=0.6, r=1.5))
     c.append(soft_tool(STRAP_X[0], STRAP_X[1], 46.0, 70.0, Z_TRAY1 - 1, Z_DIV1 + 1, "z", TRAY, c=0.6, r=1.5))
     c.append(soft_tool(XT_SW["x"][0] - 2.0, XT_SW["x"][1] + 2.0, Y_CAB - 2.0, Y_RIM + 1, Z_TRAY1 - 1, Z_DIV1 + 1, "z", TRAY, c=0.8, r=2.0))
@@ -257,13 +305,17 @@ def build_lid():
     for z in range(343, 376, 5): c.append(soft_tool(-20.0, 20.0, Y_RIM - 1, Y_LID + 1, z, z + 2.0, "y", LP, c=0.5, r=0.9))        # Lueftung ueber dem Cutoff (Display/Taster zeigen nach innen)
     c.append(soft_tool(FUSE_HOLDER["x"][0] + 1.0, FUSE_HOLDER["x"][1] - 1.0, Y_RIM - 1, Y_LID + 1, FUSE_HOLDER["z"][0] + 1.0, FUSE_HOLDER["z"][1] - 1.0, "y", LP, c=0.8, r=2.0))
     hx, hz = SW_INSERT[0] / 2 + SW_CLEAR, SW_INSERT[1] / 2 + SW_CLEAR                                                          # Hauptschalter von aussen
-    c.append(soft_tool(SW_C[0] - hx, SW_C[0] + hx, Y_RIM - 1, Y_LID + 1, SW_C[1] - hz, SW_C[1] + hz, "y", LP, c=0.4, r=0.5))
-    for (x, z) in SW_SCREWS: c.append(soft_cyl(x, z, Y_RIM - H_SW_PAD - 0.1, Y_LID + 1, D_M2_BORE, ((Y_LID, -1),), c=0.3))
+    c.append(soft_tool(SW_C[0] - hx, SW_C[0] + hx, Y_RIM - H_SW_PAD - 0.1, Y_LID + 1, SW_C[1] - hz, SW_C[1] + hz, "y", LP, c=0.4, r=0.5))   # v4.5: durch die ganze Padhoehe (Pads enden am Ausschnitt)
+    for (x, z) in SW_SCREWS:
+        c.append(soft_cyl(x, z, Y_RIM - H_SW_PAD - 0.1, Y_LID + 1, D_M2_BORE, ((Y_LID, -1),), c=0.3))                          # M2 durch Pad + Deckel
+        c.append(soft_cyl(x, z, Y_LID - H_SW_RECESS, Y_LID + 1, D_SW_RECESS, ((Y_LID, -1),), c=0.3))                          # v4.5: Aussparung fuer den Einsatz-Sockel
+        zc = SW_C[1] - hz - 0.5 if z > SW_C[1] else SW_C[1] + hz + 0.5                                                          # ... zum Ausschnitt hin offen (0,5 mm Ueberlappung statt
+        c.append(soft_tool(x - D_SW_RECESS / 2, x + D_SW_RECESS / 2, Y_LID - H_SW_RECESS, Y_LID + 1, min(z, zc), max(z, zc), "y", ((Y_LID, -1),), c=0.3, r=0.5))   # tangentialer Beruehrung)
     for k in range(4): z = WARN["z"][0] + 4.0 + 4.0 * k; c.append(soft_tool(WARN["x"][0] + 5.0, WARN["x"][1] - 5.0, Y_RIM - 1, Y_LID + 1, z, z + 2.0, "y", LP, c=0.5, r=0.9))
     for k in range(3): z = CUT_Z0 + 40.0 + 5.0 * k; c.append(soft_tool(CUT_X1 - 45.0, CUT_X1 - 21.0, Y_RIM - 1, Y_LID + 1, z, z + 2.0, "y", LP, c=0.5, r=0.9))   # Relais
     for k in range(3): z = 300.0 + 8.0 * k; c.append(soft_tool(-40.0, 4.0, Y_RIM - 1, Y_LID + 1, z, z + 2.5, "y", LP, c=0.6, r=1.1))                             # Lueftung Pi/Waveshare
     for (x, z) in TEST_PINS: c.append(soft_cyl(x, z, Y_RIM - 1, Y_LID + 1, 2.2, ((Y_RIM, 1), (Y_LID, -1)), c=0.4))                                              # 5-V-Messpunkte
-    for (x, z) in WS_HOLES: c.append(soft_cyl(x, z, Y_WS_BOARD - 0.1, Y_RIM + 1.0, D_M2_BORE, ((Y_WS_BOARD, 1),), c=0.3))                                      # M2 in die Sockel, 1 mm Deckel bleibt
+    for (x, z) in WS_HOLES: c.append(soft_cyl(x, z, Y_WS_BOARD - 0.1, Y_RIM + 1.0, D_WS_BORE, ((Y_WS_BOARD, 1),), c=0.3))                                      # M2 in die Sockel (Ø2,2), 1 mm Deckel bleibt
     lid = cut_all(lid, c)
     c2 = []
     for (x0, x1) in FUSE_RIBS + XT_LIPO_RIBS:
@@ -291,13 +343,21 @@ def build_placeholders():
     p["pi_screws"] = union_all([cyl_y(x, z, y_pi_head, y_pi_head + 2.0, 4.0).union(cyl_y(x, z, y_pi_head + 2.0, y_pi_head + 10.0, 2.0))
                                 .union(cyl_y(x, z, Y_PI + 1.5, Y_PI + 3.1, 4.6)) for (x, z) in PI_HOLES])   # 4x M2x8 + Mutter auf der Platine
     p["pi"] = box(PI_X[0], PI_X[1], Y_PI, Y_PI + 17.5, PI_Z[0], PI_Z[1])
+    p["pi_sd"] = box(SD_CARD["x"][0], SD_CARD["x"][1], Y_PI - 1.7, Y_PI - 0.7, SD_CARD["z"][0], SD_CARD["z"][1])   # microSD gesteckt, 3 mm Ueberstand
     p["pi_plugs"] = box(PI_PLUGS["x"][0], PI_PLUGS["x"][1], Y_PI, Y_PI + 16.0, PI_PLUGS["z"][0], PI_PLUGS["z"][1])
-    p["pi_usbc_plug"] = box(PI_USBC["x"][0], PI_USBC["x"][1], Y_PI, Y_PI + 17.0, PI_USBC["z"][0], PI_USBC["z"][1])   # 90-Grad-Stecker, Kabel nach hinten
+    p["pi_usbc_plug"] = box(PI_USBC["x"][0], PI_USBC["x"][1], Y_PI, Y_PI + 12.0, PI_USBC["z"][0], PI_USBC["z"][1])   # gerader Stecker + Kabel, 35 mm nach unten
     p["waveshare"] = box(WS_X[0], WS_X[1], Y_WS_BOARD - 16, Y_WS_BOARD, WS_Z[0], WS_Z[1])                 # am Deckel, Bauteile Richtung Torso
     p["waveshare_servo_plugs"] = box(WS_X[0], WS_X[1], Y_WS_BOARD - 15, Y_WS_BOARD, WS_PLUG_Z[0], WS_PLUG_Z[1])
     p["waveshare_plugs"] = box(WS_DC["x"][0], WS_DC["x"][1], Y_WS_BOARD - 14, Y_WS_BOARD, WS_DC["z"][0], WS_DC["z"][1])
-    p["cam_ribbon"] = box(CAM_SLOT["x"][0], CAM_SLOT["x"][1], Y_PL1, Y_PL1 + 15.0, PI_CSI[1] - 3.0, CAM_SLOT["z"][1])   # Kamera-Flachband Schlitz -> CSI
+    # Kamera-Flachband (16 mm breit): aus dem Schlitz auf der Platte nach unten, ueber der Pi-Oberkante (z 395..411) nach +X, dort
+    # einmal gefaltet und ueber die Platine (ueber der GPIO-Leiste) hinunter zur CSI-Buchse
+    z_band = (PI_Z[1] + 2.0, PI_Z[1] + 18.0)
+    p["cam_ribbon"] = (box(CAM_SLOT["x"][0], CAM_SLOT["x"][1], Y_PL1, Y_PL1 + 3.0, z_band[0], CAM_SLOT["z"][1])
+                       .union(box(CAM_SLOT["x"][0], PI_CSI[0] + 8.0, Y_PL1, Y_PL1 + 2.0, z_band[0], z_band[1]))
+                       .union(box(PI_CSI[0] - 8.0, PI_CSI[0] + 8.0, Y_PL1, Y_PI + 13.0, z_band[0], z_band[1]))
+                       .union(box(PI_CSI[0] - 8.0, PI_CSI[0] + 8.0, Y_PI + 11.0, Y_PI + 13.0, PI_CSI[1] - 3.0, z_band[1])))
     p["switch"] = box(SW_BODY["x"][0], SW_BODY["x"][1], SW_BODY["y"][0], SW_BODY["y"][1], SW_BODY["z"][0], SW_BODY["z"][1])
+    p["switch_bosses"] = union_all([cyl_y(x, z, Y_LID - SW_BOSS["h"], Y_LID, SW_BOSS["d"]) for (x, z) in SW_SCREWS])   # v4.5: Sockel des Einsatzes, in den Deckel eingelassen
     p["fuse_holder"] = box(FUSE_HOLDER["x"][0], FUSE_HOLDER["x"][1], FUSE_HOLDER["y"][0], FUSE_HOLDER["y"][1], FUSE_HOLDER["z"][0], FUSE_HOLDER["z"][1])
     p["xt60_lipo_fuse"] = box(XT_LIPO["x"][0], XT_LIPO["x"][1], XT_LIPO["y"][0], XT_LIPO["y"][1], XT_LIPO["z"][0], XT_LIPO["z"][1])
     p["xt60_fuse_switch"] = box(XT_SW["x"][0], XT_SW["x"][1], XT_SW["y"][0], XT_SW["y"][1], XT_SW["z"][0], XT_SW["z"][1])
@@ -313,14 +373,14 @@ CABLES = {
     "fuse_leg_1":      dict(d=4.0, r=14.0, pts=[(FUSE_HOLDER["x"][1], 94.0, 266.5), (XT_LIPO["x"][0] + 6.0, 94.0, 266.5)]),
     "fuse_leg_2":      dict(d=4.0, r=14.0, pts=[(-61.0, 94.0, XT_SW["z"][0] + 6.0), (-61.0, 94.0, 266.5), (FUSE_HOLDER["x"][0], 94.0, 266.5)]),
     "switch_in_lead":  dict(d=3.5, r=10.0, pts=[(-61.0, 94.0, XT_SW["z"][1] - 6.0), (-64.0, 96.0, SW_BODY["z"][0])]),
-    "switch_out_pigtail": dict(d=4.0, r=12.0, pts=[(-64.0, 98.0, SW_BODY["z"][1]), (-64.0, 98.0, 410.0), (-26.0, 88.0, 410.0), (-26.0, 88.0, CUT_TERM_Z)]),   # VIN jetzt bei -X
-    "out_to_pololu":   dict(d=2.5, r=6.0,  pts=[(22.0, 86.0, CUT_TERM_Z), (22.0, 86.0, 405.0), (32.0, 64.0, 405.0), (48.0, 64.0, 405.0), (60.0, 50.0, 399.0)]),   # OUT jetzt bei +X
+    "switch_out_pigtail": dict(d=4.0, r=12.0, pts=[(-64.0, 96.0, SW_BODY["z"][1]), (-64.0, 96.0, 410.0), (-26.0, 88.0, 410.0), (-26.0, 88.0, CUT_TERM_Z)]),   # VIN jetzt bei -X; v4.5: y 96 (Pads jetzt 6 mm hoch)
+    "out_to_pololu":   dict(d=2.5, r=6.0,  pts=[(22.0, 86.0, CUT_TERM_Z), (22.0, 86.0, 405.0), (10.0, 66.0, 405.0), (-68.0, 66.0, 405.0), (-74.0, 58.0, 396.0), (-74.0, 50.0, 340.0), (POL_C[0], 50.0, POL_C[1] + 14.0)]),   # v4.4: an der Decke nach -X, an der -X-Wand hinunter zum Pololu (neben der 50-mm-Steckerzone)
     "out_to_waveshare": dict(d=3.0, r=8.0, pts=[(12.0, 84.0, CUT_TERM_Z), (12.0, 84.0, 404.0), (16.0, 66.0, 402.0), (16.0, 66.0, 338.0), (28.0, 90.0, 322.0)]),   # vor dem Cutoff abwaerts
     "servo_bus_a":     dict(d=3.0, r=8.0,  pts=[(42.0, 93.0, 335.0), (42.0, 93.0, 352.0), (42.0, 76.0, 352.0), (21.0, 52.0, 328.0), (14.5, 45.0, 318.0), (14.5, 36.0, 314.0)]),   # Deckel -> Durchfuehrung
     "servo_bus_b":     dict(d=3.0, r=8.0,  pts=[(52.0, 93.0, 335.0), (52.0, 93.0, 360.0), (50.0, 72.0, 360.0), (27.0, 57.0, 322.0), (19.5, 46.0, 310.0), (19.5, 36.0, 306.0)]),
-    "pi_usb_to_waveshare": dict(d=3.0, r=8.0, pts=[(12.0, 52.0, 360.0), (40.0, 56.0, 352.0), (40.0, 66.0, 326.0), (30.0, 88.0, 308.0)]),
-    "pololu_5v_usbc":  dict(d=3.5, r=8.0,  pts=[(POL_C[0], 50.0, POL_C[1] + 12.0), (66.0, 60.0, 409.0), (-55.0, 62.0, 409.0), (-63.0, 57.0, 406.0)]),   # unter der Decke hinter dem Kameraband
-    "test_leads_5v":   dict(d=2.0, r=6.0,  pts=[(POL_C[0], 50.0, POL_C[1] + 12.0), (62.0, 70.0, TEST_PINS[0][1]), (62.0, 100.0, TEST_PINS[0][1])]),
+    "pi_usb_to_waveshare": dict(d=3.0, r=8.0, pts=[(-62.0, 52.0, 360.0), (-64.0, 62.0, 342.0), (-30.0, 70.0, 320.0), (10.0, 80.0, 312.0), (28.0, 90.0, 312.0)]),   # v4.4: Stecker bei -X (50 mm), vor dem Cutoff hinunter zum Waveshare
+    "pololu_5v_usbc":  dict(d=3.5, r=8.0,  pts=[(POL_C[0], 50.0, POL_C[1] + 14.0), (-58.0, 54.0, 313.0), (48.0, 54.0, 313.0), (59.8, 50.0, 320.0), (59.8, 47.0, 330.0)]),   # v4.4: unten quer ueber die Domen zum USB-C-Stecker
+    "test_leads_5v":   dict(d=2.0, r=6.0,  pts=[(POL_C[0], 50.0, POL_C[1] + 14.0), (-57.0, 70.0, TEST_PINS[0][1]), (-57.0, 100.0, TEST_PINS[0][1])]),
 }
 
 def main():

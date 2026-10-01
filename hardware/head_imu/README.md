@@ -8,7 +8,7 @@ zwei gedruckte **Steckadapter**.
 
 | Datei | Inhalt |
 | --- | --- |
-| `print/neck_mount_imu.stl` | **Druckdatei**: Hinterplatte („Neck Mount“) mit zwei IMU-Stegen, Rückseite aufs Bett, Stege nach oben. Ersetzt die Original-Hinterplatte **und** die Adapter |
+| `print/neck_mount_imu.stl` | **Druckdatei**: Hinterplatte („Neck Mount“) mit zwei IMU-Stegen und Senkungen Ø5,5 × 3,5 für die Plattenschrauben, Rückseite aufs Bett, Stege nach oben. Ersetzt die Original-Hinterplatte **und** die Adapter |
 | `neck_mount_imu.py` | baut sie: Original-Netz aus dem GLB reparieren, Stege anbauen, alte Nuten ausfüllen |
 | `imu_adapter.py` | Adapter (CadQuery) → `stl/imu_adapter.stl` / `.step`, Standardlänge 10 mm (Display 0,9 mm hinter der Frontwand) |
 | `stl/imu_adapter_flush.stl` | Adapter 13,43 mm lang (bündiges Display) – **nicht mehr drucken**, die Stege der Hinterplatte ersetzen ihn |
@@ -43,6 +43,15 @@ Stegen 41,56 cm³ (vor den Änderungen unten).
   Rucksack (siehe `hardware/head_cam`). Die Halsaussparung ist wieder im Original. Die Zwischenlösung mit dem
   aufgeweiteten Halsschlitz vom Morgen entfällt.
 * Volumen: repariert 38,65 cm³ → ohne Halter und mit Kameraschlitz 35,02 cm³ → mit IMU-Stegen **37,93 cm³**.
+
+## Senkungen für die Plattenschrauben (2026-09-22)
+
+* Die vier Schraublöcher der Hinterplatte (Ø2,95 durch, Mitten x ±18,8 / z 402,5 und 444,6) bekommen auf der
+  Rückseite (y 19,64) **Senkungen Ø5,5 × 3,5 mm** für Zylinderkopfschrauben [Vorgabe]. Das Original hatte dort nur
+  eine Ø4,35 × 2 mm tiefe Vertiefung. Unter dem Kopf bleiben 1,5 mm der 5 mm dicken Rückwand.
+* Druck: Die Rückseite liegt auf dem Bett, die Senkungen sind Sacklöcher von der Bettseite aus; der Ring zwischen
+  Ø2,95 und Ø5,5 überbrückt 1,3 mm, kein Support nötig.
+* Volumen mit Stegen: 37,93 → **37,75 cm³**. Werte in `neck_mount_imu.py` (`SCREW_HOLES`, `CBORE`).
 
 ## Adapter (ersetzt durch die Stege, nur noch Referenz)
 

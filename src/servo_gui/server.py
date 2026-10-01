@@ -44,7 +44,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 19
+API_VERSION = 20
 
 
 def _read_offsets() -> dict:
@@ -401,6 +401,44 @@ def delete_demo(p: DemoNameParams):
     return {"ok": True, "demos": _load_demos()}
 
 
+_BATT = {"t": 0.0, "volts": None, "servo_id": None, "error": None}
+
+
+@app.get("/api/battery")
+def battery():
+    """Pack voltage as the servos see their rail (register 62, 0.1 V steps):
+    the first configured servo that answers. Cached for 2 s so the GUI's
+    poll does not load the bus; during a run the read interleaves with the
+    runner (the bus is locked per transaction)."""
+    import time as _t
+    now = _t.monotonic()
+    if now - _BATT["t"] < 2.0:
+        return {**_BATT, "age_s": round(now - _BATT["t"], 1)}
+    with S.lock:
+        bus = S.bus
+    volts, sid, err = None, None, None
+    if not bus:
+        err = "not connected"
+    else:
+        ids = sorted(set(_read_servo_ids().values()))
+        if not ids:
+            err = "no servos configured"
+        for cand in ids:
+            try:
+                v = bus.read_voltage(cand)
+            except Exception as e:                 # bus error: report, keep going
+                err = f"{type(e).__name__}: {e}"
+                break
+            if v is not None:
+                volts, sid, err = v, cand, None
+                break
+        else:
+            if ids and err is None:
+                err = "no servo answers"
+    _BATT.update(t=now, volts=volts, servo_id=sid, error=err)
+    return {**_BATT, "age_s": 0.0}
+
+
 @app.get("/api/robot_pose")
 def robot_pose():
     """Current pose of the PHYSICAL robot (all responding configured servos)
@@ -429,6 +467,7 @@ def robot_pose():
 class PlayParams(BaseModel):
     name: str
     simulate: bool = False
+    until: int | None = Field(None, ge=1)     # play only steps 1..until (inclusive)
 
 
 @app.post("/api/demo/play")
@@ -438,8 +477,10 @@ def demo_play(p: PlayParams):
         demo = CFG.load_demo(p.name)
     except KeyError as e:
         raise HTTPException(404, f"Demo '{p.name}' not found.") from e
-    _engine(lambda: ENGINE.play_demo(demo, p.simulate))
-    return {"ok": True}
+    if p.until is not None and p.until > len(demo.steps):
+        raise HTTPException(400, f"Step {p.until} out of range (demo has {len(demo.steps)} steps).")
+    _engine(lambda: ENGINE.play_demo(demo, p.simulate, until=p.until))
+    return {"ok": True, "steps": p.until or len(demo.steps)}
 
 
 @app.post("/api/stop")
@@ -673,6 +714,41 @@ def set_model_zero_bulk(e: ModelZeroBulk):
     CFG.write_model_zero(mz)
     S.log(f"model zero calibrated from posed model ({changed} joints changed)")
     return {"ok": True, "offsets": mz}
+
+
+# Center pose override: the pose every "center" action moves to (single
+# servo, group, Pi, hold-center re-parks). Joint -> CAD deg; an empty dict
+# restores the plain mount pose (all 0 deg). Deployed to the Pi with the
+# other calibration files.
+
+@app.get("/api/center_pose")
+def get_center_pose():
+    return CFG.center_pose()
+
+
+class CenterPoseBody(BaseModel):
+    angles: dict[str, float]
+
+
+@app.post("/api/center_pose")
+def set_center_pose(b: CenterPoseBody):
+    ids = _read_servo_ids()
+    cp = {}
+    for j, v in b.angles.items():
+        if j not in ids:
+            raise HTTPException(400, f"Unknown joint '{j}' (no servo ID configured).")
+        if not -180 <= v <= 180:
+            raise HTTPException(400, f"Angle {v} for {j} out of range.")
+        if abs(v) >= 0.5:            # below that it is idle-twin jitter, not a posed joint
+            cp[j] = round(v, 1)
+    CFG.write_center_pose(cp)
+    if cp:
+        S.log("center pose override saved: "
+              + ", ".join(f"{j} {v:+.1f}" for j, v in sorted(cp.items()))
+              + " deg (deploy to apply on the Pi)")
+    else:
+        S.log("center pose override cleared — center = mount pose (all 0 deg)")
+    return {"ok": True, "angles": cp}
 
 
 @app.get("/api/joints")

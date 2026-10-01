@@ -36,6 +36,12 @@ MILK_LEG_STUB = dict(x=(-14.2, -10.6), y=(-0.1, Y_PLATE_FRONT), z=(409.95, 414.0
 # neck notch is back to the original (the ribbon no longer goes through the neck).
 _cs = json.load(open(os.path.join(REPO, "hardware", "head_cam", "cam3_pose.json")))["cable_slot"]
 CAM_SLOT = dict(x=tuple(_cs["x"]), y=(Y_PLATE_FRONT - 0.2, 19.9), z=tuple(_cs["z"]))
+# counterbores for the four plate screws (2026-09-22) [Vorgabe]: cylinder-head screws, dia 5.5 x 3.5 deep from the back face
+# (y 19.64). The original plate has dia 2.95 through holes with a dia 4.35 x 2 recess there; the recess is widened and deepened,
+# 1.5 mm of the 5 mm back wall remain under the head. Hole centres measured on the repaired mesh (section at y 16).
+Y_PLATE_BACK = 19.64
+SCREW_HOLES = [(18.76, 402.54), (18.76, 444.61), (-18.85, 402.48), (-18.85, 444.55)]   # (x, z), through holes dia 2.95
+CBORE = dict(d=5.5, h=3.5)
 
 
 def load_neck_mount():
@@ -167,8 +173,12 @@ def main():
     # every original vertex kept, no new ones: the repair only adds faces
     assert len(fixed.vertices) <= len(raw.vertices) + 0
     cut = [trimesh.creation.box(bounds=np.array([[b["x"][0], b["y"][0], b["z"][0]], [b["x"][1], b["y"][1], b["z"][1]]])) for b in (MILK_BRACKET, MILK_LEG_STUB, CAM_SLOT)]
+    for (x, z) in SCREW_HOLES:                                       # counterbores from the back face, 1 mm past it
+        cb = trimesh.creation.cylinder(radius=CBORE["d"] / 2, height=CBORE["h"] + 1.0, sections=96)
+        cb.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))          # axis -> Y
+        cb.apply_translation([x, Y_PLATE_BACK - CBORE["h"] + (CBORE["h"] + 1.0) / 2, z]); cut.append(cb)
     trimmed = trimesh.boolean.difference([fixed] + cut, engine="manifold")
-    print(f"  - Milk bracket, camera ribbon slot {CAM_SLOT['x'][1]-CAM_SLOT['x'][0]:.0f} x {CAM_SLOT['z'][1]-CAM_SLOT['z'][0]:.0f} mm: {fixed.volume/1000:.2f} -> {trimmed.volume/1000:.2f} cm3")
+    print(f"  - Milk bracket, camera ribbon slot {CAM_SLOT['x'][1]-CAM_SLOT['x'][0]:.0f} x {CAM_SLOT['z'][1]-CAM_SLOT['z'][0]:.0f} mm, 4 counterbores dia {CBORE['d']} x {CBORE['h']}: {fixed.volume/1000:.2f} -> {trimmed.volume/1000:.2f} cm3")
     rg = [tm(r) for r in ridges()]
     new = trimesh.boolean.union([trimmed] + rg, engine="manifold")
     assert new.is_watertight and new.body_count == 1, (new.is_watertight, new.body_count)

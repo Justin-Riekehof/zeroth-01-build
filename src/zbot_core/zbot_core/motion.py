@@ -116,11 +116,18 @@ class State:
             "log": [],
         }
 
+    sinks: list = []                       # extra log consumers, e.g. the Pi's flight recorder
+
     def log(self, msg: str):
         with self.lock:
             self.seq += 1
             self.live["log"].append({"seq": self.seq, "msg": msg})
             self.live["log"] = self.live["log"][-300:]
+        for sink in list(self.sinks):
+            try:
+                sink(msg)
+            except Exception:
+                pass
 
     def set(self, **kw):
         with self.lock:
@@ -139,8 +146,8 @@ class TestParams(BaseModel):
     # angles are relative to the center/mount position (0 deg = tick 2048)
     min_deg: float = Field(-90, ge=-180, le=180)
     max_deg: float = Field(90, ge=-180, le=180)
-    speed: int = Field(500, ge=1, le=3400)
-    acc: int = Field(50, ge=0, le=254)
+    speed: int = Field(300, ge=1, le=3400)
+    acc: int = Field(30, ge=0, le=254)
     cycles: int = Field(1, ge=1, le=20)
     simulate: bool = False
     node: str | None = None            # clicked CAD node (for the log)
@@ -151,18 +158,19 @@ class TestParams(BaseModel):
 class CenterParams(BaseModel):
     servo_id: int = Field(1, ge=1, le=253)
     speed: int = Field(300, ge=1, le=3400)
-    acc: int = Field(50, ge=0, le=254)
+    acc: int = Field(30, ge=0, le=254)
     simulate: bool = False
     joint: str | None = None
     offset: float = Field(0, ge=-180, le=180)   # resolved engine-side
+    center_deg: float = Field(0, ge=-180, le=180)   # resolved engine-side (center pose override)
     hold_center: bool = False                   # keep torque on after centering
 
 
 class GroupParams(BaseModel):
     joints: list[str] = Field(min_length=1)
     mode: str = Field("sequential", pattern="^(sequential|simultaneous)$")
-    speed: int = Field(500, ge=1, le=3400)
-    acc: int = Field(50, ge=0, le=254)
+    speed: int = Field(300, ge=1, le=3400)
+    acc: int = Field(30, ge=0, le=254)
     cycles: int = Field(1, ge=1, le=20)
     simulate: bool = False
     # demo mode: after each joint's test, return it to center and keep torque
@@ -178,6 +186,20 @@ class MotionEngine:
     def __init__(self, cfg: ConfigStore):
         self.cfg = cfg
         self.S = State()
+        self._clamped: set = set()          # (speed, acc) pairs already reported this run
+
+    def _cmd(self, bus, sid: int, ticks: int, speed: int, acc: int) -> None:
+        """The one place that commands a move: clamps speed/acc to the power
+        limits (hardware/motion_limits.json) and logs each distinct clamp
+        once per run. acc 0 (no ramp) is the hardest jolt and is clamped too."""
+        L = self.cfg.motion_limits()
+        s2 = min(int(speed), L["max_speed"])
+        a2 = L["max_acc"] if (acc == 0 or acc > L["max_acc"]) else int(acc)
+        if (s2, a2) != (speed, acc) and (speed, acc) not in self._clamped:
+            self._clamped.add((speed, acc))
+            self.S.log(f"power limit: speed {speed} -> {s2}, acc {acc} -> {a2} "
+                       "(hardware/motion_limits.json)")
+        bus.move(sid, ticks, s2, a2)
 
     # ------------------------------------------------------ single-servo
 
@@ -185,7 +207,7 @@ class MotionEngine:
         S = self.S
         off = p.offset
         start = bus.read_pos(p.servo_id)
-        bus.move(p.servo_id, target, p.speed, p.acc)
+        self._cmd(bus, p.servo_id, target, p.speed, p.acc)
         S.set(target=to_rel(target, off), phase=label)
         timeout = abs(target - start) / p.speed + 2.0
         t0 = time.monotonic()
@@ -230,14 +252,17 @@ class MotionEngine:
 
     def _center_body(self, bus, p):
         S = self.S
-        target = to_ticks(0.0, p.offset)
-        self._move_and_wait(bus, p, target, "to center (mount position)")
+        target = to_ticks(p.center_deg, p.offset)
+        label = ("to center (mount position)" if not p.center_deg
+                 else f"to center pose ({p.center_deg:+.1f} deg)")
+        self._move_and_wait(bus, p, target, label)
         if p.hold_center:
             ok = bus.torque_on(p.servo_id)
-            S.log(f"center reached: +0.0 deg (tick {target}) — holding, torque "
+            S.log(f"center reached: {p.center_deg:+.1f} deg (tick {target}) — holding, torque "
                   + ("ON (verified)" if ok else "state UNVERIFIED, check servo!"))
             return True                  # tell _run to keep torque on
-        S.log(f"center reached: +0.0 deg (tick {target}) — mount the part now")
+        S.log(f"center reached: {p.center_deg:+.1f} deg (tick {target}) — "
+              + ("mount the part now" if not p.center_deg else "center pose override"))
         return False
 
     # ------------------------------------------------------ group helpers
@@ -260,8 +285,14 @@ class MotionEngine:
         watch = [sid for sid in (held or set())
                  if sid in id2joint and sid not in targets]
         starts = {sid: bus.read_pos(sid) for sid in targets}
-        for sid, t in targets.items():
-            bus.move(sid, t, p.speed, p.acc)
+        # staggered start: 16 servos leaving torque-off at the same instant is
+        # the biggest current spike the pack sees (2026-09-22: the Pi dropped
+        # off the network on a plain "center" with the robot held in the air)
+        stagger = self.cfg.motion_limits().get("stagger_ms", 0) / 1000.0
+        for k, (sid, t) in enumerate(targets.items()):
+            if k and stagger > 0:
+                time.sleep(stagger)
+            self._cmd(bus, sid, t, p.speed, p.acc)
         S.set(phase=label)
         timeout = max(abs(t - starts[sid]) for sid, t in targets.items()) \
             / p.speed + 2.0
@@ -308,7 +339,7 @@ class MotionEngine:
                     break
                 corrected = True
                 for sid, cmd in trims.items():
-                    bus.move(sid, cmd, 150, 30)  # slow trim move
+                    self._cmd(bus, sid, cmd, 150, 30)  # slow trim move
                 t1 = time.monotonic() + 0.45
                 while time.monotonic() < t1:
                     if S.abort.is_set():
@@ -367,24 +398,38 @@ class MotionEngine:
                     S.log(f"WARNING: {e['joint']} (ID {sid}) torque ON but "
                           f"drifted {dev * 360 / 4096:.1f} deg off center "
                           f"(holding too weak / goal lost?) — re-commanding")
-                bus.move(sid, center_t[sid], 300, 50)
+                self._cmd(bus, sid, center_t[sid], 300, 30)
                 bus.torque_on(sid)
             except ServoBusError:
                 S.log(f"WARNING: ID {sid} not responding during hold check")
 
+    def _center_note(self, plan):
+        """Log which joints center away from 0 deg (center pose override)."""
+        ov = [e for e in plan if e["center"]]
+        if ov:
+            self.S.log("center pose override: "
+                       + ", ".join(f"{e['joint']} {e['center']:+.1f} deg"
+                                   + (" (clamped to limits)" if e.get("center_clamped") else "")
+                                   for e in ov))
+
     def _group_center_body(self, bus, p, plan, held: set):
+        self._center_note(plan)
         self._move_all_and_wait(bus, p, plan,
-                                {e["id"]: to_ticks(0.0, e["offset"])
+                                {e["id"]: to_ticks(e["center"], e["offset"])
                                  for e in plan},
                                 "group: to center", settle=True)
         if p.hold_center:
             for e in plan:
                 self._hold(bus, e, held)
-        self.S.log("all selected servos at center (+0.0 deg, mount offsets applied)")
+        self.S.log("all selected servos at center ("
+                   + ("+0.0 deg" if not any(e["center"] for e in plan) else "center pose")
+                   + ", mount offsets applied)")
 
     def _group_test_body(self, bus, p, plan, held: set):
         S = self.S
-        center_t = {e["id"]: to_ticks(0.0, e["offset"]) for e in plan}
+        center_t = {e["id"]: to_ticks(e["center"], e["offset"]) for e in plan}
+        if p.hold_center:
+            self._center_note(plan)
         if p.mode == "simultaneous":
             lo_t = {e["id"]: to_ticks(e["lo"], e["offset"]) for e in plan}
             hi_t = {e["id"]: to_ticks(e["hi"], e["offset"]) for e in plan}
@@ -548,6 +593,7 @@ class MotionEngine:
         S = self.S
         bus = self._resolve_bus(self._claim_run_slot(), p.simulate)
         S.abort.clear()
+        self._clamped = set()
         S.set(phase="starting", servo_id=p.servo_id, error=None)
         S.log(banner)
         t = threading.Thread(target=self._run, args=(bus, p, body),
@@ -561,6 +607,7 @@ class MotionEngine:
         S = self.S
         bus = self._resolve_bus(self._claim_run_slot(), p.simulate)
         S.abort.clear()
+        self._clamped = set()
         S.set(phase="starting", servo_id=None, error=None, multi={})
         S.log(banner)
         if warn_unlimited:
@@ -578,6 +625,7 @@ class MotionEngine:
         ids = self.cfg.servo_ids()
         lims = self.cfg.limits()
         offs = self.cfg.offsets()
+        cpose = self.cfg.center_pose()
         plan = []
         for j in joints_sel:
             if j not in ids:
@@ -600,9 +648,14 @@ class MotionEngine:
                     "position — calibration looks corrupt (re-zero vs manual "
                     "offset edit?). Re-measure and save limits before "
                     "running.")
+            # center pose override (hardware/center_pose.json), kept inside the
+            # joint's safe band so a stale override can never slam a limit
+            c_raw = float(cpose.get(j, 0.0)) if isinstance(cpose.get(j, 0.0), (int, float)) else 0.0
+            c = max(lo, min(hi, c_raw))
             plan.append({"joint": j, "id": ids[j], "lo": lo, "hi": hi,
                          "limited": bool(L),
-                         "offset": float(offs.get(j, 0.0))})
+                         "offset": float(offs.get(j, 0.0)),
+                         "center": c, "center_clamped": c != c_raw})
         plan.sort(key=lambda e: e["id"])
         return plan
 
@@ -653,11 +706,18 @@ class MotionEngine:
 
     def start_center(self, p: CenterParams):
         if p.joint:
+            c = self.cfg.center_pose().get(p.joint, 0.0)
+            c = float(c) if isinstance(c, (int, float)) else 0.0
+            L = self.cfg.limits().get(p.joint)
+            if L:                                    # keep the override inside the safe band
+                c = max(float(L["min_deg"]), min(float(L["max_deg"]), c))
             p = p.model_copy(
-                update={"offset": float(self.cfg.offsets().get(p.joint, 0.0))})
+                update={"offset": float(self.cfg.offsets().get(p.joint, 0.0)),
+                        "center_deg": c})
         self._launch(p, self._center_body,
                      f"--- move to center: ID {p.servo_id}, speed {p.speed}, "
-                     f"{'SIMULATION' if p.simulate else 'hardware'} ---")
+                     + (f"center pose {p.center_deg:+.1f} deg, " if p.center_deg else "")
+                     + f"{'SIMULATION' if p.simulate else 'hardware'} ---")
 
     def start_group(self, p: GroupParams, kind: str):
         plan = self.build_plan(p.joints)
@@ -670,10 +730,26 @@ class MotionEngine:
             + f", {p.mode}, {'SIMULATION' if p.simulate else 'hardware'} ---")
         return plan
 
-    def play_demo(self, demo: Demo, simulate: bool):
+    @staticmethod
+    def settle_for(step, last: bool) -> bool:
+        """Load-sag settling costs up to ~1 s per step (slow trim moves + waits).
+        Transit steps (pause 0, not the last) skip it so a sequence flows;
+        steps that are held (pause > 0) and the final pose get it. An explicit
+        `settle` on the step overrides the rule."""
+        s = getattr(step, "settle", None)
+        if s is not None:
+            return bool(s)
+        return bool(step.pause_s) or last
+
+    def play_demo(self, demo: Demo, simulate: bool, until: int | None = None):
         """Run a taught-in demo: per step, move all its joints simultaneously
         (clamped to limits, offsets applied, settle pass), honor pauses, and
-        hold the final pose."""
+        hold the final pose. `until` (1-based, inclusive) stops after that
+        step — e.g. to check a pose while teaching in."""
+        if until is not None:
+            if not 1 <= until <= len(demo.steps):
+                raise MotionError(f"Step {until} out of range (demo has {len(demo.steps)} steps).")
+            demo = demo.model_copy(update={"steps": demo.steps[:until]})
         S = self.S
         ids = self.cfg.servo_ids()
         used = list(dict.fromkeys(
@@ -692,10 +768,21 @@ class MotionEngine:
             for i, step in enumerate(demo.steps, 1):
                 sp = SimpleNamespace(speed=step.speed, acc=step.acc)
                 targets, clamped = {}, []
+                # a center step ("center": true, or every angle exactly 0 = the
+                # old "+ center" steps) follows the center pose override
+                is_center = bool(getattr(step, "center", False)) or (
+                    bool(step.angles) and all(abs(v) < 1e-6 for v in step.angles.values()))
+                if is_center:
+                    ov = [f"{e['joint']} {e['center']:+.1f}" for e in plan if e["center"]]
+                    S.log(f"step {i}: center step -> "
+                          + (f"center pose override ({', '.join(ov)} deg), 0 deg elsewhere"
+                             if ov else "mount pose (all 0 deg, no override set)"))
                 for j, deg in step.angles.items():
                     e = by_joint.get(j)
                     if not e:
                         continue
+                    if is_center:
+                        deg = e["center"]
                     d = max(e["lo"], min(e["hi"], deg))
                     if d != deg:
                         clamped.append(f"{j} {deg:+.1f}->{d:+.1f}")
@@ -707,9 +794,11 @@ class MotionEngine:
                     S.log(f"step {i}: no responding joints — skipped")
                     continue
                 moved.update(targets)
+                title = getattr(step, "title", "") or ""
                 self._move_all_and_wait(bus, sp, plan, targets,
-                                        f"demo '{demo.name}' step {i}/{n}",
-                                        held, settle=True)
+                                        f"demo '{demo.name}' step {i}/{n}"
+                                        + (f" ({title})" if title else ""),
+                                        held, settle=self.settle_for(step, i == n))
                 if step.pause_s:
                     deadline = time.monotonic() + step.pause_s
                     while time.monotonic() < deadline:
@@ -720,7 +809,8 @@ class MotionEngine:
             for e in plan:
                 if e["id"] in moved:
                     self._hold(bus, e, held)
-            S.log(f"demo '{demo.name}' finished — holding final pose")
+            S.log(f"demo '{demo.name}' finished — holding final pose"
+                  + (f" (stopped after step {until} of the demo)" if until else ""))
 
         # warn_unlimited=False: the pre-refactor demo launch never warned
         # about limits-less joints (only group runs do) — log parity matters
