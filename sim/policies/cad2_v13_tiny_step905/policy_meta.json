@@ -1,0 +1,190 @@
+{
+ "checkpoint": "/home/justin/Documents/stash/zeroth-01-build/sim/train/zbot_walking_task/cad2_v13_tiny/snapshots/ckpt.905.bin",
+ "assets": "zbot-cad",
+ "task_config": {
+  "velocity_tracking": true,
+  "gait_shaping": true,
+  "target_speed_min": 0.05,
+  "target_speed_max": 0.1,
+  "heading_obs": true,
+  "action_scale": 1.0,
+  "gait_freq_lower": 1.25,
+  "gait_freq_upper": 2.0,
+  "ctrl_dt": 0.02
+ },
+ "input": {
+  "size": 64,
+  "layout_in_order": [
+   {
+    "name": "timestep_phase",
+    "size": 4,
+    "meaning": "gait clock [cos, sin] x2 (walking.py TimestepPhaseObservation)"
+   },
+   {
+    "name": "joint_pos",
+    "size": 16,
+    "meaning": "joint angles rad, MuJoCo joint order, 0 = servo zero"
+   },
+   {
+    "name": "joint_vel",
+    "size": 16,
+    "meaning": "joint velocities rad/s"
+   },
+   {
+    "name": "imu_acc",
+    "size": 3,
+    "meaning": "accelerometer m/s^2, RAW SENSOR AXES of the head IMU (QMI8658 on the Waveshare RP2040-LCD-1.28, left eye) -- feed the sensor readings straight through, do NOT rotate. x_imu=[0.0, -1.0, 0.0], y_imu=[0.0, 0.0, 1.0], z_imu=[-1.0, 0.0, 0.0] expressed in body axes (x fwd, y left, z up). Standing still the accelerometer reads about +9.81 on the chip's Y axis. R_body_from_imu is in the model metadata."
+   },
+   {
+    "name": "imu_gyro",
+    "size": 3,
+    "meaning": "gyro rad/s, same frame"
+   },
+   {
+    "name": "lin_vel_cmd",
+    "size": 2,
+    "meaning": "commanded forward/lateral speed m/s"
+   },
+   {
+    "name": "ang_vel_cmd",
+    "size": 1,
+    "meaning": "commanded yaw rate rad/s"
+   },
+   {
+    "name": "gait_freq_cmd",
+    "size": 1,
+    "meaning": "commanded gait frequency Hz"
+   },
+   {
+    "name": "last_action",
+    "size": 16,
+    "meaning": "previous action"
+   },
+   {
+    "name": "heading",
+    "size": 2,
+    "meaning": "[cos psi, sin psi]: yaw relative to the start heading (IMU yaw zeroed at policy start)"
+   }
+  ]
+ },
+ "output": {
+  "size": 16,
+  "meaning": "target joint angle rad (tanh-bounded, x action_scale=1.0), MuJoCo joint order, 0 = servo zero; a PD loop (sim: kp 16, kd 3) tracks it at 50 Hz"
+ },
+ "imu": {
+  "cad_mm": [
+   27.42,
+   -15.37,
+   423.84
+  ],
+  "pos_body_m": [
+   0.02175,
+   0.02742,
+   0.11428
+  ],
+  "site_quat_wxyz": [
+   0.5,
+   0.5,
+   -0.5,
+   -0.5
+  ],
+  "frame": "imu",
+  "R_body_from_imu": [
+   [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    1.0,
+    0.0
+   ]
+  ],
+  "axes_in_body": {
+   "x_imu": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "y_imu": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "z_imu": [
+    -1.0,
+    0.0,
+    0.0
+   ]
+  },
+  "note": "sim imu_acc/imu_gyro are the raw QMI8658 axes -- the Pi feeds the sensor readings straight to the policy",
+  "source": "hardware/head_imu/imu_pose.json (Waveshare RP2040-LCD-1.28, QMI8658, left eye)"
+ },
+ "joint_order": [
+  "right_shoulder_pitch",
+  "right_shoulder_yaw",
+  "right_elbow_yaw",
+  "left_shoulder_pitch",
+  "left_shoulder_yaw",
+  "left_elbow_yaw",
+  "right_hip_pitch",
+  "right_hip_yaw",
+  "right_hip_roll",
+  "right_knee_pitch",
+  "right_ankle_pitch",
+  "left_hip_pitch",
+  "left_hip_yaw",
+  "left_hip_roll",
+  "left_knee_pitch",
+  "left_ankle_pitch"
+ ],
+ "servo_ids": {
+  "right_shoulder_pitch": 21,
+  "right_shoulder_yaw": 22,
+  "right_elbow_yaw": 23,
+  "left_shoulder_pitch": 11,
+  "left_shoulder_yaw": 12,
+  "left_elbow_yaw": 13,
+  "right_hip_pitch": 41,
+  "right_hip_yaw": 42,
+  "right_hip_roll": 43,
+  "right_knee_pitch": 44,
+  "right_ankle_pitch": 45,
+  "left_hip_pitch": 31,
+  "left_hip_yaw": 32,
+  "left_hip_roll": 33,
+  "left_knee_pitch": 34,
+  "left_ankle_pitch": 35
+ },
+ "actuator_types": {
+  "right_shoulder_pitch": "feetech_sts3215_12v",
+  "right_shoulder_yaw": "feetech_sts3215_12v",
+  "right_elbow_yaw": "feetech_sts3215_12v",
+  "left_shoulder_pitch": "feetech_sts3215_12v",
+  "left_shoulder_yaw": "feetech_sts3215_12v",
+  "left_elbow_yaw": "feetech_sts3215_12v",
+  "right_hip_pitch": "feetech_sts3250",
+  "right_hip_yaw": "feetech_sts3250",
+  "right_hip_roll": "feetech_sts3250",
+  "right_knee_pitch": "feetech_sts3250",
+  "right_ankle_pitch": "feetech_sts3250",
+  "left_hip_pitch": "feetech_sts3250",
+  "left_hip_yaw": "feetech_sts3250",
+  "left_hip_roll": "feetech_sts3250",
+  "left_knee_pitch": "feetech_sts3250",
+  "left_ankle_pitch": "feetech_sts3250"
+ },
+ "onnx_vs_jax_max_abs_diff": 0.0,
+ "files": [
+  "policy.onnx",
+  "tf_model/",
+  "ckpt.bin",
+  "policy_meta.json"
+ ]
+}

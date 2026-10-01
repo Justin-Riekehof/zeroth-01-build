@@ -1,0 +1,13 @@
+envs 16, horizon 250 steps = 5.0 s
+forward displacement x: mean 1.539 m  (min 1.23, max 1.76);  lateral |y| mean 0.089 m;  |yaw| end mean 1.9 deg
+mean forward speed 0.309 m/s;  base height mean 0.327 m, min-over-time mean 0.314 m
+episodes with a fall/termination within the horizon: 0/16
+without falls (16 episodes): forward x median 1.562 m (min 1.23, max 1.76);  lateral |y| median 0.060 m (max 0.24);  |yaw| end median 1.6 deg (max 4)
+  path straightness: lateral/forward ratio median 0.04
+envs 16, horizon 5.0 s
+steps per foot per episode: L 6.8  R 6.8  (cadence 2.72 steps/s)
+support phases: single 96 %  double 4 %  flight 0 %
+swing duration: median 340 ms, p90 400 ms
+foot clearance (max lift): L 9.7 cm  R 9.4 cm
+calmness: torso roll p2p 51.2 deg, pitch p2p 14.6 deg;  lateral base vel RMS 0.125 m/s
+          hip yaw/roll |q| mean 12.7 deg (p2p 43.6);  arms |q| mean 21.9 deg;  joint speed mean 1.63 rad/s;  action rate mean 0.383 rad/step
