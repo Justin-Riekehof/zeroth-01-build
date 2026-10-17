@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Zeroth-01 · Servo Test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=26">
 <script type="importmap">
 {
   "imports": {
@@ -51,6 +51,25 @@
         <span id="battPct" class="muted"></span>
         <span id="battNote" class="muted"></span>
       </div>
+    </section>
+
+    <section id="mocapSection">
+      <h2>Motion capture <span class="hint">— webcam of this PC → arms</span></h2>
+      <div class="row">
+        <button id="mocapCam" title="Open the webcam of this computer and detect your body pose (runs locally in the browser)">📷 Start camera</button>
+      </div>
+      <label class="check mocap-switch" title="OFF: the pose only animates the 3D model. ON: the robot's arms follow you, clamped to the joint limits. Stop = E-stop.">
+        <input type="checkbox" id="mocapTele" disabled>
+        <span class="track"><i></i></span>
+        <b>Teleoperation</b> <span class="hint">— arms follow me</span>
+      </label>
+      <div id="mocapRows"></div>
+      <div class="hint">torso twist (shoulders vs hips): <span id="mocapTwist">–</span></div>
+      <div id="mocapStatus" class="hint">camera off</div>
+      <details class="hint"><summary>options</summary>
+        <label class="check"><input type="checkbox" id="mocapMirror"> mirror-image control (my left arm → robot's right)</label>
+        <label class="check"><input type="checkbox" id="mocapFlip"> swap forward / backward (if arm pitch is reversed)</label>
+      </details>
     </section>
 
     <section class="usb-only">
@@ -239,6 +258,43 @@
         <button id="demoSave" title="Save under the given name into demos/ in the repo (wireless: also onto the robot)">save demo</button>
         <button id="demoDelete" title="Delete the selected demo file (wireless: also from the robot)">delete</button>
       </div>
+      <div id="getup">
+        <h3>Get-up after a fall <span class="hint">— hardware/getup.json</span></h3>
+        <div id="postureLine" class="posture pi-only" title="Torso orientation from the head IMU (Pi). A robot on its side is assigned to the case it is closer to">
+          <span class="dot" id="postureDot"></span><span id="postureText">posture: –</span>
+        </div>
+        <div class="gucase" data-case="front">
+          <div class="guhead"><b>front</b> <span class="hint">— lying face down</span></div>
+          <div class="row">
+            <select data-a="pick" title="The demo that stands the robot up from lying face down — an ordinary demo, edit it in the editor above"></select>
+            <button data-a="edit" title="Open this demo in the editor">✎ edit</button>
+            <button data-a="play" title="Play this get-up now (USB: honors the Simulation box)">▶ test</button>
+          </div>
+        </div>
+        <div class="gucase" data-case="back">
+          <div class="guhead"><b>back</b> <span class="hint">— lying on its back</span></div>
+          <div class="row">
+            <select data-a="pick" title="The demo that stands the robot up from lying on its back — an ordinary demo, edit it in the editor above"></select>
+            <button data-a="edit" title="Open this demo in the editor">✎ edit</button>
+            <button data-a="play" title="Play this get-up now (USB: honors the Simulation box)">▶ test</button>
+          </div>
+        </div>
+        <div class="guseed" title="Helper: copies a range of steps out of the demo selected in the list above (saved version) into a NEW demo named getup_front / getup_back, assigns it and opens it in the editor. After that it is a normal demo, independent of the source">
+          <div class="hint">new get-up demo from steps of the selected demo</div>
+          <div class="row guadd">
+            <span class="muted">steps</span>
+            <input type="number" id="guFrom" min="1" placeholder="from">
+            <input type="number" id="guTo" min="1" placeholder="to">
+            <button id="guMakeFront">→ front</button>
+            <button id="guMakeBack">→ back</button>
+          </div>
+        </div>
+        <label class="check" title="On the Pi: when the robot falls while NO run is active and then lies still, it plays the matching demo by itself (max. attempts per fall). Falls during a demo never trigger it — push_ups goes to the floor on purpose. STOP cancels"><input type="checkbox" id="guAuto"> auto get-up after a fall (Pi)</label>
+        <div class="row">
+          <button id="guSave" title="Save the assignment into hardware/getup.json in the repo (wireless: also onto the robot, effective at once)">save get-up</button>
+          <button id="guNow" class="pi-only" title="Pick front/back from the IMU and stand up now">▶ get up now</button>
+        </div>
+      </div>
     </section>
   </aside>
 
@@ -253,6 +309,11 @@
           or run <code>python resources/cad/download_model.py</code><br>
           (see <code>resources/cad/VERSION.md</code>).</p>
       </div>
+    </div>
+    <div id="mocapCard" class="hidden">
+      <div class="mhead"><span id="mocapBadge">TRACKING</span>
+        <span id="mocapLive" class="hidden">● LIVE</span></div>
+      <div class="mview"><video id="mocapVideo" playsinline muted></video><canvas id="mocapCanvas"></canvas></div>
     </div>
     <div id="headCard" class="pi-only collapsed">
       <button id="headToggle" class="headhead" title="Camera Module 3 + IMU display board in the head — streamed from the Pi (wireless mode)">
@@ -318,6 +379,6 @@
     <button id="shutdownBannerOk" class="primary">OK</button>
   </div>
 </div>
-<script type="module" src="app.js?v=43"></script>
+<script type="module" src="app.js?v=51"></script>
 </body>
 </html>

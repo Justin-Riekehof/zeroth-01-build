@@ -39,6 +39,8 @@ class DemoStep(BaseModel):
     title: str = Field("", max_length=60)   # optional label shown in the editor/log
     center: bool = False               # center step: angles resolve to the center pose at playback
     settle: bool | None = None         # load-sag settle pass: None = only on steps with a pause and on the last step
+    stagger: bool | None = None        # staggered start (servos in mirror-pair waves): None = only the FIRST move of a run
+    boost: bool = False                # peak move: ignore the power limits (speed/acc as given) — e.g. pushing off the floor
     speed: int = Field(500, ge=1, le=3400)
     acc: int = Field(50, ge=0, le=254)
     pause_s: float = Field(0.0, ge=0, le=10)
@@ -102,6 +104,7 @@ class ConfigStore:
         self.center_pose_path = hw / "center_pose.json"
         self.motion_limits_path = hw / "motion_limits.json"
         self.connection_path = hw / "connection.json"
+        self.getup_path = hw / "getup.json"
         self.demos_dir = self.root / "demos"
         hw.mkdir(parents=True, exist_ok=True)
         self.demos_dir.mkdir(parents=True, exist_ok=True)
@@ -148,6 +151,11 @@ class ConfigStore:
     def connection(self) -> dict:
         return {**DEFAULT_CONNECTION, **read_json(self.connection_path, {})}
 
+    def getup_raw(self) -> dict:
+        """Get-up assignment + fall detector settings as stored; typed access
+        through zbot_core.getup.load_getup()."""
+        return read_json(self.getup_path, {})
+
     # -- writes (atomic)
     def write_servo_ids(self, d: dict) -> None:
         write_json_atomic(self.servo_ids_path, d)
@@ -166,6 +174,9 @@ class ConfigStore:
 
     def write_center_pose(self, d: dict) -> None:
         write_json_atomic(self.center_pose_path, d)
+
+    def write_getup(self, d: dict) -> None:
+        write_json_atomic(self.getup_path, d)
 
     def write_connection(self, d: dict) -> None:
         # persist only the overrides; connection() re-merges the defaults

@@ -27,10 +27,24 @@ files):
     POST /connect           (re)open the serial bus
     POST /heartbeat         arms/feeds the streaming watchdog (future teleop)
 
+Teleoperation (camera motion capture, arms by default):
+    POST /teleop/start      begin following streamed targets ({"joints": [...]} optional)
+    POST /teleop/target     latest target angles {"angles": {joint: deg}} (~15-20 Hz);
+                            clamped to the joint limits on the Pi, input loss = hold
+    POST /teleop/pose       one camera frame (33 world landmarks) -> arm angles, clamped;
+                            targets while teleop is on, a pure preview otherwise
+    POST /teleop/stop       orderly end, pose is held (E-stop is /stop)
+
+Fall detection + get-up (posture.py, hardware/getup.json):
+    GET  /getup             get-up assignment + live posture (fallen? which way?)
+    POST /getup/config      store the assignment on the robot (repo stays canonical)
+    POST /getup             play the get-up sequence: {"case": "auto"|"front"|"back"}
+
 Head peripherals (head.py — IMU display board + Camera Module 3):
     GET  /head              IMU sample (mg / dps / °C / V, head tilt) + camera state
     GET  /camera.mjpg       live MJPEG stream (multipart) — starts rpicam-vid on demand
     GET  /camera.jpg        one still from the same stream
+    GET  /vr                split-screen page for a Cardboard viewer (phone browser)
     POST /head/cmd          one command line to the display firmware ("mood happy")
 
 Safety is Pi-local and never trusted from clients: joint limits, mount
@@ -63,12 +77,16 @@ from pydantic import BaseModel, Field
 
 from zbot_core.bus import ServoBusError, open_bus
 from zbot_core.config import ConfigStore, Demo, limit_log_line
-from zbot_core.motion import (GroupParams, MotionEngine, MotionError,
+from zbot_core.motion import (GroupParams, MotionEngine, MotionError, TeleopParams,
                               lock_joints, release_joints, to_rel)
 
-from head import CameraStreamer, ImuReader, mjpeg_multipart
+from zbot_core.getup import (CASE_LABEL, GetupConfig, load_getup_demo,
+                             describe, load_getup, save_getup, validate_getup)
 
-API_VERSION = 8
+from head import CameraStreamer, ImuReader, mjpeg_multipart
+from posture import PostureMonitor
+
+API_VERSION = 10
 
 # Needs the matching NOPASSWD line in /etc/sudoers.d/zbot-deploy on the Pi.
 # Kept as one exact command so the sudoers rule can stay maximally narrow.
@@ -129,7 +147,9 @@ async def lifespan(_app: FastAPI):
     IMU.start()
     BATTERY.start()
     FLIGHT.start()
+    POSTURE.start()
     yield
+    POSTURE.stop()
     FLIGHT.stop()
     BATTERY.stop()
     ENGINE.stop()
@@ -543,6 +563,21 @@ class FlightRecorder:
 FLIGHT = FlightRecorder(ROOT, BATTERY, S)
 
 
+# ------------------------------------------------------------ get-up
+
+def _start_getup(case: str) -> Demo:
+    """Play the demo assigned to one case (raises ValueError for a
+    missing/broken assignment, MotionError when busy)."""
+    gc = load_getup(CFG)
+    demo = load_getup_demo(CFG, gc, case)
+    S.log(f"get-up '{case}' ({CASE_LABEL[case]}): {describe(gc, case)}")
+    ENGINE.play_demo(demo, simulate=False)
+    return demo
+
+
+POSTURE = PostureMonitor(IMU, ENGINE, lambda: load_getup(CFG), _start_getup)
+
+
 def _engine(fn):
     try:
         return fn()
@@ -571,6 +606,7 @@ def status():
                          "timeout_s": WATCHDOG.timeout_s},
             "battery": BATTERY.snapshot(),
             "head": _head_state(),
+            "posture": POSTURE.snapshot(),
             "live": S.snapshot()}
 
 
@@ -616,6 +652,16 @@ def camera_still():
     if jpg is None:
         raise HTTPException(503, "camera: no frame")
     return Response(jpg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/vr")
+def vr_page():
+    """Phone page for a Cardboard-style viewer: the one camera stream shown
+    twice, side by side (no depth — single camera). Open it from the phone,
+    e.g. http://<pi>:8460/vr, rotate to landscape."""
+    return Response((Path(__file__).parent / "vr.html").read_bytes(),
+                    media_type="text/html; charset=utf-8",
                     headers={"Cache-Control": "no-store"})
 
 
@@ -741,7 +787,8 @@ def connect():
 
 
 class PlayIntent(BaseModel):
-    until: int | None = Field(None, ge=1)     # play only steps 1..until (inclusive)
+    until: int | None = Field(None, ge=1)     # play up to this step (inclusive)
+    start: int | None = Field(None, ge=1)     # ... starting at this one (start == until: single pose)
 
 
 @app.post("/demo/{name}")
@@ -750,10 +797,62 @@ def play_demo(name: str, p: PlayIntent = PlayIntent()):
         demo = CFG.load_demo(name)
     except (KeyError, ValueError) as e:
         raise HTTPException(404, f"Demo '{name}' not found.") from e
-    if p.until is not None and p.until > len(demo.steps):
-        raise HTTPException(400, f"Step {p.until} out of range (demo has {len(demo.steps)} steps).")
-    _engine(lambda: ENGINE.play_demo(demo, simulate=False, until=p.until))
-    return {"ok": True, "demo": demo.name, "steps": p.until or len(demo.steps)}
+    n = len(demo.steps)
+    for v in (p.until, p.start):
+        if v is not None and v > n:
+            raise HTTPException(400, f"Step {v} out of range (demo has {n} steps).")
+    _engine(lambda: ENGINE.play_demo(demo, simulate=False, until=p.until,
+                                     start=p.start))
+    return {"ok": True, "demo": demo.name,
+            "steps": (p.until or n) - (p.start or 1) + 1}
+
+
+@app.get("/getup")
+def get_getup():
+    try:
+        gc = load_getup(CFG)
+    except ValueError as e:
+        raise HTTPException(500, f"hardware/getup.json invalid: {e}") from e
+    return {"config": gc.model_dump(), "problems": validate_getup(CFG, gc),
+            "posture": POSTURE.snapshot()}
+
+
+@app.post("/getup/config")
+def set_getup(gc: GetupConfig):
+    """Wireless: store the get-up assignment on the robot (the GUI writes
+    the repo copy too, which stays canonical). Takes effect right away."""
+    save_getup(CFG, gc)
+    POSTURE.invalidate()
+    problems = validate_getup(CFG, gc)
+    S.log(f"get-up saved: front = {describe(gc, 'front')}, back = "
+          f"{describe(gc, 'back')}, auto {'ON' if gc.auto else 'off'}"
+          + (f" — WARNING: {'; '.join(problems)}" if problems else ""))
+    return {"ok": True, "config": gc.model_dump(), "problems": problems}
+
+
+class GetupIntent(BaseModel):
+    case: str = Field("auto", pattern="^(auto|front|back)$")
+
+
+@app.post("/getup")
+def getup(p: GetupIntent = GetupIntent()):
+    """Stand up from the floor. "auto" picks the case from the IMU: the one
+    the lying robot is closer to (face down -> front, on its back -> back)."""
+    case = p.case
+    if case == "auto":
+        ps = POSTURE.snapshot()
+        if ps["state"] == "unknown":
+            raise HTTPException(400, "No IMU data — pick front or back.")
+        if ps["state"] == "upright":
+            raise HTTPException(400, "The robot is upright — nothing to get up from.")
+        case = ps["case"]
+    try:
+        demo = _start_getup(case)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except MotionError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "case": case, "steps": len(demo.steps)}
 
 
 class CenterIntent(BaseModel):
@@ -804,6 +903,44 @@ def lock(p: ReleaseIntent = ReleaseIntent()):
     return {"ok": True, "locked": locked}
 
 
+@app.post("/teleop/start")
+def teleop_start(p: TeleopParams = TeleopParams()):
+    plan = _engine(lambda: ENGINE.start_teleop(p))
+    return {"ok": True, "joints": [e["joint"] for e in plan]}
+
+
+class TeleopTarget(BaseModel):
+    angles: dict[str, float]
+
+
+@app.post("/teleop/target")
+def teleop_target(t: TeleopTarget):
+    return {"ok": True, "taken": _engine(lambda: ENGINE.teleop_target(t.angles))}
+
+
+class TeleopPose(BaseModel):
+    """One camera frame: 33 MediaPipe world landmarks [x, y, z, visibility]."""
+    landmarks: list[list[float]] = Field(min_length=33, max_length=33)
+    mirror: bool = False
+    flip_forward: bool = False
+
+
+@app.post("/teleop/pose")
+def teleop_pose(t: TeleopPose):
+    """Preview + control in one call: returns the arm angles the pose maps to
+    (clamped to the joint limits); they become targets while teleop is on."""
+    if any(len(p) != 4 for p in t.landmarks):
+        raise HTTPException(400, "each landmark needs [x, y, z, visibility]")
+    angles, info = ENGINE.mocap_pose(t.landmarks, t.mirror, t.flip_forward)
+    return {"angles": angles, **info}
+
+
+@app.post("/teleop/stop")
+def teleop_stop():
+    ENGINE.stop_teleop()
+    return {"ok": True}
+
+
 @app.post("/stop")
 def stop():
     """E-stop: always available, everything goes limp. During a run the
@@ -812,6 +949,7 @@ def stop():
     release happens right here — Stop must never be a silent no-op."""
     ENGINE.stop()
     WATCHDOG.disarm()
+    POSTURE.cancel()
     with S.lock:
         bus = S.bus
         running = S.live["running"]

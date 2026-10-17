@@ -25,6 +25,7 @@ corrupt-calibration guard are enforced on the Pi, never trusted from clients.
 | `POST /shutdown` | clean OS shutdown (SD-card-safe) — servos keep holding; cut the main switch after the ACT LED stops. Needs the shutdown line in `/etc/sudoers.d/zbot-deploy` |
 | `POST /stop` | **E-stop**: aborts a run; when idle-holding a pose it releases all torque directly |
 | `POST /connect` | (re)open the serial bus after an error |
+| `POST /teleop/start` · `/teleop/pose` · `/teleop/target` · `/teleop/stop` | camera motion capture (arms): `pose` takes 33 world landmarks → arm angles (clamped on the Pi), they become targets while a `start`ed session runs; input loss = hold, 10 s without input = session ends holding; `/stop` is the E-stop |
 | `POST /heartbeat` | feeds the streaming watchdog (future teleop; demos don't need it) |
 
 Environment: `ZBOT_ROOT` (config root, default `~/zbot`), `ZBOT_SIMULATE=1`

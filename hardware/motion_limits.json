@@ -1,5 +1,5 @@
 {
-  "_comment": "Power limits for every commanded move (all backends): speed in ticks/s, acc in Feetech ramp units (1 = 100 ticks/s^2). Keeps simultaneous accelerations of all 16 servos from sagging the 3S pack below the low-voltage cutoff. Higher values in a demo step are clamped and logged. stagger_ms: pause between the individual servos of one simultaneous start (16 servos x 40 ms = 0.6 s spread) so the inrush currents do not add up.",
+  "_comment": "Power limits for every commanded move (all backends): speed in ticks/s, acc in Feetech ramp units (1 = 100 ticks/s^2). Keeps simultaneous accelerations of all 16 servos from sagging the 3S pack below the low-voltage cutoff. Higher values in a demo step are clamped and logged. stagger_ms: pause between the waves of the FIRST move of a run (servos leaving torque-off), so their inrush currents do not add up. A joint and its mirror share a wave and later moves of the same run start together, so demo steps stay symmetric.",
   "max_speed": 300,
   "max_acc": 30,
   "stagger_ms": 40

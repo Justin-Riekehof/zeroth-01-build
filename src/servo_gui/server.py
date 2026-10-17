@@ -24,8 +24,10 @@ from zbot_core.bus import (POS_MAX_SAFE, POS_MIN_SAFE, ServoBus,
                            serial_ports, ticks_to_rel_deg)
 from zbot_core.config import (ConfigStore, Demo, limit_log_line,
                               read_json)
+from zbot_core.getup import (CASE_LABEL, GetupConfig, load_getup_demo,
+                             describe, load_getup, save_getup, validate_getup)
 from zbot_core.motion import (CenterParams, GroupParams, MotionEngine,
-                              MotionError, TestParams, lock_joints,
+                              MotionError, TeleopParams, TestParams, lock_joints,
                               release_joints)
 
 HERE = Path(__file__).resolve().parent
@@ -44,7 +46,7 @@ TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # bumped on every backend behavior change; the frontend warns when its own
 # build expects a newer backend (guards against running a stale server)
-API_VERSION = 20
+API_VERSION = 22
 
 
 def _read_offsets() -> dict:
@@ -89,9 +91,10 @@ app = FastAPI(title="Zeroth-01 servo test GUI")
 async def no_cache_static(request, call_next):
     """The GUI files (index.html/app.js/style.css) must never be served from
     the browser cache — a stale frontend silently misses features. The big
-    GLB stays cacheable."""
+    GLB and the vendored libraries/models (three.js, MediaPipe: tens of MB)
+    stay cacheable."""
     resp = await call_next(request)
-    if request.url.path != "/model":
+    if request.url.path != "/model" and not request.url.path.startswith("/vendor/"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -467,7 +470,8 @@ def robot_pose():
 class PlayParams(BaseModel):
     name: str
     simulate: bool = False
-    until: int | None = Field(None, ge=1)     # play only steps 1..until (inclusive)
+    until: int | None = Field(None, ge=1)     # play up to this step (inclusive)
+    start: int | None = Field(None, ge=1)     # ... starting at this one (start == until: single pose)
 
 
 @app.post("/api/demo/play")
@@ -477,10 +481,96 @@ def demo_play(p: PlayParams):
         demo = CFG.load_demo(p.name)
     except KeyError as e:
         raise HTTPException(404, f"Demo '{p.name}' not found.") from e
-    if p.until is not None and p.until > len(demo.steps):
-        raise HTTPException(400, f"Step {p.until} out of range (demo has {len(demo.steps)} steps).")
-    _engine(lambda: ENGINE.play_demo(demo, p.simulate, until=p.until))
-    return {"ok": True, "steps": p.until or len(demo.steps)}
+    n = len(demo.steps)
+    for v in (p.until, p.start):
+        if v is not None and v > n:
+            raise HTTPException(400, f"Step {v} out of range (demo has {n} steps).")
+    _engine(lambda: ENGINE.play_demo(demo, p.simulate, until=p.until,
+                                     start=p.start))
+    return {"ok": True, "steps": (p.until or n) - (p.start or 1) + 1}
+
+
+# Get-up after a fall (hardware/getup.json): which demo steps stand the robot
+# up from face down / from its back. Fall detection itself needs the head IMU
+# and lives on the Pi (pi_service/posture.py); here the assignment is edited
+# (repo copy, deployed with the calibration) and can be played over USB.
+
+@app.get("/api/getup")
+def get_getup():
+    try:
+        gc = load_getup(CFG)
+    except ValueError as e:
+        raise HTTPException(500, f"hardware/getup.json invalid: {e}") from e
+    return {"config": gc.model_dump(), "problems": validate_getup(CFG, gc)}
+
+
+@app.post("/api/getup")
+def set_getup(gc: GetupConfig):
+    save_getup(CFG, gc)
+    problems = validate_getup(CFG, gc)
+    S.log(f"get-up saved to the repo: front = {describe(gc, 'front')}, "
+          f"back = {describe(gc, 'back')}, auto {'ON' if gc.auto else 'off'}"
+          + (f" — WARNING: {'; '.join(problems)}" if problems else ""))
+    return {"ok": True, "config": gc.model_dump(), "problems": problems}
+
+
+class GetupPlayParams(BaseModel):
+    case: str = Field(pattern="^(front|back)$")
+    simulate: bool = False
+
+
+@app.post("/api/getup/play")
+def getup_play(p: GetupPlayParams):
+    try:
+        gc = load_getup(CFG)
+        demo = load_getup_demo(CFG, gc, p.case)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    S.log(f"get-up '{p.case}' ({CASE_LABEL[p.case]}): {describe(gc, p.case)}")
+    _engine(lambda: ENGINE.play_demo(demo, p.simulate))
+    return {"ok": True, "case": p.case, "steps": len(demo.steps)}
+
+
+# Teleoperation / camera motion capture: the browser detects the body pose in
+# the webcam image, derives arm joint angles and streams them here. The engine
+# clamps them to the joint limits and follows (zbot_core.motion.start_teleop).
+
+@app.post("/api/teleop/start")
+def teleop_start(p: TeleopParams = TeleopParams()):
+    plan = _engine(lambda: ENGINE.start_teleop(p))
+    return {"ok": True, "joints": [e["joint"] for e in plan]}
+
+
+class TeleopTarget(BaseModel):
+    angles: dict[str, float]
+
+
+@app.post("/api/teleop/target")
+def teleop_target(t: TeleopTarget):
+    return {"ok": True, "taken": _engine(lambda: ENGINE.teleop_target(t.angles))}
+
+
+class TeleopPose(BaseModel):
+    """One camera frame: 33 MediaPipe world landmarks [x, y, z, visibility]."""
+    landmarks: list[list[float]] = Field(min_length=33, max_length=33)
+    mirror: bool = False
+    flip_forward: bool = False
+
+
+@app.post("/api/teleop/pose")
+def teleop_pose(t: TeleopPose):
+    """Preview + control in one call: returns the arm angles the pose maps to
+    (clamped to the joint limits); they become targets while teleop is on."""
+    if any(len(p) != 4 for p in t.landmarks):
+        raise HTTPException(400, "each landmark needs [x, y, z, visibility]")
+    angles, info = ENGINE.mocap_pose(t.landmarks, t.mirror, t.flip_forward)
+    return {"angles": angles, **info}
+
+
+@app.post("/api/teleop/stop")
+def teleop_stop():
+    ENGINE.stop_teleop()
+    return {"ok": True}
 
 
 @app.post("/api/stop")

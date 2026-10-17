@@ -95,6 +95,32 @@ joint's 0° and the offset is stored in
 readout (shown when connected) tracks the current angle as you turn. All limits/tests
 stay in CAD-frame degrees; the offset is applied transparently.
 
+## Motion capture — steer the arms with your body
+
+The **Motion capture** section (sidebar) turns the webcam of the PC that runs the GUI into a
+teleoperation input. *Start camera* opens it, detects your body (MediaPipe Pose, 33 landmarks —
+legs and torso too) and draws the **skeleton over the camera image** (bottom-left card; the arm
+bones that drive the robot are highlighted). Everything runs locally in the browser and the vendored
+model ([static/vendor/mediapipe/](static/vendor/mediapipe/README.md)) — no internet, no upload.
+
+* **Switch off (default):** the detected pose only animates the 3D model and the per-joint bars
+  (orange = joint limit reached). Use this to check the mapping — nothing moves.
+* **Teleoperation switch on:** the six arm joints follow you. The angles are solved from the
+  3D landmarks relative to your *own* torso frame (shoulder line / spine, so turning or leaning is
+  fine), clamped to the configured joint limits (`hardware/joint_limits.json`) on the backend,
+  slew-limited (90°/s), smoothed and sent through the normal power limits
+  (`hardware/motion_limits.json`, so the arm speed is capped by `max_speed`). Starting it never makes
+  the arms jump: it begins at the robot's current pose and approaches yours.
+* **Safety:** a lost person / lost connection holds the last pose; after 10 s without input the
+  session ends (pose held). **■ STOP** is the E-stop as always. The switch also works in
+  *Simulation* and in wireless mode (poses are posted to the Pi: `POST /teleop/pose`).
+* **Options:** mirror-image control (my left arm → robot's right) and *swap forward/backward* for
+  checking a reversed pitch. The torso twist (shoulders vs hips) is displayed for later use.
+
+Mapping and sign conventions are derived from the CAD joint axes (`zbot_core/mocap.py`) and pinned
+by tests against the limits and `demos/wave.json`; verify them once on the robot with the switch off
+(model) and then at low risk with the arms free. Arms only for now — the legs ignore the pose.
+
 ## Teach-in demos
 
 Pose the 3D model with the per-joint sliders, then *+ model pose* in the **Demos**
@@ -102,7 +128,8 @@ section — each step stores the target angles of all configured joints plus its
 speed/accel/pause and an optional **title** (shown in the editor and in the playback
 log). *+ center* appends an exact center step (center pose override where set, 0°
 elsewhere). Steps can be reordered with **▲ ▼** or by dragging the **⠿n** handle, copied
-with **⧉ dup**, **⟲ robot** overwrites a step with the robot's current physical pose
+with **⧉ dup**, **⇥ go to** moves the robot straight to that one pose without running the
+steps before it (with the step's own speed/acc), **⟲ robot** overwrites a step with the robot's current physical pose
 (**⟳ update** does the same with the 3D model pose), and **▶ to here** plays the saved demo only up to that step (the pose is
 held there — handy for checking a step while teaching in). The **Attachments** panel, its
 sets and groups fold with the chevrons; the state is remembered per browser. *save demo* writes the sequence as JSON into
@@ -111,6 +138,36 @@ sets and groups fold with the chevrons; the state is remembered per browser. *sa
 servos not on the bus, animates the model live, and holds the final pose
 (*✋ release torque* lets go). See [demos/README.md](../../demos/README.md) for the
 file format.
+
+## Get-up after a fall
+
+The **Get-up after a fall** box under the demo editor assigns one **ordinary demo** to each way
+the robot can come to rest on the floor: **front** (face down) and **back** (on its back).
+These demos are edited, saved and played like any other (*✎ edit* opens one in the editor; the
+demo list marks them with “· get-up front/back”).
+
+To create one from existing material, select a saved demo in the list, type *steps from / to*
+(the editor's step numbers, inclusive) and click *→ front* / *→ back*. That **copies** the
+steps into a new demo `getup_front` / `getup_back` (asking before replacing an existing one),
+assigns it and opens it in the editor. It is only a seeding helper: afterwards the copy is
+independent of its source, and changes to either do not affect the other.
+
+*save get-up* writes `hardware/getup.json` (wireless: also onto the robot, effective at once;
+a deploy ships it too). *▶ test* plays one case, over USB honoring the Simulation box. The
+robot plays the **saved** demo, so save the demo after editing it.
+
+**Fall detection** (wireless, Pi-side, `src/pi_service/posture.py`) reads gravity from the head
+IMU (the head is rigid on the torso). The posture line shows *upright*, *tilted …* or
+**FALLEN** with the side it lies on (face down, on its back, on its left/right side) and, for
+a robot partly on its side, which case it is closer to and how far it is rolled. *▶ get up now*
+plays the matching case. The board's axes come from `imu_axes` in the Pi's
+`connection.json`; check once by laying the robot face down that it reports *face down*.
+
+**auto get-up** (opt-in): if the robot falls while **no run is active** and then lies still
+for `hold_s`, the Pi plays the matching case itself, at most `max_attempts` times per fall.
+Falls during a demo never trigger it (push_ups goes to the floor on purpose). STOP cancels it.
+Thresholds (`fallen_deg` 60, `upright_deg` 35, `hold_s` 1.5, `still_dps` 30) live in the same
+file.
 
 ## Safety
 

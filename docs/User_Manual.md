@@ -38,8 +38,11 @@ Commanding more than the servo can deliver just means "as fast as possible".
 **max acc 30** — and logs the clamp once per run (`power limit: speed 3400 -> 300, …`).
 Reason: 16 servos starting at once with acc 254 sagged the 3S pack into the low-voltage
 cutoff during `push_ups`. Raise the file's values deliberately, not per demo. The same
-file sets `stagger_ms` (default 40): in a simultaneous group start the servos are
-commanded one after another with that pause, so their inrush currents do not add up.
+file sets `stagger_ms` (default 40): on the **first** move of a run — the one where the
+servos leave torque-off — the waves are commanded with that pause, so their inrush
+currents do not add up. A joint and its mirror share a wave and all later moves of the
+run start together, so demo steps stay symmetric. A single demo step can opt out of the
+limits entirely with `"boost": true` (peak move, e.g. pushing off the floor).
 
 ## 3. Acceleration
 

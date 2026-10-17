@@ -1,0 +1,10 @@
+{
+  "auto": true,
+  "back": "getup_back",
+  "fallen_deg": 45.0,
+  "front": "getup_front",
+  "hold_s": 15.0,
+  "max_attempts": 2,
+  "still_dps": 30.0,
+  "upright_deg": 35.0
+}

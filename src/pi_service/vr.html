@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zeroth-01 VR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #000; color: #ccc; overflow: hidden;
+    font: 15px/1.4 system-ui, sans-serif; -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none; touch-action: manipulation; }
+  #eyes { position: fixed; inset: 0; display: flex; }
+  #eyes canvas { width: 50%; height: 100%; display: block; }
+  #msg { position: fixed; left: 0; right: 0; top: 45%; text-align: center; color: #777; pointer-events: none; }
+  #panel { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(420px, 46vw);
+    padding: 12px 14px; background: rgba(20, 22, 28, .92); border: 1px solid #333; border-radius: 10px; }
+  #panel.hidden { display: none; }
+  #panel label { display: block; margin-bottom: 8px; font-size: 13px; }
+  #panel input { width: 100%; }
+  #panel .hint { color: #888; font-size: 12px; }
+  #panel button { margin-top: 6px; padding: 6px 12px; font: inherit; color: #ddd; background: #262d38;
+    border: 1px solid #444; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="eyes"><canvas id="left"></canvas><canvas id="right"></canvas></div>
+<div id="msg">connecting …</div>
+<div id="panel" class="hidden">
+  <label>size <input type="range" id="scale" min="40" max="140" step="1"></label>
+  <label>eye distance <input type="range" id="gap" min="-200" max="200" step="1"></label>
+  <label>vertical <input type="range" id="vert" min="-200" max="200" step="1"></label>
+  <div class="hint">Tap the picture to show/hide this panel. Stored on this phone.</div>
+  <button id="reset">reset</button>
+</div>
+<script>
+// Split screen for a Cardboard-style viewer: the Pi's single camera stream
+// (/camera.mjpg) shown twice, once per eye. One camera = no depth, the two
+// halves are identical; "eye distance" only moves the pictures apart/together
+// to match the lenses. The stream is fetched ONCE and copied to both canvases.
+const $ = id => document.getElementById(id);
+const KEY = 'zbotVr';
+const DEF = { scale: 100, gap: 0, vert: 0 };
+let cfg = { ...DEF };
+try { cfg = { ...DEF, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch (_) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (_) {} };
+
+// the stream is an <img>; with ?dual=1 each eye gets its own <img> instead
+// (fallback for browsers that cannot draw a live MJPEG <img> to a canvas)
+const params = new URLSearchParams(location.search);
+const src = () => '/camera.mjpg?t=' + Date.now();
+const cvs = [$('left'), $('right')];
+const ctx = cvs.map(c => c.getContext('2d'));
+const img = new Image();
+let frames = 0, started = Date.now(), dual = params.get('dual') === '1', lastDraw = 0;
+
+function size() {
+  const dpr = window.devicePixelRatio || 1;
+  for (const c of cvs) {
+    c.width = Math.round(c.clientWidth * dpr);
+    c.height = Math.round(c.clientHeight * dpr);
+  }
+}
+addEventListener('resize', size);
+addEventListener('orientationchange', () => setTimeout(size, 200));
+
+function draw() {
+  if (!dual && img.naturalWidth) {
+    const s = cfg.scale / 100;
+    cvs.forEach((c, k) => {
+      const g = ctx[k];
+      const w = c.width, h = c.height;
+      const fit = Math.min(w / img.naturalWidth, h / img.naturalHeight) * s;
+      const iw = img.naturalWidth * fit, ih = img.naturalHeight * fit;
+      // positive gap moves the two pictures apart (left one left, right one right)
+      const dx = (k === 0 ? -1 : 1) * cfg.gap * (c.width / 1000);
+      const dy = cfg.vert * (c.height / 1000);
+      g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+      g.drawImage(img, (w - iw) / 2 + dx, (h - ih) / 2 + dy, iw, ih);
+    });
+    frames++;
+    lastDraw = performance.now();
+    $('msg').style.display = 'none';
+  }
+  requestAnimationFrame(draw);
+}
+
+function connect() {
+  img.onerror = () => {
+    $('msg').style.display = ''; $('msg').textContent = 'camera unavailable — retrying …';
+    setTimeout(() => { img.src = src(); }, 2500);
+  };
+  img.src = src();
+}
+
+// no picture reaching the canvas after a few seconds: use one <img> per eye
+setInterval(() => {
+  if (!dual && frames === 0 && Date.now() - started > 6000) useDual();
+}, 1000);
+
+function useDual() {
+  dual = true;
+  img.src = '';
+  $('msg').style.display = 'none';
+  for (const c of cvs) {
+    const el = document.createElement('img');
+    el.src = src();
+    el.style.cssText = 'width:50%;height:100%;object-fit:contain;background:#000';
+    c.replaceWith(el);
+  }
+}
+
+// settings
+for (const k of ['scale', 'gap', 'vert']) {
+  $(k).value = cfg[k];
+  $(k).oninput = () => { cfg[k] = +$(k).value; save(); };
+}
+$('reset').onclick = () => { cfg = { ...DEF }; for (const k in cfg) $(k).value = cfg[k]; save(); };
+$('eyes').addEventListener('click', () => $('panel').classList.toggle('hidden'));
+
+// keep the screen on (iOS 16.4+, needs a user gesture on some versions)
+let lock = null;
+async function wake() { try { lock = await navigator.wakeLock?.request('screen'); } catch (_) {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wake(); });
+document.addEventListener('click', () => { if (!lock || lock.released) wake(); }, { once: true });
+wake();
+
+size();
+connect();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

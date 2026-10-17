@@ -37,9 +37,9 @@
   },
   "left_shoulder_pitch": {
     "max_deg": 95.0,
-    "min_deg": 0.0,
+    "min_deg": -110.0,
     "set": "direct",
-    "updated": "2026-09-05"
+    "updated": "2026-09-26"
   },
   "left_shoulder_yaw": {
     "max_deg": 45.0,
@@ -84,10 +84,10 @@
     "updated": "2026-07-26"
   },
   "right_shoulder_pitch": {
-    "max_deg": 0.0,
+    "max_deg": 101.0,
     "min_deg": -95.0,
     "set": "direct",
-    "updated": "2026-09-05"
+    "updated": "2026-09-26"
   },
   "right_shoulder_yaw": {
     "max_deg": 45.0,

@@ -95,7 +95,7 @@ def test_find_imu_port_skips_servo_adapter(tmp_path):
 
 def test_status_carries_head_state(client):
     j = client.get("/status").json()
-    assert j["api_version"] == service.API_VERSION == 8
+    assert j["api_version"] == service.API_VERSION == 10
     assert j["head"]["imu"]["connected"] is False       # simulate: disabled
     assert j["head"]["imu"]["sample"] is None
     assert "streaming" in j["head"]["camera"]
@@ -136,3 +136,10 @@ def test_head_cmd_without_board_is_503(client):
     assert r.status_code == 503
     assert client.post("/head/cmd", json={"line": ""}).status_code == 422
     assert client.post("/head/cmd", json={"line": "bad\nline"}).status_code == 422
+
+
+def test_vr_page_served(client):
+    r = client.get("/vr")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert 'id="left"' in r.text and 'id="right"' in r.text and "/camera.mjpg" in r.text

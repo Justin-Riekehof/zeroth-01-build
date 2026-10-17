@@ -6,12 +6,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { initMocap } from './mocap.js';
 
 const $ = id => document.getElementById(id);
 // must match server.API_VERSION — mismatch means a stale backend is running
-const EXPECTED_API = 20;
+const EXPECTED_API = 22;
 // must match the Pi service's API_VERSION (wireless mode)
-const EXPECTED_PI_API = 8;
+const EXPECTED_PI_API = 10;
 let staleWarned = false;
 const api = {
   get: p => fetch(p).then(r => r.json()),
@@ -513,7 +514,10 @@ function select(obj, toggle = false) {
   if (currentJoint) {
     $('offsetDeg').value = jointOffsets[currentJoint.name] ?? 0;
     $('zeroHere').disabled = !connected;
-    $('livePos').textContent = connected ? '…' : '– (connect for live position)';
+    // wireless: the USB flag is always false, so asking the user to "connect"
+    // was wrong — what counts there is the bus on the Pi
+    $('livePos').textContent = (wireless() ? piBus : connected) ? '…'
+      : (wireless() ? '– (no bus on the Pi)' : '– (connect for live position)');
     if (jointOffsets[currentJoint.name])
       clientMsg(`mount offset from config: `
         + `${jointOffsets[currentJoint.name] >= 0 ? '+' : ''}`
@@ -858,6 +862,15 @@ function renderCenterPose() {
 let modelInvert = {};   // joint name -> true if the model rig turns inverted
 let availableIds = null; // Set of bus IDs present, or null = unknown (all enabled)
 let connected = false;  // real hardware bus present (from /api/status)
+let piBus = false;      // the PI's bus (wireless mode) — /api/status.connected stays false there
+// One place that shows a live angle of the selected joint: readout + gauge
+// needle. Fed by the USB poll, by the Pi poll and, during a run, by the
+// streamed multi-pose — so the readout never depends on which mode we are in.
+function showLiveAngle(deg) {
+  if (deg === undefined || deg === null || !currentJoint) return;
+  $('livePos').textContent = fmtDeg(deg);
+  if (needle) needle.rotation.z = THREE.MathUtils.degToRad(deg);
+}
 let running = false;    // a run is in progress (from the SSE stream)
 
 new EventSource('/api/stream').onmessage = e => {
@@ -958,8 +971,8 @@ async function livePoll() {
       // discard if the selection changed or a run started while awaiting
       if (currentJoint === j && !running) {
         if (r.ok) {
+          showLiveAngle(r.deg);
           $('livePos').textContent = `${fmtDeg(r.deg)}  (tick ${r.ticks})`;
-          if (needle) needle.rotation.z = THREE.MathUtils.degToRad(r.deg);
         } else if (!r.running) {
           $('livePos').textContent = r.reason === 'no_response'
             ? 'no response — wired & powered?' : '–';
@@ -1117,6 +1130,7 @@ async function refreshDemos() {
     clientMsg('demo list unavailable: ' + e.message);
   }
   renderDemoList();
+  refreshGetup().catch(() => {});
 }
 
 // wireless status poll (~2.5 Hz): log, phase, bus state, live rig pose.
@@ -1136,6 +1150,7 @@ async function piPoll() {
         renderLog();
         $('phase').textContent = s.live.phase;
         renderHead(s.head);
+        renderPosture(s.posture);
         renderBattery(s.battery);
         $('connState').textContent = `Pi ${conn.pi_url} — bus `
           + (s.bus.connected
@@ -1143,6 +1158,7 @@ async function piPoll() {
              : 'NOT connected');
         $('demoPlay').disabled = s.live.running;
         $('piCenter').disabled = s.live.running;
+        $('guNow').disabled = s.live.running;
         // same rule as USB: no mode switch while the robot is moving
         $('modeUsb').disabled = $('modeWifi').disabled = s.live.running;
         if (s.api_version !== EXPECTED_PI_API && !piApiWarned) {
@@ -1151,19 +1167,24 @@ async function piPoll() {
             + `v${EXPECTED_PI_API}. Redeploy: src\\pi_service\\deploy\\deploy_pi.ps1`);
         }
         if (s.live.running) exitStepPreview(false);
-        if (s.live.multi && previewI === null)
-          for (const [j, deg] of Object.entries(s.live.multi))
-            if (pivots.has(j)) setJointAngle(j, deg);
+        piBus = !!s.bus.connected;
+        if (s.live.multi) {
+          for (const [j, deg] of Object.entries(s.live.multi)) {
+            if (pivots.has(j) && previewI === null) setJointAngle(j, deg);
+            if (currentJoint?.name === j) showLiveAngle(deg);   // live angle during a run
+          }
+        }
         // idle digital twin: sweep the real pose and mirror hand-moved
         // joints (suppressed during runs and while a step preview owns the
         // model; /robot_pose rejects during runs anyway)
         if (!s.bus.connected) lastRealPose = null;   // next connect: full sync
-        if (!s.live.running && s.bus.connected && previewI === null) {
+        // The live angle is a property of the REAL robot, so it is read even
+        // while a step preview owns the model — only the twin is suppressed.
+        if (!s.live.running && s.bus.connected) {
           const rp = await pi.get('/robot_pose').catch(() => null);
-          if (rp?.pose && wireless() && !running && previewI === null) {
-            mirrorMovedJoints(rp.pose);
-            if (currentJoint && rp.pose[currentJoint.name] !== undefined)
-              $('livePos').textContent = fmtDeg(rp.pose[currentJoint.name]);
+          if (rp?.pose && wireless() && !running) {
+            if (previewI === null) mirrorMovedJoints(rp.pose);
+            if (currentJoint) showLiveAngle(rp.pose[currentJoint.name]);
           }
         }
       }
@@ -1172,6 +1193,7 @@ async function piPoll() {
     if (wireless()) {
       lastRealPose = null;                       // next contact: full sync
       renderHead(null);
+      renderPosture(null);
       renderBattery(null);
       if (shutdownAt) {
         const safe = Date.now() - shutdownAt >= SHUTDOWN_GRACE_MS;
@@ -1784,6 +1806,13 @@ $('zeroHere').onclick = guard(async () => {
 // ---------------------------------------------------------------- demos
 
 let demos = [];        // saved demos from the repo (demos/*.json)
+// get-up assignment (hardware/getup.json) — declared up here because the
+// step rows already read it while rendering
+const GU_CASES = ['front', 'back'];
+const GU_LABEL = { front: 'face down', back: 'on its back' };
+let getupCfg = { front: '', back: '', auto: false };
+let getupDirty = false;
+let getupSeq = 0;
 let editSteps = [];    // steps of the demo currently being edited
 
 function renderDemoList() {
@@ -1791,9 +1820,10 @@ function renderDemoList() {
   $('demoList').innerHTML =
     '<option value="">— new demo —</option>'
     + demos.map(d =>
-        `<option value="${d.name}">${d.name} (${d.steps.length} steps)</option>`
+        `<option value="${d.name}">${d.name} (${d.steps.length} steps)${guRole(d.name)}</option>`
       ).join('');
   if (demos.some(d => d.name === sel)) $('demoList').value = sel;
+  renderGetup();
 }
 
 const escAttr = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -1883,6 +1913,12 @@ function applyStepPose(i) {
     + '& use the pose slider to adjust, then "⟳ update"; "↩ live" returns');
 }
 
+// Mirrors MotionEngine.stagger_for: an explicit per-step flag wins, otherwise
+// only the first step of a run staggers (the one leaving torque-off). The box
+// therefore always shows what will ACTUALLY happen, and ticking it writes an
+// explicit true/false so the step no longer depends on its position.
+const staggerOf = (s, i) => (s.stagger == null ? i === 0 : !!s.stagger);
+
 function renderDemoSteps() {
   syncGlobalFields();
   if (previewI !== null && previewI >= editSteps.length) previewI = null;
@@ -1893,10 +1929,11 @@ function renderDemoSteps() {
       <input type="number" data-k="acc" data-lo="0" data-hi="254" value="${s.acc}" min="0" max="254" title="Acceleration into this step — 0…254">
       <input type="text" inputmode="decimal" data-k="pause_s" data-lo="0" data-hi="10" value="${s.pause_s}" title="Pause AFTER this step [s] — 0…10; comma or dot both work">
       <input type="text" class="ttl" data-k="title" maxlength="60" value="${escAttr(s.title ?? '')}" placeholder="${escAttr(stepPose(s))}" title="Step title (optional, shown here and in the playback log)">
-      <span class="acts">${i === previewI
+      <span class="acts"><label class="stg" title="Staggered start: this step's servos leave in mirror-pair waves instead of all at once. Spreads the current peak and turns a lunge into a push — wanted where the body is LIFTED, unwanted where it is lowered (sitting down, going to the knees). Default: only the first step of a run, which is the one leaving torque-off"><input type="checkbox" data-k="stagger"${staggerOf(s, i) ? ' checked' : ''}>stagger</label>${i === previewI
         ? '<button data-a="upd" title="Replace this step\'s angles with the current model pose (only joints already in the step)">⟳ update</button>'
           + '<button data-a="pose" title="End the preview — the model follows the robot again">↩ live</button>'
         : '<button data-a="pose" title="Show this step\'s pose on the 3D model (detaches the model from the live robot while previewing)">▣ pose</button>'}
+      <button data-a="goto" title="Move the robot DIRECTLY to this step's pose, skipping the earlier steps — with this step's own speed/acc. Plays the saved demo, so save first if you edited">⇥ go to</button>
       <button data-a="robot" title="Overwrite this step's angles with the robot's CURRENT physical pose (release torque, hand-pose, then click) — title/speed/pause stay">⟲ robot</button>
       <button data-a="until" title="Play the SAVED demo from the start up to this step, then hold (save first if you edited)">▶ to here</button>
       <button data-a="up" title="Move this step one up"${i === 0 ? ' disabled' : ''}>▲</button>
@@ -1949,6 +1986,7 @@ $('demoSteps').addEventListener('dragend', () => { dragI = null; clearDropMarks(
 $('demoSteps').addEventListener('input', e => {
   const row = e.target.closest('.step');
   if (!row || !e.target.dataset.k) return;
+  if (e.target.type === 'checkbox') return;       // handled on 'change'
   if (e.target.dataset.k === 'title') {           // free text, no number parsing
     editSteps[+row.dataset.i].title = e.target.value;
     return;
@@ -1964,6 +2002,12 @@ $('demoSteps').addEventListener('change', e => {
   const row = e.target.closest('.step');
   if (!row || !e.target.dataset.k) return;
   const step = editSteps[+row.dataset.i], k = e.target.dataset.k;
+  if (e.target.type === 'checkbox') {   // tri-state in the file, explicit once touched
+    step[k] = e.target.checked;
+    row.title = stepSummary(step);
+    clientMsg(`step #${+row.dataset.i + 1}: ${k} ${e.target.checked ? 'ON' : 'OFF'}`);
+    return;
+  }
   if (k === 'title') {
     step.title = e.target.value.trim().slice(0, 60);
     e.target.value = step.title;
@@ -1990,7 +2034,9 @@ $('demoSteps').addEventListener('click', e => {
     }
     renderDemoSteps();
   } else if (a === 'until') {
-    playDemo(i + 1).catch(err => clientMsg('ERROR: ' + err.message));
+    playDemo({ until: i + 1 }).catch(err => clientMsg('ERROR: ' + err.message));
+  } else if (a === 'goto') {
+    playDemo({ start: i + 1, until: i + 1 }).catch(err => clientMsg('ERROR: ' + err.message));
   } else if (a === 'robot') {
     overwriteStepFromRobot(i).catch(err => clientMsg('ERROR: ' + err.message));
   } else if (a === 'up' || a === 'down') {
@@ -2137,25 +2183,196 @@ $('demoDelete').onclick = guard(async () => {
   renderDemoSteps();
   clientMsg(`demo '${name}' deleted`);
 });
-// play the SAVED demo selected in the list; until = 1-based last step (optional)
-async function playDemo(until = null) {
+// Play the SAVED demo selected in the list. start/until are 1-based and
+// inclusive: {until: n} plays 1..n, {start: n, until: n} moves straight to
+// that one pose (with the step's own speed/acc), nothing plays the whole demo.
+async function playDemo({ start = null, until = null } = {}) {
   const name = $('demoList').value;
   if (!name) { clientMsg('no demo selected — save the demo first, then pick it in the list'); return; }
   const saved = demos.find(d => d.name === name);
-  if (until !== null && saved && until > saved.steps.length) { clientMsg(`saved demo '${name}' has only ${saved.steps.length} steps — save first`); return; }
+  const n = saved?.steps.length ?? 0;
+  for (const v of [start, until])
+    if (v !== null && saved && v > n) { clientMsg(`saved demo '${name}' has only ${n} steps — save first`); return; }
   if (saved && JSON.stringify(saved.steps) !== JSON.stringify(editSteps))
     clientMsg(`note: playing the SAVED '${name}' — the editor has unsaved changes`);
   clientLog.length = 0;
+  const body = {};
+  if (start !== null) body.start = start;
+  if (until !== null) body.until = until;
   if (wireless())
-    await pi.post('/demo/' + encodeURIComponent(name), until ? { until } : {});
+    await pi.post('/demo/' + encodeURIComponent(name), body);
   else
-    await api.post('/api/demo/play',
-      { name, simulate: $('simulate').checked, until });
-  if (until) clientMsg(`playing '${name}' up to step #${until}`);
+    await api.post('/api/demo/play', { name, simulate: $('simulate').checked, ...body });
+  if (start !== null && start === until)
+    clientMsg(`moving directly to step #${start} of '${name}' (earlier steps skipped)`);
+  else if (until !== null) clientMsg(`playing '${name}' up to step #${until}`);
 }
 $('demoPlay').onclick = guard(() => playDemo());
 
 $('stop').onclick = guard(() => api.post('/api/stop'));
+
+// ---------------------------------------------------------- get-up
+// hardware/getup.json: one ORDINARY demo per way of lying on the floor —
+// "front" (face down) and "back" (on its back) — that stands the robot up.
+// The demos are edited, saved and played like any other. The repo copy of the
+// assignment is canonical; wireless saves also go onto the robot, which
+// detects the fall with the head IMU (pi_service/posture.py) and shows its
+// posture here. "→ front / → back" only SEEDS such a demo by copying a range
+// of steps out of an existing one.
+
+const guRole = name => {
+  const r = GU_CASES.filter(c => getupCfg[c] === name);
+  return r.length ? ` · get-up ${r.join('+')}` : '';
+};
+
+async function refreshGetup() {
+  const seq = ++getupSeq;
+  const wifi = wireless();
+  let r;
+  try {
+    // wireless: the robot's copy is what it will actually play
+    r = wifi ? await pi.get('/getup') : await api.get('/api/getup');
+  } catch (e) {
+    if (wifi) r = await api.get('/api/getup').catch(() => null);  // Pi older than v9
+    if (!r) { clientMsg('get-up config unavailable: ' + e.message); return; }
+  }
+  if (seq !== getupSeq || getupDirty) return;   // never clobber unsaved edits
+  getupCfg = r.config;
+  renderDemoList();                             // also renders the get-up box
+}
+
+function renderGetup() {
+  for (const box of document.querySelectorAll('#getup .gucase')) {
+    const kase = box.dataset.case, cur = getupCfg[kase] ?? '';
+    const missing = !!cur && !demos.some(d => d.name === cur);
+    const sel = box.querySelector('select');
+    sel.innerHTML = '<option value="">— none —</option>'
+      + (missing ? `<option value="${escAttr(cur)}">${escAttr(cur)} (not found)</option>` : '')
+      + demos.map(d => `<option value="${escAttr(d.name)}">${escAttr(d.name)} (${d.steps.length} steps)</option>`).join('');
+    sel.value = cur;
+    sel.classList.toggle('bad', missing);
+    for (const b of box.querySelectorAll('button')) b.disabled = !cur || missing;
+  }
+  $('guAuto').checked = !!getupCfg.auto;
+  $('guSave').classList.toggle('primary', getupDirty);
+}
+
+const markGetup = msg => { getupDirty = true; renderGetup(); if (msg) clientMsg(msg); };
+
+async function saveGetup() {
+  const body = { ...getupCfg };
+  const r = await api.post('/api/getup', body);          // repo (canonical)
+  let where = 'the repo';
+  if (wireless()) {
+    try {
+      await pi.post('/getup/config', body);
+      where = 'the repo AND the robot';
+    } catch (e) {
+      clientMsg(`WARNING: get-up saved to the repo but NOT to the robot `
+        + `(${e.message}) — retry or deploy`);
+    }
+  }
+  getupDirty = false;
+  getupCfg = r.config;
+  renderDemoList();
+  clientMsg(`get-up saved to ${where}`
+    + (r.problems?.length ? ` — check: ${r.problems.join('; ')}` : ''));
+}
+$('guSave').onclick = guard(saveGetup);
+
+function openInEditor(name) {
+  $('demoList').value = name;
+  $('demoList').dispatchEvent(new Event('change'));
+}
+
+// Copy a step range of the selected SAVED demo into a new demo getup_<case>,
+// assign it and open it in the editor. From then on it is an ordinary demo.
+async function seedGetup(kase) {
+  const src = $('demoList').value;
+  const d = demos.find(x => x.name === src);
+  if (!d) { clientMsg('select a SAVED demo in the list first'); return; }
+  const from = parseInt($('guFrom').value, 10), to = parseInt($('guTo').value, 10);
+  if (!(from >= 1) || !(to >= from) || to > d.steps.length) {
+    clientMsg(`steps: 1 ≤ from ≤ to ≤ ${d.steps.length} ('${src}')`); return;
+  }
+  const name = 'getup_' + kase;
+  if (src === name) { clientMsg(`'${name}' is the source itself — pick another demo to copy from`); return; }
+  if (demos.some(x => x.name === name)
+      && !confirm(`Demo '${name}' exists — replace it with steps ${from}–${to} of '${src}'?`)) return;
+  const steps = d.steps.slice(from - 1, to).map(s => ({ ...s, angles: { ...s.angles } }));
+  const body = { name, description: `get-up (${GU_LABEL[kase]}): steps ${from}–${to} of ${src}`, steps };
+  const r = await api.post('/api/demos', body);          // repo (canonical)
+  if (wireless()) {
+    try { demos = (await pi.post('/demos', body)).demos; }
+    catch (e) {
+      clientMsg(`WARNING: '${name}' saved to the repo but NOT to the robot (${e.message}) — retry or deploy`);
+      demos = r.demos;
+    }
+  } else demos = r.demos;
+  getupCfg[kase] = name;
+  renderDemoList();
+  await saveGetup();
+  openInEditor(name);
+  clientMsg(`new demo '${name}': ${steps.length} steps copied from '${src}' (${from}–${to}) — `
+    + 'now an ordinary demo; edit and save it like any other');
+}
+$('guMakeFront').onclick = guard(() => seedGetup('front'));
+$('guMakeBack').onclick = guard(() => seedGetup('back'));
+
+$('guAuto').onchange = () => {
+  getupCfg.auto = $('guAuto').checked;
+  markGetup(`auto get-up ${getupCfg.auto ? 'ON' : 'off'} — "save get-up" to apply`);
+};
+$('getup').addEventListener('change', e => {
+  const box = e.target.closest('.gucase');
+  if (!box || e.target.dataset.a !== 'pick') return;
+  getupCfg[box.dataset.case] = e.target.value;
+  markGetup(`get-up ${box.dataset.case}: ${e.target.value || 'none'} — "save get-up" to apply`);
+});
+$('getup').addEventListener('click', e => {
+  const a = e.target.dataset?.a;
+  const box = e.target.closest('.gucase');
+  if (!a || !box) return;
+  const kase = box.dataset.case;
+  if (a === 'play') guard(playGetup)(kase);
+  else if (a === 'edit') openInEditor(getupCfg[kase]);
+});
+
+async function playGetup(kase) {
+  if (getupDirty) { clientMsg('save the get-up assignment first — the robot plays the SAVED one'); return; }
+  clientLog.length = 0;
+  if (wireless()) await pi.post('/getup', { case: kase });
+  else await api.post('/api/getup/play', { case: kase, simulate: $('simulate').checked });
+  clientMsg(`get-up '${kase}' started`);
+}
+$('guNow').onclick = guard(async () => {
+  clientLog.length = 0;
+  const r = await pi.post('/getup', { case: 'auto' });
+  clientMsg(`get-up: robot lies ${r.case === 'front' ? 'face down' : 'on its back'} `
+    + `-> '${r.case}' sequence (${r.steps} steps)`);
+});
+
+function renderPosture(p) {
+  const line = $('postureLine');
+  line.className = 'posture pi-only ' + (p?.state ?? '');
+  for (const box of document.querySelectorAll('#getup .gucase'))
+    box.classList.toggle('live', p?.state === 'fallen' && p.case === box.dataset.case);
+  let txt;
+  if (!p) txt = 'posture: Pi unreachable';
+  else if (p.state === 'unknown') txt = 'posture: no IMU data';
+  else {
+    txt = p.state === 'fallen' ? `FALLEN — ${p.label}` : p.label;
+    if (p.state !== 'upright' && p.for_s !== null) txt += ` · ${p.for_s.toFixed(0)} s`;
+    if (p.state === 'upright') txt += ` · tilt ${p.tilt_deg.toFixed(0)}°`;
+    const ep = p.episode;
+    if (ep) txt += ep.gave_up ? ' · auto: gave up' : ` · auto: attempt ${ep.attempts}`;
+  }
+  if (p?.error) txt += ` · ⚠ ${p.error}`;
+  $('postureText').textContent = txt;
+  line.title = p?.azimuth_deg != null
+    ? `tilt ${p.tilt_deg}°, azimuth ${p.azimuth_deg}° (0 = face down, ±180 = back, +90 = right side)`
+    : 'torso orientation from the head IMU';
+}
 $('copyLog').onclick = guard(async () => {
   const txt = [...serverLog.map(l => l.msg), ...clientLog].join('\n');
   await navigator.clipboard.writeText(txt);
@@ -2177,6 +2394,16 @@ vp.addEventListener('drop', guard(async e => {
   if (!r.ok) throw new Error((await r.json()).detail ?? r.statusText);
   await loadModel();
 }));
+
+// ---------------------------------------------------------------- motion capture
+// webcam pose -> arm angles (mocap.js). Switch off = animate the 3D model only.
+
+initMocap({
+  $, api, pi, wireless, guard, clientMsg, setJointAngle,
+  canPreview: () => !running && previewI === null,
+  getLimits: () => jointLimits,
+  simulate: () => $('simulate').checked,
+});
 
 // ---------------------------------------------------------------- init
 

@@ -26,9 +26,17 @@ from pydantic import BaseModel, Field
 
 from .bus import (CENTER_TICKS, POS_MAX_SAFE, POS_MIN_SAFE, ServoBusError,
                   SimBus, rel_deg_to_ticks, ticks_to_rel_deg)
-from .config import ConfigStore, Demo
+from . import mocap
+from .config import ConfigStore, Demo, mirror_joint
 
 POLL_S = 0.04          # position poll interval during a test
+TELE_PERIOD_S = 0.05   # teleop control loop (20 Hz; the bus does 50-100 writes/s in total)
+TELE_STALE_S = 1.0     # no fresh target for this long -> joints just hold
+TELE_TIMEOUT_S = 10.0  # ... for this long -> teleop ends by itself (pose is held)
+TELE_DEADBAND_DEG = 0.8  # below the servo's 10-count firmware deadband: do not re-command
+
+ARM_JOINTS = ["left_shoulder_pitch", "left_shoulder_yaw", "left_elbow_yaw",
+              "right_shoulder_pitch", "right_shoulder_yaw", "right_elbow_yaw"]
 TOLERANCE = 25         # ticks (~2.2 deg), same as bench test
 
 # reachable band in CAD degrees (seam-safe tick range), used to clamp limits
@@ -178,6 +186,18 @@ class GroupParams(BaseModel):
     hold_center: bool = False
 
 
+class TeleopParams(BaseModel):
+    """Live teleoperation (motion capture): a client streams target angles,
+    the engine follows them. Targets pass the same joint-limit clamp, mount
+    offsets and power limits as every other move."""
+    joints: list[str] = Field(default_factory=lambda: list(ARM_JOINTS), min_length=1)
+    simulate: bool = False
+    speed: int = Field(300, ge=1, le=3400)     # clamped by hardware/motion_limits.json
+    acc: int = Field(30, ge=0, le=254)
+    max_dps: float = Field(90, ge=5, le=360)   # slew limit of the commanded target
+    smooth: float = Field(0.5, gt=0, le=1)     # EMA weight of the newest target (1 = none)
+
+
 # ---------------------------------------------------------------- engine
 
 class MotionEngine:
@@ -187,11 +207,20 @@ class MotionEngine:
         self.cfg = cfg
         self.S = State()
         self._clamped: set = set()          # (speed, acc) pairs already reported this run
+        self._stagger_next = False          # stagger the FIRST group move of a run (see _stagger_waves)
+        self._tele: SimpleNamespace | None = None   # active teleop session
+        self._mocap_state: dict = {}                # per-arm memory of the pose solver
 
-    def _cmd(self, bus, sid: int, ticks: int, speed: int, acc: int) -> None:
+    def _cmd(self, bus, sid: int, ticks: int, speed: int, acc: int,
+             boost: bool = False) -> None:
         """The one place that commands a move: clamps speed/acc to the power
         limits (hardware/motion_limits.json) and logs each distinct clamp
-        once per run. acc 0 (no ramp) is the hardest jolt and is clamped too."""
+        once per run. acc 0 (no ramp) is the hardest jolt and is clamped too.
+        `boost` skips the clamp for a deliberate peak move (a demo step with
+        "boost": true) — the pack sags accordingly, so use it sparingly."""
+        if boost:
+            bus.move(sid, ticks, int(speed), int(acc))
+            return
         L = self.cfg.motion_limits()
         s2 = min(int(speed), L["max_speed"])
         a2 = L["max_acc"] if (acc == 0 or acc > L["max_acc"]) else int(acc)
@@ -268,7 +297,8 @@ class MotionEngine:
     # ------------------------------------------------------ group helpers
 
     def _move_all_and_wait(self, bus, p, plan, targets: dict, label: str,
-                           held: set | None = None, settle: bool = False):
+                           held: set | None = None, settle: bool = False,
+                           stagger: bool | None = None):
         """Command several servos at once and poll until all reached (or
         timeout). Servos in `held` (parked, holding) are read too, so their
         live angle is streamed while OTHER joints test.
@@ -277,7 +307,10 @@ class MotionEngine:
         P-controller parks short of the goal (steady-state error); we measure
         the residual and over-command by it (clamped to the joint limits) so
         the ACTUAL pose matches the taught pose. Used for demo steps and
-        centering, not for range sweeps."""
+        centering, not for range sweeps.
+
+        stagger controls the staggered start (see below): None keeps the
+        per-run default (first move only), True/False force it for this move."""
         S = self.S
         id2joint = {e["id"]: e["joint"] for e in plan}
         id2off = {e["id"]: e.get("offset", 0.0) for e in plan}
@@ -285,14 +318,24 @@ class MotionEngine:
         watch = [sid for sid in (held or set())
                  if sid in id2joint and sid not in targets]
         starts = {sid: bus.read_pos(sid) for sid in targets}
-        # staggered start: 16 servos leaving torque-off at the same instant is
-        # the biggest current spike the pack sees (2026-09-22: the Pi dropped
-        # off the network on a plain "center" with the robot held in the air)
-        stagger = self.cfg.motion_limits().get("stagger_ms", 0) / 1000.0
-        for k, (sid, t) in enumerate(targets.items()):
-            if k and stagger > 0:
-                time.sleep(stagger)
-            self._cmd(bus, sid, t, p.speed, p.acc)
+        # Staggered start: the servos leave in mirror-pair waves (stagger_ms
+        # apart) instead of all at once. 16 servos leaving torque-off at the
+        # same instant is the biggest current spike the pack sees (the Pi
+        # dropped off the network on a plain "center" with the robot in the
+        # air), and a simultaneous start is also the harder lunge — a demo step
+        # that has to lift the body wants the spread, one that lowers it does
+        # not. Default (stagger=None): the FIRST move of a run only, because
+        # that is the one leaving torque-off. True/False override per move.
+        want = self._stagger_next if stagger is None else bool(stagger)
+        self._stagger_next = False
+        stagger_s = (self.cfg.motion_limits().get("stagger_ms", 0) / 1000.0
+                     if want else 0.0)
+        for k, wave in enumerate(self._stagger_waves(targets, plan)):
+            if k and stagger_s > 0:
+                time.sleep(stagger_s)
+            for sid in wave:
+                self._cmd(bus, sid, targets[sid], p.speed, p.acc,
+                          boost=getattr(p, "boost", False))
         S.set(phase=label)
         timeout = max(abs(t - starts[sid]) for sid, t in targets.items()) \
             / p.speed + 2.0
@@ -365,6 +408,27 @@ class MotionEngine:
         else:
             S.log(f"WARNING: {label}: not all targets reached "
                   f"after {timeout:.1f} s")
+
+    @staticmethod
+    def _stagger_waves(targets, plan) -> list[list[int]]:
+        """Group the servo IDs of one move into waves for the staggered start.
+        A joint and its mirror (left_knee_pitch / right_knee_pitch) share a
+        wave, so a symmetric pose still starts symmetrically; everything else
+        follows in ID order."""
+        id2joint = {e["id"]: e["joint"] for e in plan}
+        joint2id = {j: sid for sid, j in id2joint.items()}
+        waves, seen = [], set()
+        for sid in targets:
+            if sid in seen:
+                continue
+            wave = [sid]
+            m = mirror_joint(id2joint.get(sid, ""))
+            partner = joint2id.get(m) if m else None
+            if partner is not None and partner in targets and partner not in seen:
+                wave.append(partner)
+            seen.update(wave)
+            waves.append(wave)
+        return waves
 
     def _hold(self, bus, e, held: set):
         """Park confirmation: explicitly enable torque (verified by read-back)
@@ -594,6 +658,7 @@ class MotionEngine:
         bus = self._resolve_bus(self._claim_run_slot(), p.simulate)
         S.abort.clear()
         self._clamped = set()
+        self._stagger_next = True
         S.set(phase="starting", servo_id=p.servo_id, error=None)
         S.log(banner)
         t = threading.Thread(target=self._run, args=(bus, p, body),
@@ -608,6 +673,7 @@ class MotionEngine:
         bus = self._resolve_bus(self._claim_run_slot(), p.simulate)
         S.abort.clear()
         self._clamped = set()
+        self._stagger_next = True
         S.set(phase="starting", servo_id=None, error=None, multi={})
         S.log(banner)
         if warn_unlimited:
@@ -741,20 +807,44 @@ class MotionEngine:
             return bool(s)
         return bool(step.pause_s) or last
 
-    def play_demo(self, demo: Demo, simulate: bool, until: int | None = None):
+    @staticmethod
+    def stagger_for(step, first: bool) -> bool:
+        """Whether this demo step starts its servos in waves instead of all at
+        once. Default (no `stagger` on the step): only the FIRST move of a run,
+        which is the one leaving torque-off. Steps that have to LIFT the body
+        want it set True — the spread keeps the inrush off the pack and turns
+        the lunge into a push. Steps that LOWER the body (sitting down, going
+        to the knees) want it off, or the leading wave is already carrying
+        weight before the rest arrives and the robot folds."""
+        s = getattr(step, "stagger", None)
+        if s is not None:
+            return bool(s)
+        return first
+
+    def play_demo(self, demo: Demo, simulate: bool, until: int | None = None,
+                  start: int | None = None):
         """Run a taught-in demo: per step, move all its joints simultaneously
         (clamped to limits, offsets applied, settle pass), honor pauses, and
-        hold the final pose. `until` (1-based, inclusive) stops after that
-        step — e.g. to check a pose while teaching in."""
-        if until is not None:
-            if not 1 <= until <= len(demo.steps):
-                raise MotionError(f"Step {until} out of range (demo has {len(demo.steps)} steps).")
-            demo = demo.model_copy(update={"steps": demo.steps[:until]})
+        hold the final pose.
+
+        `start` and `until` (both 1-based and inclusive) select a range of
+        steps. `until` alone stops after that step, `start == until` moves
+        straight to that one pose without running the steps before it — each
+        step keeps its own speed/acc either way. Step numbers in the log stay
+        the ones from the editor."""
+        n_all = len(demo.steps)
+        lo = 1 if start is None else start
+        hi = n_all if until is None else until
+        if not 1 <= lo <= n_all or not 1 <= hi <= n_all:
+            raise MotionError(f"Step out of range (demo has {n_all} steps).")
+        if lo > hi:
+            raise MotionError(f"Step {lo} lies after step {hi} — empty range.")
+        numbered = list(enumerate(demo.steps, 1))[lo - 1:hi]
         S = self.S
         ids = self.cfg.servo_ids()
         used = list(dict.fromkeys(
-            j for s in demo.steps for j in s.angles if j in ids))
-        unknown = sorted({j for s in demo.steps for j in s.angles} - set(used))
+            j for _, s in numbered for j in s.angles if j in ids))
+        unknown = sorted({j for _, s in numbered for j in s.angles} - set(used))
         if not used:
             raise MotionError("Demo uses no configured joints.")
         plan = self.build_plan(used)
@@ -764,8 +854,13 @@ class MotionEngine:
                 S.log(f"NOTE: unknown joints skipped: {', '.join(unknown)}")
             by_joint = {e["joint"]: e for e in plan}
             moved: set[int] = set()
-            n = len(demo.steps)
-            for i, step in enumerate(demo.steps, 1):
+            n = n_all
+            stagger_ms = self.cfg.motion_limits().get("stagger_ms", 0)
+            if lo > 1:
+                S.log(f"direct move: starting at step {lo}"
+                      + (f" of {n}" if hi == n else f", stopping after {hi}")
+                      + " — the earlier steps are skipped")
+            for i, step in numbered:
                 sp = SimpleNamespace(speed=step.speed, acc=step.acc)
                 targets, clamped = {}, []
                 # a center step ("center": true, or every angle exactly 0 = the
@@ -795,10 +890,18 @@ class MotionEngine:
                     continue
                 moved.update(targets)
                 title = getattr(step, "title", "") or ""
+                if getattr(step, "boost", False):
+                    sp.boost = True
+                    S.log(f"step {i}: POWER BOOST — speed {step.speed}, acc "
+                          f"{step.acc}, power limits bypassed (peak current!)")
+                stag = self.stagger_for(step, i == lo)
+                if stag and i != lo:
+                    S.log(f"step {i}: staggered start (waves {stagger_ms} ms apart)")
                 self._move_all_and_wait(bus, sp, plan, targets,
                                         f"demo '{demo.name}' step {i}/{n}"
                                         + (f" ({title})" if title else ""),
-                                        held, settle=self.settle_for(step, i == n))
+                                        held, settle=self.settle_for(step, i == hi),
+                                        stagger=stag)
                 if step.pause_s:
                     deadline = time.monotonic() + step.pause_s
                     while time.monotonic() < deadline:
@@ -810,15 +913,127 @@ class MotionEngine:
                 if e["id"] in moved:
                     self._hold(bus, e, held)
             S.log(f"demo '{demo.name}' finished — holding final pose"
-                  + (f" (stopped after step {until} of the demo)" if until else ""))
+                  + (f" (steps {lo}..{hi} of {n_all})" if (lo, hi) != (1, n_all) else ""))
 
         # warn_unlimited=False: the pre-refactor demo launch never warned
         # about limits-less joints (only group runs do) — log parity matters
         self._launch_group(
             p=SimpleNamespace(simulate=simulate),
             plan=plan, body=body,
-            banner=f"--- demo '{demo.name}': {len(demo.steps)} steps, "
+            banner=f"--- demo '{demo.name}': "
+                   + (f"{len(numbered)} steps" if (lo, hi) == (1, n_all)
+                      else f"step{'s' if lo != hi else ''} {lo}..{hi} of {n_all}") + ", "
                    f"{len(plan)} joints, "
                    f"{'SIMULATION' if simulate else 'hardware'} ---",
             warn_unlimited=False)
         return plan
+
+    # ------------------------------------------------------ teleoperation
+
+    def _teleop_body(self, bus, p, plan, held):
+        """Follow the streamed targets until stopped. Starts from the CURRENT
+        physical pose (goal := here, then torque on), so enabling it never
+        makes the arms jump; the first targets are approached at max_dps."""
+        S, tl = self.S, self._tele
+        cmd, sent = {}, {}
+        for e in plan:
+            pos = bus.read_pos(e["id"])
+            bus.move(e["id"], pos, 200, 30)
+            if not bus.torque_on(e["id"]):
+                S.log(f"WARNING: {e['joint']} torque state UNVERIFIED, check servo!")
+            held.add(e["id"])
+            cmd[e["joint"]] = sent[e["joint"]] = to_rel(pos, e["offset"])
+        S.set(multi=dict(cmd), phase="teleop")
+        S.log(f"teleop active: {', '.join(e['joint'] for e in plan)} "
+              f"(slew {p.max_dps:.0f} deg/s) — targets clamped to the joint limits")
+        by_joint = {e["joint"]: e for e in plan}
+        ema = dict(cmd)
+        prev = time.monotonic()
+        stale = False
+        try:
+            while not tl.stop.is_set():
+                if S.abort.is_set():
+                    raise ServoBusError("aborted by user")
+                now = time.monotonic()
+                dt, prev = now - prev, now
+                with tl.lock:
+                    targets, age = dict(tl.targets), now - tl.stamp
+                if age > TELE_TIMEOUT_S:
+                    S.log(f"teleop: no input for {TELE_TIMEOUT_S:.0f} s — ended, holding pose")
+                    break
+                if age > TELE_STALE_S:
+                    if not stale:
+                        S.log("teleop: input lost — holding the last pose")
+                    stale = True
+                else:
+                    if stale:
+                        S.log("teleop: input back")
+                    stale = False
+                    step = p.max_dps * max(dt, 1e-3)
+                    for j, deg in targets.items():
+                        e = by_joint.get(j)
+                        if e is None:           # not responding on the bus
+                            continue
+                        d = max(e["lo"], min(e["hi"], deg))
+                        ema[j] += p.smooth * (d - ema[j])
+                        cmd[j] += max(-step, min(step, ema[j] - cmd[j]))
+                for j, e in by_joint.items():
+                    if abs(cmd[j] - sent[j]) >= TELE_DEADBAND_DEG:
+                        self._cmd(bus, e["id"], to_ticks(cmd[j], e["offset"]),
+                                  p.speed, p.acc)
+                        sent[j] = cmd[j]
+                S.set(multi=dict(cmd))
+                time.sleep(max(0.0, TELE_PERIOD_S - (time.monotonic() - now)))
+            else:
+                S.log("teleop stopped — holding the current pose")
+        finally:
+            tl.active = False
+
+    def start_teleop(self, p: TeleopParams):
+        plan = self.build_plan(p.joints)
+        self._mocap_state.clear()
+        prev = self._tele
+        self._tele = SimpleNamespace(lock=threading.Lock(), targets={}, stamp=time.monotonic(),
+                                     stop=threading.Event(), active=True,
+                                     joints={e["joint"] for e in plan})
+        try:
+            self._launch_group(
+                p, plan, self._teleop_body,
+                f"--- teleop: {len(plan)} joints, "
+                f"{'SIMULATION' if p.simulate else 'hardware'} ---")
+        except Exception:
+            self._tele = prev
+            raise
+        return plan
+
+    def teleop_target(self, angles: dict[str, float]) -> int:
+        """Latest target angles (CAD-frame deg). Unknown joints are ignored;
+        clamping to the limits happens in the loop. Returns how many were taken."""
+        tl = self._tele
+        if tl is None or not tl.active:
+            raise MotionError("Teleop is not active.")
+        take = {j: float(d) for j, d in angles.items()
+                if j in tl.joints and isinstance(d, (int, float)) and abs(d) <= 360}
+        with tl.lock:
+            tl.targets.update(take)
+            tl.stamp = time.monotonic()
+        return len(take)
+
+    def mocap_pose(self, landmarks, mirror: bool = False,
+                   flip_forward: bool = False) -> tuple[dict, dict]:
+        """One camera frame: world landmarks -> arm angles (clamped to the
+        joint limits). While teleop is active they are also the new targets;
+        otherwise this is a pure preview (nothing moves)."""
+        angles, info = mocap.arm_angles(landmarks, self.cfg.limits(),
+                                        self._mocap_state, mirror, flip_forward)
+        tl = self._tele
+        info["active"] = bool(tl and tl.active)
+        if info["active"] and angles:
+            self.teleop_target(angles)
+        return angles, info
+
+    def stop_teleop(self):
+        """Orderly end: the arms keep holding their pose (E-stop is `stop`)."""
+        tl = self._tele
+        if tl is not None:
+            tl.stop.set()
