@@ -17,6 +17,9 @@ releases all torque. Log: ~/zbot/bench_logs/<time>_<test>.npz, one row per 20 ms
         sag of a held limb under its own weight vs. the load register; compare with the model's gravity torque)
   hold  NO motion: the robot STANDS (on the mat, centre pose) and the servos just hold; logs the load of every joint
         (mass / centre-of-mass check against the model's holding torques)
+  friction  the robot STANDS FREE in the centre pose and slowly pushes its feet apart (one forward, one back; the
+        ankles keep the soles flat) until they slide; once more hanging free as the reference. Foot/floor friction
+        follows from the hip load, see friction_result(). Not verified on hardware yet.
 """
 import json
 import math
@@ -34,7 +37,7 @@ TICK_DEG = 360.0 / 4096.0
 MARGIN_DEG = 10.0           # every move stays this far inside the joint limits
 MIN_AMP_DEG = 3.0           # smaller moves are skipped (joint too close to its limit)
 V_START_MIN = 11.8          # refuse to start on a flat pack
-V_START_MIN_TEST = {"sag": 11.4, "hold": 11.4}   # the sag test moves slowly and draws almost nothing
+V_START_MIN_TEST = {"sag": 11.4, "hold": 11.4, "friction": 11.4}   # these move slowly and draw almost nothing
 V_MIN_DEFAULT = 11.0        # abort below this (the battery guard halts the Pi at 10.8)
 TEMP_MAX = 65               # deg C
 BUS_FAIL_STEPS = 3
@@ -44,8 +47,23 @@ LIMIT_SLACK_DEG = 3.0       # measured position beyond a limit by more than this
 # readings of ~30 C), so every guard needs consecutive bad samples before it aborts.
 HOLD_DEFAULT_S = 10.0
 SAG_SETTLE_S = 2.5          # hold time at every angle of the sag test
-DEBOUNCE = {"volt": 2, "temp": 5, "limit": 3}
-FIELDS = ("t", "move", "goal", "pos", "speed", "load", "volt", "temp")
+DEBOUNCE = {"volt": 2, "temp": 5, "limit": 3, "load": 3, "tilt": 3}
+FIELDS = ("t", "move", "goal", "pos", "speed", "load", "volt", "temp", "imu")
+FRICTION_HIPS = ("right_hip_pitch", "left_hip_pitch")
+FRICTION_JOINTS = (*FRICTION_HIPS, "right_ankle_pitch", "left_ankle_pitch")   # same servo sign = feet apart, soles flat
+FRICTION_LEGS = (*FRICTION_JOINTS, "right_knee_pitch", "left_knee_pitch")
+FRICTION_STROKE_DEG = 6.0
+FRICTION_STEP_DEG = 0.25
+FRICTION_STEP_S = 0.2       # 1.25 deg/s: quasi-static
+FRICTION_SPEED = 100        # ticks/s
+FRICTION_POSE_TOL_DEG = 3.0 # legs must start this close to the centre pose
+FRICTION_LOAD_ABORT = 400   # hip load register (40 %): well above the ~12 % expected at mu 1.1, protects the hip parts
+FRICTION_TILT_ABORT_DEG = 20.0  # body tilt away from where it started
+FRICTION_MAX_CYCLES = 5
+NM_PER_LOAD = 0.009         # 100 % load (register 1000) = about 9 Nm, sag test of 2026-10-25
+# mu vs. net hip torque [Nm] in MuJoCo (no-slip contact, servo_tpu CAD model, the same stroke and evaluation). A
+# simulation result, not a calibration against a force gauge: treat mu as relative until one exists. Flat above 1.1.
+FRICTION_SIM_CURVE = ((0.115, 0.2), (0.204, 0.3), (0.358, 0.45), (0.562, 0.6), (0.828, 0.8), (1.067, 1.1))
 
 
 class BenchError(MotionError):
@@ -59,9 +77,10 @@ def build_program(test: str, plan: list[dict], start_deg: list[float], speeds: l
     start pose) at one speed and waits `dwell` s. Each joint goes toward the side with more room."""
     n = len(plan)
     start = list(start_deg)
-    dirs, rooms = [], []
+    dirs, rooms, dn_up = [], [], []
     for e, d0 in zip(plan, start):
         up, dn = e["hi"] - d0, d0 - e["lo"]
+        dn_up.append((dn, up))
         dirs.append(1.0 if up >= dn else -1.0)
         rooms.append(max(up, dn) - margin)
 
@@ -122,9 +141,64 @@ def build_program(test: str, plan: list[dict], start_deg: list[float], speeds: l
                 a = moves[-1]["amp"]
                 moves.append({"label": f"sag {e['joint']} back", "joint": e["joint"], "speed": speeds[0], "amp": a,
                               "dwell": a / (speeds[0] * TICK_DEG) + 1.0, "goal": goal({})})
+    elif test == "friction":
+        idx = [j for j, e in enumerate(plan) if e["joint"] in FRICTION_JOINTS]
+        for j in idx:
+            if rooms[j] < FRICTION_STROKE_DEG or min(dn_up[j]) - margin < FRICTION_STROKE_DEG:
+                skipped.append({"joint": plan[j]["joint"], "reason": f"not {FRICTION_STROKE_DEG} deg of room both ways"})
+        if skipped:
+            return [], skipped
+        n_steps = round(FRICTION_STROKE_DEG / FRICTION_STEP_DEG)
+
+        def split(d: float) -> list[float]:
+            g = list(start)
+            for j in idx:
+                g[j] = start[j] + d
+            return g
+
+        for c in range(cycles):
+            for sign in (1.0, -1.0):
+                for phase, ks in (("out", range(1, n_steps + 1)), ("back", range(n_steps - 1, -1, -1))):
+                    for k in ks:
+                        d = sign * k * FRICTION_STEP_DEG
+                        moves.append({"label": f"friction {c + 1} {sign:+.0f} {phase}", "joint": None,
+                                      "speed": FRICTION_SPEED, "amp": d, "dwell": FRICTION_STEP_S, "goal": split(d)})
     else:
-        raise BenchError(f"unknown test '{test}' (step | rect | sag | hold)")
+        raise BenchError(f"unknown test '{test}' (step | rect | sag | hold | friction)")
     return moves, skipped
+
+
+def friction_result(ground, air) -> dict:
+    """Foot/floor friction from a `friction` run standing (`ground`) and one hanging free (`air`), both as loaded logs.
+    Half the difference between the push and the pull stroke cancels what does not reverse with the stroke (gravity,
+    uneven weight on the feet); subtracting the same difference in the air removes the gearbox friction."""
+    def stroke_load(z) -> np.ndarray:
+        meta = json.loads(str(z["meta"]))
+        hips = [meta["joints"].index(j) for j in FRICTION_HIPS]
+        out = []
+        for sign in (1.0, -1.0):
+            ms = [k for k, m in enumerate(meta["moves"]) if m["label"].endswith(" out") and m["amp"] * sign > 0
+                  and abs(m["amp"]) >= FRICTION_STROKE_DEG / 2]
+            rows = np.isin(z["move"].astype(int), ms)
+            if not rows.any():
+                raise BenchError("log has no complete stroke in both directions")
+            out.append(z["load"][rows][:, hips].mean(axis=0))
+        return out[0] - out[1]
+
+    for z, want in ((ground, "ground"), (air, "air")):
+        meta = json.loads(str(z["meta"]))
+        if meta.get("test") != "friction" or meta.get("phase") != want:
+            raise BenchError(f"expected a friction log of phase '{want}'")
+    net = np.abs((stroke_load(ground) - stroke_load(air)) / 2) * NM_PER_LOAD
+    mean = float(net.mean())
+    xs, ys = zip(*FRICTION_SIM_CURVE)
+    return {"net_torque_nm": {j: round(float(t), 3) for j, t in zip(FRICTION_HIPS, net)},
+            "mu_sim_curve": round(float(np.interp(mean, xs, ys)), 2),
+            "at_upper_limit": mean >= xs[-1],       # the curve is flat above: mu is at least this
+            "at_lower_limit": mean <= xs[0],
+            "hips_agree": abs(float(net[0] - net[1])) <= max(0.1, 0.3 * mean),
+            "calibrated": False,
+            "stop_reason": json.loads(str(ground["meta"]))["stop_reason"]}
 
 
 class BenchRunner:
@@ -139,6 +213,7 @@ class BenchRunner:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._st = self._fresh()
+        self._phase: str | None = None
 
     @staticmethod
     def _fresh():
@@ -150,7 +225,20 @@ class BenchRunner:
               v_min: float = V_MIN_DEFAULT, cycles: int = 4, rect_amp: float = 10.0,
               joints: list[str] | None = None, confirm_suspended: bool = False, confirm_standing: bool = False,
               hold_s: float = HOLD_DEFAULT_S) -> dict:
-        if test == "hold":
+        phase = None
+        if test == "friction":
+            if confirm_standing == confirm_suspended:
+                raise BenchError("The friction test runs twice: send confirm_standing=true with the robot STANDING FREE "
+                                 "in the centre pose (slack line, hands off, someone at the E-stop), and "
+                                 "confirm_suspended=true with its feet off the ground as the reference.")
+            phase = "ground" if confirm_standing else "air"
+            if self._imu_sample(0) is None:
+                raise BenchError("The friction test needs the head IMU (it aborts on tilt).")
+            if not 1 <= cycles <= FRICTION_MAX_CYCLES:
+                raise BenchError(f"friction: cycles must be 1..{FRICTION_MAX_CYCLES}")
+            speeds = [FRICTION_SPEED]
+            joints = None
+        elif test == "hold":
             if not confirm_standing:
                 raise BenchError("The hold test needs the robot STANDING upright on the mat, centre pose, "
                                  "someone at the E-stop: send confirm_standing=true once it does.")
@@ -186,6 +274,13 @@ class BenchRunner:
                    for e, d in zip(plan, start_deg) if not (e["lo"] <= d <= e["hi"])]
             if far:
                 raise BenchError("joint(s) outside their limits: " + "; ".join(far))
+            if test == "friction":
+                center = self.cfg.center_pose()
+                off = [f"{e['joint']} {d - center.get(e['joint'], 0.0):+.1f} deg"
+                       for e, d in zip(plan, start_deg) if e["joint"] in FRICTION_LEGS
+                       and abs(d - center.get(e["joint"], 0.0)) > FRICTION_POSE_TOL_DEG]
+                if off:
+                    raise BenchError("not in the centre pose, send /center first: " + "; ".join(off))
             program, skipped = build_program(test, plan, start_deg, list(speeds), list(amps), cycles, rect_amp)
             if not program:
                 raise BenchError("nothing to do: every joint is too close to its limit")
@@ -194,6 +289,7 @@ class BenchRunner:
             raise
         self._stop.clear()
         self.S.abort.clear()
+        self._phase = phase
         with self._lock:
             self._st = self._fresh()
             self._st.update(test=test, moves=len(program))
@@ -246,7 +342,10 @@ class BenchRunner:
                     S.log(f"WARNING: servo {i} torque state UNVERIFIED")
             held = True
             fails = 0
-            bad = {"volt": 0, "temp": 0, "limit": 0}
+            bad = {"volt": 0, "temp": 0, "limit": 0, "load": 0, "tilt": 0}
+            friction = test == "friction"
+            hips = [k for k, e in enumerate(plan) if e["joint"] in FRICTION_HIPS]
+            tilt0 = None
             nxt = time.monotonic()
             done = False
             for mi, mv in enumerate(program):
@@ -287,6 +386,10 @@ class BenchRunner:
                         rows["load"].append([raw[i][2] for i in ids])
                         rows["volt"].append(volt)
                         rows["temp"].append(temp)
+                        if friction:
+                            smp = self._imu_sample(mi)
+                            rows["imu"].append([smp[k] for k in ("ax", "ay", "az", "gx", "gy", "gz")] if smp
+                                               else [math.nan] * 6)
                     else:
                         truncated = True
                     with self._lock:
@@ -308,6 +411,19 @@ class BenchRunner:
                         reason, fault, done = (f"{plan[j]['joint']} at {deg[j]:+.1f} deg, outside "
                                                f"[{lo[j]:+.0f}, {hi[j]:+.0f}]"), True, True
                         break
+                    if friction:
+                        hip_load = max(abs(raw[ids[k]][2]) for k in hips)
+                        bad["load"] = bad["load"] + 1 if hip_load > FRICTION_LOAD_ABORT else 0
+                        if bad["load"] >= DEBOUNCE["load"]:     # not a fault: ease back to the start pose
+                            reason, done = f"hip load {hip_load / 10:.0f} % above the limit, feet did not slide", True
+                            break
+                        tilt = self._tilt_deg()
+                        if tilt is not None:
+                            tilt0 = tilt if tilt0 is None else tilt0
+                            bad["tilt"] = bad["tilt"] + 1 if abs(tilt - tilt0) > FRICTION_TILT_ABORT_DEG else 0
+                            if bad["tilt"] >= DEBOUNCE["tilt"]:
+                                reason, fault, done = f"body tilted {tilt - tilt0:+.0f} deg during the friction test", True, True
+                                break
                     nxt += DT
                     slack = nxt - time.monotonic()
                     if slack < 0:
@@ -332,7 +448,7 @@ class BenchRunner:
                         cur = bus.sync_read(ids)
                         bus.sync_move({i: cur[i][0] for i in ids}, 200, 30)
                     else:                                               # back to the start pose, slowly
-                        bus.sync_move(dict(zip(ids, start_ticks)), 300, 30)
+                        bus.sync_move(dict(zip(ids, start_ticks)), FRICTION_SPEED if test == "friction" else 300, 30)
                         time.sleep(1.5)
                 except Exception:                                       # noqa: BLE001
                     S.log("WARNING: bench end: could not park the servos")
@@ -352,11 +468,18 @@ class BenchRunner:
         except Exception:                                               # noqa: BLE001
             return None
 
+    def _tilt_deg(self) -> float | None:
+        s = self._imu_sample(0)
+        if not s:
+            return None
+        g = math.sqrt(s["ax"] ** 2 + s["ay"] ** 2 + s["az"] ** 2) or 1.0
+        return math.degrees(math.acos(max(-1.0, min(1.0, s["ay"] / g))))     # chip Y is body-up, as in policy.py
+
     def _save(self, test, plan, rows, program, skipped, start_ticks, acc, v_min, reason, fault, truncated, imu_at):
         if not rows["t"]:
             return
         path = self.log_dir / f"{time.strftime('%Y%m%d-%H%M%S')}_bench_{test}.npz"
-        meta = {"test": test, "stop_reason": reason, "fault": fault, "steps": len(rows["t"]),
+        meta = {"test": test, "phase": self._phase, "stop_reason": reason, "fault": fault, "steps": len(rows["t"]),
                 "truncated": truncated, "dt": DT, "acc": acc, "v_min": v_min,
                 "joints": [e["joint"] for e in plan], "ids": [e["id"] for e in plan],
                 "offsets": [e["offset"] for e in plan], "limits_deg": [[e["lo"], e["hi"]] for e in plan],

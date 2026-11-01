@@ -1067,7 +1067,7 @@ def _bench():
 
 
 class BenchStart(BaseModel):
-    test: str                                       # step (one joint at a time) | rect (all together) | sag | hold
+    test: str                                       # step (one joint at a time) | rect (all together) | sag | hold | friction
     speeds: list[int] = Field(default_factory=lambda: [1000, 2000, 3400], min_length=1, max_length=8)   # sag: [300]
     amps: list[float] | None = None                 # step: amplitudes, deg (5, 15, 30); sag: angles (30, 60, 90)
     rect_amp: float = 10.0
@@ -1076,7 +1076,7 @@ class BenchStart(BaseModel):
     v_min: float = Field(11.0, ge=10.8, le=12.6)    # abort below this pack voltage
     joints: list[str] | None = None
     confirm_suspended: bool = False                 # the robot hangs free, feet off the ground
-    confirm_standing: bool = False                  # hold test: the robot stands on the mat, hand at the E-stop
+    confirm_standing: bool = False                  # hold/friction test: the robot stands, hand at the E-stop
     hold_s: float = Field(10.0, ge=2.0, le=60.0)    # hold test: how long to hold
 
 
@@ -1102,6 +1102,20 @@ def bench_status():
 @app.get("/bench/logs")
 def bench_logs():
     return {"logs": _bench().logs()}
+
+
+@app.get("/bench/friction")
+def bench_friction(ground: str, air: str):
+    """Foot/floor friction from the logs of a friction test standing and one hanging free (see bench.py)."""
+    import numpy as np
+
+    from bench import friction_result
+    b = _bench()
+    try:
+        with np.load(b.log_path(ground)) as g, np.load(b.log_path(air)) as a:
+            return friction_result(g, a)
+    except MotionError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/bench/logs/{name}")
