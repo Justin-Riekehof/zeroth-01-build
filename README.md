@@ -184,6 +184,12 @@ media/      photos, print timelapses, hero GIF
 
 ## Roadmap
 
+> **🔴 Top priority (2026-11-01): retrain from scratch with random foot friction. Fundamental policy error, fixed in code, training not started.**
+> Every policy up to and including `servo_tpu5` trained on a single foot/floor friction (μ = 1.1 with the TPU soles). `ksim.FloorFrictionRandomizer` changes `geom_friction` of the floor, but the feet touch the floor through explicit `<pair>` contacts whose friction overrides the geoms, so the configured randomization never reached them (checked in MuJoCo). On the robot the policies slide away on parquet and laminate.
+> - **Fix:** `FootFrictionRandomizer` in `sim/train/walking.py` draws one μ per environment and sets `pair_friction` (`foot_friction_min` 0.2 … `foot_friction_max` 1.2; verified to reach the contacts in MJX, `sim/tests/test_foot_friction.py`). `export_policy.py` now writes the range into `policy_meta.json`.
+> - **Run:** `GPU=0 EVAL_GPU=-1 sim/tools/launch_servo_fric.sh` starts `servo_fric1` from scratch on `zbot-cad-tpu` with the bootstrap rewards of `servo_tpu1`; the unit `zbot-chain-friction` hands over to `servo_fric2` once it survives and steps. Export without `--flip-joints`: this model has the correct hip-roll axes.
+> - **Open:** (1) The range rests on a robot-only measurement (laminate μ ≈ 0.2, parquet not measured, `bench` test `friction`), uncalibrated until a force gauge confirms it. (2) With the default soft contact, the feet creep at about 0.5 N in a slow MuJoCo test, so sticking is softer in the sim than on the robot; not yet changed, may need `impratio`/an elliptic cone. (3) The right leg has play from PETG creep, which the sim does not model.
+>
 > **▶ Next up: close the sim-to-real gap, then retrain. No policy runs on the robot until the points below are done.**
 > All five walking policies were run on the robot on a mat (2026-10-21/22) and all fell within ~1 s (tilt > 55°). Step logs from the Pi show the inference path is correct (ONNX replay reproduces the logged actions exactly, obs layout and gait clock match the sim), so the gap is in the actuators, not the policy export.
 >

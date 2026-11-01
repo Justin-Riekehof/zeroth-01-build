@@ -88,7 +88,8 @@ if heading_obs: layout.append(("heading", 2, "[cos psi, sin psi]: yaw relative t
 if action_history > 1: layout.append(("action_history", NUM_OUTPUTS * (action_history - 1), f"the {action_history - 1} actions before the previous one, newest first [a(t-2), ..., a(t-{action_history})]; at the start every missing one repeats the first previous action"))
 task_keys = ["velocity_tracking", "gait_shaping", "target_speed_min", "target_speed_max", "heading_obs", "action_scale", "gait_freq_lower", "gait_freq_upper", "ctrl_dt",
              "servo_model", "leg_servo_speed", "arm_v_max", "cmd_rate_fraction", "clamp_to_real_limits", "start_pose", "dt",
-             "action_filter_alpha", "action_history", "leg_delay", "arm_delay", "delay_rand", "speed_zero_prob"]
+             "action_filter_alpha", "action_history", "leg_delay", "arm_delay", "delay_rand", "speed_zero_prob",
+             "domain_randomize", "foot_friction_min", "foot_friction_max"]
 # servo-model policies: the Pi must send the speed register the sim assumed and limit the target rate like the sim did
 import math  # noqa: E402
 _types = [meta["joint_name_to_metadata"][j]["actuator_type"] for j in joints]

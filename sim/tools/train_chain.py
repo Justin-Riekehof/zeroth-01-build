@@ -121,6 +121,9 @@ CHAINS["speed6"] = (SPEED6, T / "train_chain_speed6.json")
 FOLLOW = {"track_window_s": 0.8, "stride_needs_command": True, "naive_velocity_scale": 0.0, "forward_progress_reward": 10.0}
 BOOT = [{"run": "servo_scratch5", "after": "servo_scratch4", "iters": 2500, "pick": "boot", "set": FOLLOW}]
 CHAINS["boot"] = (BOOT, T / "train_chain_boot.json")
+# 2026-11-01: the same bootstrap from scratch, now with random foot friction (FootFrictionRandomizer)
+FRICTION = [{"run": "servo_fric2", "after": "servo_fric1", "iters": 2500, "pick": "boot", "set": FOLLOW}]
+CHAINS["friction"] = (FRICTION, T / "train_chain_friction.json")
 STEPS_WALK, STEPS_REAL = 0.6, 0.5
 
 

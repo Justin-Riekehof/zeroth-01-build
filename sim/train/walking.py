@@ -71,6 +71,22 @@ NUM_CRITIC_INPUTS = NUM_INPUTS + 2 + 2 + 6 + 3 + 3 + 4 + 3 + 3 + 16 + 1  # = 105
 NUM_OUTPUTS = 16
 
 
+@attrs.define(frozen=True, kw_only=True)
+class FootFrictionRandomizer(ksim.PhysicsRandomizer):
+    """Random sliding friction of the foot contacts. Those are explicit <pair>s in robot.mjcf, and a pair's friction
+    overrides the geoms': ksim.FloorFrictionRandomizer (geom_friction) never reached the feet, so every policy up to
+    servo_tpu5 trained on one value (1.1 with the TPU soles)."""
+
+    mu_lower: float = attrs.field()
+    mu_upper: float = attrs.field()
+
+    def __call__(self, model: ksim.PhysicsModel, rng: jax.Array) -> dict[str, jax.Array]:
+        if model.npair == 0:
+            raise ValueError("The model has no contact pairs: nothing to randomize.")
+        mu = jax.random.uniform(rng, minval=self.mu_lower, maxval=self.mu_upper)
+        return {"pair_friction": jnp.asarray(model.pair_friction).at[:, :2].set(mu)}     # both tangential directions
+
+
 @attrs.define(frozen=True)
 class LinearVelocityCommand(ksim.Command):
     """Command to move the robot in a straight line.
@@ -1426,6 +1442,8 @@ class ZbotWalkingTaskConfig(ZbotTaskConfig):
     track_error_scale: float = xax.field(value=0.25, help="Error scale of the velocity tracking reward; smaller = stricter.")
     track_window_s: float = xax.field(value=0.0, help="Track the velocity averaged over this window (s), ~one step (0.8): the body sways with every real step, the instantaneous velocity says little about the speed. 0 = instantaneous.")
     stride_needs_command: bool = xax.field(value=False, help="Stride reward only while a forward speed is commanded: otherwise it pays for walking on at command 0.")
+    foot_friction_min: float = xax.field(value=0.2, help="Foot/floor friction, lower bound per environment (domain_randomize). Laminate measured ~0.2 on 2026-11-01, uncalibrated.")
+    foot_friction_max: float = xax.field(value=1.2, help="Foot/floor friction, upper bound per environment (domain_randomize).")
     forward_progress_reward: float = xax.field(value=0.0, help="Scale of the forward speed as a share of the command (-1..1, 0 at command 0), e.g. 10: makes walking pay more than stepping on the spot.")
     track_norm: str = xax.field(value="l2", help="Tracking error norm: 'l2' exp(-err^2/scale) (flat far from the command: with a strict scale a 5 cm/s drift earned 0 and no gradient - servo_ctrl_v13/v16 walked backwards unnoticed), 'l1' exp(-|err|/scale) (sharp at the command, a slope everywhere).")
 
@@ -1459,7 +1477,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
     def get_physics_randomizers(self, physics_model: ksim.PhysicsModel) -> list[ksim.PhysicsRandomizer]:
         if self.config.domain_randomize:
             return [
-                ksim.FloorFrictionRandomizer.from_geom_name(physics_model, "floor", scale_lower=0.1, scale_upper=2.0),
+                FootFrictionRandomizer(mu_lower=self.config.foot_friction_min, mu_upper=self.config.foot_friction_max),
                 ksim.StaticFrictionRandomizer(scale_lower=0.5, scale_upper=1.5),
                 ksim.ArmatureRandomizer(),
                 ksim.MassAdditionRandomizer.from_body_name(
