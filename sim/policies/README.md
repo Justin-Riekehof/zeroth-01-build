@@ -26,6 +26,8 @@ Checkpoint über 30 s mit Stößen gegenprüfen. Die anderen vier stammen aus de
 
 ## Vor dem Deployment unbedingt lesen
 
+Ablauf, Endpunkte und offene Punkte: [docs/policy-deploy.md](../../docs/policy-deploy.md).
+
 `policy_meta.json` ist nicht Dokumentation, sondern Schnittstellenbeschreibung. Die häufigste
 Sim-to-Real-Fehlerquelle in diesem Projekt ist, Gelenkreihenfolge, Aktionsskalierung oder Achsen zu raten
 statt sie dort auszulesen. Insbesondere:

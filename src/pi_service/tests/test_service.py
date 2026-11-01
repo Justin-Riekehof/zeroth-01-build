@@ -178,7 +178,7 @@ def test_shutdown_runs_command_and_logs(client, monkeypatch):
         sp.CompletedProcess(service.SHUTDOWN_CMD, 0, "", ""))[-1])
     r = client.post("/shutdown")
     assert r.status_code == 200 and r.json()["ok"] and calls
-    assert "SHUTDOWN: OS halting" in logs(client)
+    assert "SHUTDOWN: requested" in logs(client)
 
 
 def test_shutdown_reports_missing_sudoers(client, monkeypatch):
@@ -371,3 +371,10 @@ def test_watchdog_soft_hold(client):
     finally:
         service.WATCHDOG.disarm()
         service.WATCHDOG.timeout_s = 0.5
+
+
+def test_servo_regs_reads_every_servo(client):
+    r = client.get("/servo/regs")
+    assert r.status_code == 200
+    servos = r.json()["servos"]
+    assert servos and all("regs" in v and "p_coef" in v["regs"] for v in servos.values())

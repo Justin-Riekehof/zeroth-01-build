@@ -1,0 +1,383 @@
+<title>Greifer-Assembly</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+<style>
+  /* Layout: tool page. Baugruppenbaum links, 3D-Ansicht in der Mitte, Teileinfo rechts; unter 900px untereinander. */
+  :root {
+    --bg: #eceff2;
+    --panel: #f8f9fa;
+    --panel-2: #e3e7eb;
+    --line: #cfd5db;
+    --fg: #1d2630;
+    --muted: #5d6874;
+    --accent: #0a6d8f;
+    --accent-ink: #ffffff;
+    --sel: #e0652a;
+    --canvas-top: #f4f6f8;
+    --canvas-bottom: #cfd6dd;
+    --font: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171c; --panel: #1a2128; --panel-2: #232c35; --line: #2f3a45; --fg: #e3e8ed; --muted: #8f9ba7;
+      --accent: #4cc0e6; --accent-ink: #06222c; --sel: #ff8a4c; --canvas-top: #26313b; --canvas-bottom: #0f1317;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171c; --panel: #1a2128; --panel-2: #232c35; --line: #2f3a45; --fg: #e3e8ed; --muted: #8f9ba7;
+    --accent: #4cc0e6; --accent-ink: #06222c; --sel: #ff8a4c; --canvas-top: #26313b; --canvas-bottom: #0f1317;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.45;
+    padding-block: 14px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .stats { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .app {
+    display: grid; gap: 12px;
+    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(220px, 270px);
+    grid-template-areas: "tree view info";
+    align-items: start;
+  }
+  .tree { grid-area: tree; } .view { grid-area: view; } .info { grid-area: info; }
+  @media (max-width: 1000px) {
+    .app { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "view view" "tree info"; }
+  }
+  @media (max-width: 640px) {
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-areas: "view" "info" "tree"; }
+  }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+  .panel > h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+    margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line);
+  }
+  /* tree */
+  .tree .scroll { max-height: 640px; overflow: auto; padding: 6px 4px 8px; }
+  ul.t, ul.t ul { list-style: none; margin: 0; padding: 0; }
+  ul.t ul { margin-left: 14px; border-left: 1px solid var(--line); padding-left: 2px; }
+  .row { display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 6px 0 2px; border-radius: 4px; }
+  .row:hover { background: var(--panel-2); }
+  .row.sel { background: color-mix(in srgb, var(--sel) 18%, var(--panel)); box-shadow: inset 2px 0 0 var(--sel); }
+  .chev { width: 20px; height: 24px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; font-size: 11px; flex: none; }
+  .chev[aria-expanded="false"]::before { content: "▸"; } .chev[aria-expanded="true"]::before { content: "▾"; }
+  .chev.leaf { visibility: hidden; }
+  .vis { flex: none; accent-color: var(--accent); margin: 0 2px; width: 14px; height: 14px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent); }
+  .name { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 3px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grp > .row .name { font-weight: 600; }
+  .qty { font-family: var(--mono); font-size: 11px; color: var(--muted); flex: none; }
+  .row.off .name, .row.off .sw { opacity: 0.4; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* viewport */
+  .view .stage { position: relative; height: min(68vh, 640px); min-height: 340px; border-radius: 0 0 6px 6px; overflow: hidden; background: linear-gradient(var(--canvas-top), var(--canvas-bottom)); touch-action: none; }
+  .view canvas { display: block; width: 100%; height: 100%; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .btn { font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .hint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted); pointer-events: none; font-family: var(--mono); }
+  .h-touch { display: none; }
+  @media (hover: none) { .h-mouse { display: none; } .h-touch { display: inline; } }
+  .readout { position: absolute; right: 10px; bottom: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); pointer-events: none; text-align: right; }
+  .sliders { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 16px; padding: 10px 12px; border-top: 1px solid var(--line); }
+  @media (max-width: 640px) { .sliders { grid-template-columns: minmax(0, 1fr); } }
+  .sl label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .sl output { font-family: var(--mono); color: var(--fg); font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
+  /* info */
+  .info .body { padding: 12px; display: grid; gap: 10px; }
+  .info h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.25; }
+  dl.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; margin: 0; }
+  dl.kv dt { color: var(--muted); font-size: 12px; }
+  dl.kv dd { margin: 0; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); }
+  .muted { color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); padding-top: 8px; border-top: 1px solid var(--line); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<header>
+  <h1>Greifer-Assembly</h1>
+  <span class="sub">Zwei-Finger-Greifer mit Handgelenk-Roll, 2× Feetech STS3215, Entwurf v0.2</span>
+  <span class="stats" id="stats"></span>
+</header>
+
+<div class="app">
+  <section class="panel tree" aria-label="Baugruppenstruktur">
+    <h2>Baugruppenstruktur</h2>
+    <div class="scroll"><ul class="t" id="tree" role="tree"></ul></div>
+  </section>
+
+  <section class="panel view" aria-label="3D-Ansicht">
+    <div class="toolbar" role="toolbar" aria-label="Ansicht">
+      <button class="btn" data-view="iso">Iso</button>
+      <button class="btn" data-view="front">Vorne</button>
+      <button class="btn" data-view="side">Seite</button>
+      <button class="btn" data-view="top">Greiferebene</button>
+      <button class="btn" id="fit">Einpassen</button>
+      <button class="btn" id="wire" aria-pressed="false">Drahtmodell</button>
+      <button class="btn" id="edges" aria-pressed="true">Kanten</button>
+      <button class="btn" id="ref" aria-pressed="true">Ellbogen-Servo</button>
+      <button class="btn" id="iso1" aria-pressed="false">Auswahl isolieren</button>
+    </div>
+    <div class="stage" id="stage">
+      <canvas id="cv" aria-label="Interaktives 3D-Modell, mit der Maus drehen, mit dem Mausrad zoomen"></canvas>
+      <div class="hint"><span class="h-mouse">Ziehen: drehen · Rechtsklick: schieben · Rad: zoomen · Klick: auswählen</span><span class="h-touch">1 Finger: drehen<br>2 Finger: zoomen/schieben</span></div>
+      <div class="readout" id="readout"></div>
+    </div>
+    <div class="sliders">
+      <div class="sl"><label for="phi">Greifer öffnen <output id="phiOut"></output></label><input id="phi" type="range" step="0.5"></div>
+      <div class="sl"><label for="roll">Handgelenk rollen <output id="rollOut"></output></label><input id="roll" type="range" min="-100" max="100" step="1" value="0"></div>
+      <div class="sl"><label for="exp">Explosion <output id="expOut"></output></label><input id="exp" type="range" min="0" max="100" step="1" value="0"></div>
+    </div>
+  </section>
+
+  <section class="panel info" aria-label="Bauteilinfo" aria-live="polite">
+    <h2>Auswahl</h2>
+    <div class="body" id="info"></div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  const META = DATA.meta;
+  const CAT = {
+    housing: ["Gehäuse", 0x8794a3], drive: ["Antrieb", 0x3fa070], link: ["Lenker", 0xdb8a3a], finger: ["Finger", 0x4a82d6],
+    pad: ["Pad (TPU)", 0x3b3f47], cap: ["Kappe", 0xc0b8a6], wrist: ["Handgelenk", 0x9070c4], servo: ["Servo", 0xd9a441], ref: ["Referenz", 0x9aa2ab]
+  };
+  const hex = (n) => "#" + n.toString(16).padStart(6, "0");
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const b64 = (s, T) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); };
+
+  // ---------- scene ----------
+  const stage = document.getElementById("stage"), cv = document.getElementById("cv");
+  const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(32, 1, 5, 4000);
+  const controls = new THREE.OrbitControls(camera, cv);
+  controls.enableDamping = true; controls.dampingFactor = 0.12;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x6a7480, 0.85));
+  const key = new THREE.DirectionalLight(0xffffff, 0.8); key.position.set(200, 300, 260); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.35); fill.position.set(-260, -120, -200); scene.add(fill);
+  // hub frame (a = along the forearm, b = sideways, c = horn axis) -> three (X=b, Y=-a, Z=c): arm hangs down
+  const hubRoot = new THREE.Group(); hubRoot.matrixAutoUpdate = false;
+  hubRoot.matrix.set(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1); scene.add(hubRoot);
+
+  const nodes = []; const byId = {}; const parts = [];
+  const rad = Math.PI / 180;
+  const matCache = {};
+  function makeMat(cat) {
+    const c = CAT[cat] ? CAT[cat][1] : 0x999999;
+    const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.62, metalness: cat === "servo" ? 0.25 : 0.04, flatShading: true, side: THREE.DoubleSide });
+    if (cat === "ref") { m.transparent = true; m.opacity = 0.42; m.depthWrite = false; }
+    return m;
+  }
+  function build(n, parent, parentPivot) {
+    const o = { data: n, parent, children: [], expanded: true, visible: true };
+    nodes.push(o); byId[n.id] = o;
+    if (n.type === "group") {
+      const g = new THREE.Group(); o.obj = g;
+      o.pivot = new THREE.Vector3(...n.pivot);
+      o.rest = o.pivot.clone().sub(parentPivot);
+      g.position.copy(o.rest);
+      (parent ? parent.obj : hubRoot).add(g);
+      o.motion = n.motion;
+      n.children.forEach((c) => o.children.push(build(c, o, o.pivot)));
+      o.expanded = !["drive", "links", "fingers"].includes(n.id) ? true : false;
+    } else {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(b64(n.geom.v, Float32Array), 3));
+      geo.setIndex(new THREE.BufferAttribute(b64(n.geom.f, Uint32Array), 1));
+      geo.computeVertexNormals(); geo.computeBoundingBox();
+      const mat = makeMat(n.cat); o.baseMat = mat;
+      const mesh = new THREE.Mesh(geo, mat); o.obj = mesh; o.mesh = mesh;
+      if (!["servo", "ref"].includes(n.cat)) {
+        const eg = new THREE.EdgesGeometry(geo, 32);
+        const lines = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x10161c, transparent: true, opacity: 0.55 }));
+        mesh.add(lines); o.lines = lines;
+      }
+      (parent ? parent.obj : hubRoot).add(mesh);
+      const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+      o.restCenter = c.add(parentPivot);          // hub coordinates at the neutral pose
+      parts.push(o);
+    }
+    return o;
+  }
+  const root = build(DATA.tree, null, new THREE.Vector3());
+
+  // ---------- kinematics ----------
+  const ui = { phi: 20, roll: 0, exp: 0, wire: false, edges: true, ref: true, iso: false, sel: new Set() };
+  const hubQ = new Map();
+  function nodeParts(o, out = []) { if (o.data.type === "part") out.push(o); else o.children.forEach((c) => nodeParts(c, out)); return out; }
+  const center0 = new THREE.Vector3();
+  (function () { const b = new THREE.Box3(); parts.forEach((p) => b.expandByPoint(p.restCenter)); b.getCenter(center0); })();
+  const AX_Z = new THREE.Vector3(0, 0, 1), AX_A = new THREE.Vector3(1, 0, 0);
+  function pose() {
+    const phi = ui.phi * rad, C = META.C;
+    nodes.forEach((o) => {
+      if (o.data.type !== "group") return;
+      o.obj.quaternion.identity();
+      o.obj.position.copy(o.rest);
+      if (o.motion === "roll") o.obj.quaternion.setFromAxisAngle(AX_A, ui.roll * rad);
+      else if (o.motion === "phi_pos") o.obj.quaternion.setFromAxisAngle(AX_Z, phi);
+      else if (o.motion === "phi_neg") o.obj.quaternion.setFromAxisAngle(AX_Z, -phi);
+      else if (o.motion === "finger_pos") o.obj.position.add(new THREE.Vector3(C * (Math.cos(phi) - 1), C * Math.sin(phi), 0));
+      else if (o.motion === "finger_neg") o.obj.position.add(new THREE.Vector3(C * (Math.cos(phi) - 1), -C * Math.sin(phi), 0));
+    });
+    // hub-frame orientation of every group (needed to push explosion offsets into local frames)
+    (function walk(o, q) {
+      const own = o.data.type === "group" ? q.clone().multiply(o.obj.quaternion) : q;
+      hubQ.set(o, own);
+      o.children.forEach((c) => walk(c, own));
+    })(root, new THREE.Quaternion());
+    const k = ui.exp / 100;
+    parts.forEach((p) => {
+      const dir = p.restCenter.clone().sub(center0); dir.x *= 2.4; dir.y *= 1.3; dir.z *= 1.3;
+      const off = dir.multiplyScalar(k * 1.1);
+      const q = hubQ.get(p.parent).clone().invert();
+      p.mesh.position.copy(off.applyQuaternion(q));
+    });
+    const opening = 2 * (META.A + C * Math.sin(phi) - META.tp);
+    document.getElementById("readout").textContent = `Öffnung ${opening.toFixed(0)} mm · Roll ${ui.roll}° · φ ${ui.phi.toFixed(1)}°`;
+  }
+
+  // ---------- selection / visibility ----------
+  function applyLook() {
+    const anySel = ui.sel.size > 0;
+    parts.forEach((p) => {
+      const m = p.baseMat, isSel = ui.sel.has(p);
+      let vis = p.visible && (p.data.cat !== "ref" || ui.ref);
+      let ancestor = p.parent; while (ancestor) { if (!ancestor.visible) vis = false; ancestor = ancestor.parent; }
+      if (ui.iso && anySel && !isSel) vis = false;
+      p.mesh.visible = vis;
+      m.wireframe = ui.wire;
+      const base = CAT[p.data.cat][1];
+      m.color.setHex(isSel ? 0xe0652a : base);
+      m.emissive.setHex(isSel ? 0x5a2008 : 0x000000);
+      const dim = anySel && !isSel;
+      if (p.data.cat === "ref") { m.opacity = dim ? 0.12 : 0.42; }
+      else { m.transparent = dim; m.opacity = dim ? 0.28 : 1; m.depthWrite = !dim; }
+      m.needsUpdate = true;
+      if (p.lines) { p.lines.visible = ui.edges && !ui.wire; p.lines.material.opacity = dim ? 0.15 : 0.55; }
+    });
+    document.querySelectorAll(".row").forEach((r) => {
+      const o = byId[r.dataset.id]; const ps = nodeParts(o);
+      r.classList.toggle("sel", ps.length > 0 && ps.every((p) => ui.sel.has(p)) && anySel);
+      r.classList.toggle("off", !o.visible);
+    });
+  }
+  function select(o, add) {
+    if (!add) ui.sel.clear();
+    if (o) nodeParts(o).forEach((p) => ui.sel.add(p));
+    applyLook(); renderInfo(o);
+  }
+  function renderInfo(o) {
+    const el = document.getElementById("info");
+    if (!o || !ui.sel.size) {
+      const total = parts.filter((p) => p.data.cat !== "ref" && p.data.cat !== "servo").length;
+      el.innerHTML = `<p class="muted">Bauteil im 3D-Modell oder im Baum anklicken. Ein Klick auf eine Baugruppe wählt alle Teile darin.</p>
+        <dl class="kv"><dt>Druckteile</dt><dd>${total} Dateien</dd><dt>Zukaufservos</dt><dd>2 je Arm</dd><dt>Öffnung max.</dt><dd>${META.opening_mm} mm</dd><dt>Handlänge</dt><dd>≈ ${META.hand_tip_a} mm ab Ellbogenachse</dd></dl>
+        <div class="legend">${Object.entries(CAT).map(([k, v]) => `<span><i class="sw" style="background:${hex(v[1])}"></i>${v[0]}</span>`).join("")}</div>`;
+      return;
+    }
+    const d = o.data;
+    if (d.type === "part") {
+      const [cn] = CAT[d.cat];
+      el.innerHTML = `<div><span class="tag">${cn}</span></div><h3>${esc(d.name)}</h3>
+        <dl class="kv"><dt>Material</dt><dd>${esc(d.material)}</dd><dt>Stück je Arm</dt><dd>${d.qty}</dd><dt>Datei</dt><dd>${esc(d.file)}</dd><dt>Druck gesamt</dt><dd>${(d.file.match(/_x(\d+)\.stl$/) || [])[1] ? (d.file.match(/_x(\d+)\.stl$/)[1] + "× (links + rechts)") : "–"}</dd>
+        <dt>Volumen</dt><dd>${d.volume_cm3 == null ? "–" : d.volume_cm3 + " cm³"}</dd><dt>Maße</dt><dd>${d.size_mm.join(" × ")} mm</dd>
+        ${d.note ? `<dt>Hinweis</dt><dd>${esc(d.note)}</dd>` : ""}</dl>`;
+    } else {
+      const ps = nodeParts(o); const motion = { roll: "Rollgelenk", phi_pos: "Drehgelenk +φ", phi_neg: "Drehgelenk −φ", finger_pos: "Schiebt mit φ", finger_neg: "Schiebt mit φ", none: "fest" }[o.motion];
+      el.innerHTML = `<div><span class="tag">Baugruppe</span></div><h3>${esc(d.name)}</h3>
+        <dl class="kv"><dt>Teile</dt><dd>${ps.length}</dd><dt>Bewegung</dt><dd>${motion}</dd>${d.note ? `<dt>Hinweis</dt><dd>${esc(d.note)}</dd>` : ""}</dl>
+        <div class="muted" style="font-size:12px">${ps.map((p) => esc(p.data.name)).join(" · ")}</div>`;
+    }
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // ---------- tree ----------
+  function treeEl(o) {
+    const d = o.data, li = document.createElement("li"); li.setAttribute("role", "treeitem");
+    const isG = d.type === "group"; if (isG) li.className = "grp";
+    const row = document.createElement("div"); row.className = "row"; row.dataset.id = d.id;
+    const chev = document.createElement("button"); chev.className = "chev" + (isG ? "" : " leaf"); chev.setAttribute("aria-label", "Auf- oder zuklappen");
+    chev.setAttribute("aria-expanded", String(o.expanded)); row.appendChild(chev);
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "vis"; cb.checked = true; cb.setAttribute("aria-label", "Sichtbar: " + d.name); row.appendChild(cb);
+    const sw = document.createElement("i"); sw.className = "sw";
+    sw.style.background = isG ? "transparent" : hex(CAT[d.cat][1]); row.appendChild(sw);
+    const nm = document.createElement("button"); nm.className = "name"; nm.textContent = d.name; nm.title = d.name; row.appendChild(nm);
+    if (!isG) { const q = document.createElement("span"); q.className = "qty"; q.textContent = d.qty > 1 ? "×" + d.qty : ""; row.appendChild(q); }
+    li.appendChild(row);
+    let ul = null;
+    if (isG) {
+      ul = document.createElement("ul"); ul.setAttribute("role", "group"); ul.hidden = !o.expanded;
+      o.children.forEach((c) => ul.appendChild(treeEl(c))); li.appendChild(ul);
+      chev.onclick = () => { o.expanded = !o.expanded; ul.hidden = !o.expanded; chev.setAttribute("aria-expanded", String(o.expanded)); };
+    }
+    cb.onchange = () => { o.visible = cb.checked; applyLook(); };
+    nm.onclick = (e) => select(o, e.shiftKey || e.ctrlKey || e.metaKey);
+    return li;
+  }
+  document.getElementById("tree").appendChild(treeEl(root));
+
+  // ---------- picking ----------
+  const ray = new THREE.Raycaster(); let down = null;
+  cv.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
+  cv.addEventListener("pointerup", (e) => {
+    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+    const r = cv.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+    const hits = ray.intersectObjects(parts.filter((p) => p.mesh.visible).map((p) => p.mesh), false);
+    if (hits.length) { const p = parts.find((x) => x.mesh === hits[0].object); select(p, e.shiftKey); reveal(p); }
+    else select(null);
+  });
+  function reveal(p) {
+    let a = p.parent; while (a) { a.expanded = true; a = a.parent; }
+    document.querySelectorAll("li.grp > ul").forEach((ul) => { const id = ul.previousSibling.dataset.id; ul.hidden = !byId[id].expanded; ul.previousSibling.querySelector(".chev").setAttribute("aria-expanded", String(byId[id].expanded)); });
+    const row = document.querySelector(`.row[data-id="${p.data.id}"]`); if (row) row.scrollIntoView({ block: "nearest" });
+  }
+
+  // ---------- controls ----------
+  const phi = document.getElementById("phi");
+  phi.min = META.phi[0]; phi.max = META.phi[1]; phi.value = ui.phi;
+  const bind = (id, key, out, fmt) => { const el = document.getElementById(id), o = document.getElementById(out); const f = () => { ui[key] = +el.value; o.textContent = fmt(+el.value); pose(); }; el.addEventListener("input", f); f(); };
+  bind("phi", "phi", "phiOut", (v) => (2 * (META.A + META.C * Math.sin(v * rad) - META.tp)).toFixed(0) + " mm");
+  bind("roll", "roll", "rollOut", (v) => v + "°");
+  bind("exp", "exp", "expOut", (v) => v + " %");
+  const tog = (id, key) => { const b = document.getElementById(id); b.onclick = () => { ui[key] = !ui[key]; b.setAttribute("aria-pressed", String(ui[key])); applyLook(); }; };
+  tog("wire", "wire"); tog("edges", "edges"); tog("ref", "ref"); tog("iso1", "iso");
+
+  // ---------- camera ----------
+  function target() { const b = new THREE.Box3(); parts.filter((p) => p.data.cat !== "ref").forEach((p) => { p.mesh.updateWorldMatrix(true, false); b.union(new THREE.Box3().setFromObject(p.mesh)); }); return b; }
+  function view(kind) {
+    hubRoot.updateMatrixWorld(true);
+    const b = target(), c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3()), d = Math.max(s.x, s.y, s.z) * 1.9 + 80;
+    const dir = { iso: [0.75, -0.12, 1], front: [0, 0, 1], side: [1, 0, 0], top: [0.001, 1, 0] }[kind] || [0.75, -0.12, 1];
+    const v = new THREE.Vector3(...dir).normalize().multiplyScalar(d);
+    camera.position.copy(c).add(v); controls.target.copy(c); camera.up.set(0, kind === "top" ? 0 : 1, kind === "top" ? -1 : 0); controls.update();
+  }
+  document.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => view(b.dataset.view)));
+  document.getElementById("fit").onclick = () => view("iso");
+
+  // ---------- loop ----------
+  function resize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  new ResizeObserver(resize).observe(stage); resize();
+  (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+  document.getElementById("stats").textContent = `${parts.length} Bauteile · ${nodes.filter((n) => n.data.type === "group").length} Baugruppen`;
+  pose(); applyLook(); renderInfo(null); view("iso");
+})();
+</script>

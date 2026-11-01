@@ -1,0 +1,200 @@
+<mujoco model="zeroth01_cad">
+  <!-- zbot-cad-tpu with the OLD left_hip_roll axis, to continue checkpoints trained on it (servo_tpu1/tpu2). Export them with export_policy.py - -flip-joints left_hip_roll. -->
+  <!-- GENERATED FILE - do not hand-edit. Source: resources/cad/z001-opus-m-93de7567 (OnShape microversion 93de7567)
+       + hardware/{joint_limits,model_zero_offsets,model_invert,servo_ids}.json, built by sim/tools/build_model_cad.py -->
+  <default>
+    <default class="robot">
+      <default class="motor">
+        <joint />
+        <motor />
+      </default>
+      <default class="visual">
+        <geom contype="0" conaffinity="0" group="2" />
+      </default>
+      <default class="collision">
+        <geom condim="6" friction="0.8 0.02 0.01" group="3" />
+      </default>
+    </default>
+    <mesh maxhullvert="32" />
+  </default>
+  <compiler angle="radian" />
+  <asset>
+    <material name="printed_material" rgba="0.80 0.85 0.90 1" />
+    <material name="servo_material" rgba="0.20 0.20 0.22 1" />
+    <material name="backpack_base_material" rgba="0.19 0.44 0.84 1" />
+    <material name="backpack_lid_material" rgba="0.50 0.70 0.35 1" />
+    <material name="backpack_insert_material" rgba="0.78 0.63 0.23 1" />
+    <material name="imu_material" rgba="0 1 0 1" />
+    <mesh name="base_printed.stl" file="meshes/base_printed.stl" />
+    <mesh name="base_servos.stl" file="meshes/base_servos.stl" />
+    <mesh name="right_hip_pitch_link_printed.stl" file="meshes/right_hip_pitch_link_printed.stl" />
+    <mesh name="right_hip_pitch_link_servos.stl" file="meshes/right_hip_pitch_link_servos.stl" />
+    <mesh name="right_hip_yaw_link_printed.stl" file="meshes/right_hip_yaw_link_printed.stl" />
+    <mesh name="right_hip_yaw_link_servos.stl" file="meshes/right_hip_yaw_link_servos.stl" />
+    <mesh name="right_knee_pitch_link_printed.stl" file="meshes/right_knee_pitch_link_printed.stl" />
+    <mesh name="right_knee_pitch_link_servos.stl" file="meshes/right_knee_pitch_link_servos.stl" />
+    <mesh name="left_hip_pitch_link_printed.stl" file="meshes/left_hip_pitch_link_printed.stl" />
+    <mesh name="left_hip_pitch_link_servos.stl" file="meshes/left_hip_pitch_link_servos.stl" />
+    <mesh name="left_hip_yaw_link_printed.stl" file="meshes/left_hip_yaw_link_printed.stl" />
+    <mesh name="left_hip_yaw_link_servos.stl" file="meshes/left_hip_yaw_link_servos.stl" />
+    <mesh name="left_knee_pitch_link_printed.stl" file="meshes/left_knee_pitch_link_printed.stl" />
+    <mesh name="left_knee_pitch_link_servos.stl" file="meshes/left_knee_pitch_link_servos.stl" />
+    <mesh name="right_shoulder_yaw_link_printed.stl" file="meshes/right_shoulder_yaw_link_printed.stl" />
+    <mesh name="right_shoulder_yaw_link_servos.stl" file="meshes/right_shoulder_yaw_link_servos.stl" />
+    <mesh name="left_shoulder_yaw_link_printed.stl" file="meshes/left_shoulder_yaw_link_printed.stl" />
+    <mesh name="left_shoulder_yaw_link_servos.stl" file="meshes/left_shoulder_yaw_link_servos.stl" />
+    <mesh name="right_shoulder_pitch_link_printed.stl" file="meshes/right_shoulder_pitch_link_printed.stl" />
+    <mesh name="left_shoulder_pitch_link_printed.stl" file="meshes/left_shoulder_pitch_link_printed.stl" />
+    <mesh name="right_hip_roll_link_printed.stl" file="meshes/right_hip_roll_link_printed.stl" />
+    <mesh name="left_hip_roll_link_printed.stl" file="meshes/left_hip_roll_link_printed.stl" />
+    <mesh name="right_elbow_yaw_link_printed.stl" file="meshes/right_elbow_yaw_link_printed.stl" />
+    <mesh name="left_elbow_yaw_link_printed.stl" file="meshes/left_elbow_yaw_link_printed.stl" />
+    <mesh name="left_ankle_pitch_link_printed.stl" file="meshes/left_ankle_pitch_link_printed.stl" />
+    <mesh name="right_ankle_pitch_link_printed.stl" file="meshes/right_ankle_pitch_link_printed.stl" />
+    <mesh name="backpack_base.stl" file="meshes/backpack_base.stl" />
+    <mesh name="backpack_lid.stl" file="meshes/backpack_lid.stl" />
+  </asset>
+  <worldbody>
+    <body name="base" pos="0 0 0.320642" childclass="robot">
+      <freejoint name="floating_base" />
+      <inertial pos="0.000323 0.000762 -0.003690" mass="0.803905" fullinertia="5.287e-03 4.172e-03 1.643e-03 -6.627e-07 -3.034e-04 -2.809e-05" />
+      <geom name="base_printed_visual" material="printed_material" type="mesh" mesh="base_printed.stl" class="visual" />
+      <geom name="base_servos_visual" material="servo_material" type="mesh" mesh="base_servos.stl" class="visual" />
+      <site name="base" pos="0 0 0" size="0.005" />
+      <!-- IMU: QMI8658 of the Waveshare RP2040-LCD-1.28 in the left eye (hardware/head_imu/imu_pose.json).
+           The head has no joint, so the chip is rigid to the base. Site axes = the real chip axes: x_imu to the robot right, y_imu up, z_imu backwards. -->
+      <site name="imu" pos="0.021745 0.027420 0.114280" quat="0.500000 0.500000 -0.500000 -0.500000" size="0.006" rgba="0 1 0 1" />
+      <body name="backpack" pos="0 0 0">
+        <!-- backpack v4.2 (hardware/backpack_v2), 573 g: components from hardware/mass_model.json (datasheets), printed shells from mesh volume -->
+        <inertial pos="-0.062763 -0.011130 0.010628" mass="0.5732" fullinertia="2.576e-03 1.754e-03 1.365e-03 6.723e-05 6.860e-05 -7.449e-05" />
+        <geom name="backpack_base_visual" material="backpack_base_material" type="mesh" mesh="backpack_base.stl" class="visual" />
+        <geom name="backpack_lid_visual" material="backpack_lid_material" type="mesh" mesh="backpack_lid.stl" class="visual" />
+      </body>
+      <body name="right_shoulder_pitch_link" pos="0.006375 -0.078150 0.048640">
+        <joint name="right_shoulder_pitch" type="hinge" ref="0.0" class="motor" range="-1.658063 1.762783" axis="0.000000 1.000000 0.000000" />
+        <inertial pos="0.000190 -0.016688 -0.003040" mass="0.026900" fullinertia="6.643e-06 1.454e-05 1.480e-05 5.220e-08 3.725e-08 -1.118e-06" />
+        <geom name="right_shoulder_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="right_shoulder_pitch_link_printed.stl" class="visual" />
+        <body name="right_shoulder_yaw_link" pos="0.018884 -0.030000 -0.016231">
+          <joint name="right_shoulder_yaw" type="hinge" ref="0.0" class="motor" range="-0.872665 0.785398" axis="0.999993 0.000000 0.003625" />
+          <inertial pos="-0.018629 -0.025354 -0.024959" mass="0.120108" fullinertia="9.743e-05 6.360e-05 6.481e-05 3.722e-08 2.765e-08 -2.730e-05" />
+          <geom name="right_shoulder_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="right_shoulder_yaw_link_printed.stl" class="visual" />
+          <geom name="right_shoulder_yaw_link_servos_visual" material="servo_material" type="mesh" mesh="right_shoulder_yaw_link_servos.stl" class="visual" />
+          <body name="right_elbow_yaw_link" pos="0.000030 -0.050677 -0.049719">
+            <joint name="right_elbow_yaw" type="hinge" ref="0.0" class="motor" range="-1.047198 1.745329" axis="-0.999993 0.000000 -0.003625" />
+            <inertial pos="-0.018195 -0.015063 -0.043193" mass="0.046890" fullinertia="2.858e-05 3.231e-05 1.265e-05 -3.016e-07 -8.584e-07 -7.941e-06" />
+            <geom name="right_elbow_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="right_elbow_yaw_link_printed.stl" class="visual" />
+          </body>
+        </body>
+      </body>
+      <body name="left_shoulder_pitch_link" pos="0.006375 0.078150 0.048640">
+        <joint name="left_shoulder_pitch" type="hinge" ref="0.0" class="motor" range="-1.919862 1.658063" axis="0.000000 -1.000000 0.000000" />
+        <inertial pos="0.000077 0.016687 -0.003048" mass="0.026899" fullinertia="6.655e-06 1.454e-05 1.479e-05 -1.437e-08 3.085e-07 1.120e-06" />
+        <geom name="left_shoulder_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="left_shoulder_pitch_link_printed.stl" class="visual" />
+        <body name="left_shoulder_yaw_link" pos="0.018328 0.030000 -0.016856">
+          <joint name="left_shoulder_yaw" type="hinge" ref="0.0" class="motor" range="-0.872665 0.785398" axis="0.999551 0.000000 -0.029977" />
+          <inertial pos="-0.019557 0.021566 -0.027612" mass="0.120109" fullinertia="9.812e-05 7.441e-05 5.556e-05 1.359e-06 -1.764e-06 2.650e-05" />
+          <geom name="left_shoulder_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="left_shoulder_yaw_link_printed.stl" class="visual" />
+          <geom name="left_shoulder_yaw_link_servos_visual" material="servo_material" type="mesh" mesh="left_shoulder_yaw_link_servos.stl" class="visual" />
+          <body name="left_elbow_yaw_link" pos="-0.001841 0.043105 -0.056381">
+            <joint name="left_elbow_yaw" type="hinge" ref="0.0" class="motor" range="-1.658063 1.221730" axis="-0.999551 0.000000 0.029977" />
+            <inertial pos="-0.019604 0.017703 -0.041567" mass="0.046912" fullinertia="2.856e-05 3.130e-05 1.378e-05 6.598e-07 -1.339e-06 9.091e-06" />
+            <geom name="left_elbow_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="left_elbow_yaw_link_printed.stl" class="visual" />
+          </body>
+        </body>
+      </body>
+      <body name="right_hip_pitch_link" pos="0.006375 -0.045650 -0.101360">
+        <joint name="right_hip_pitch" type="hinge" ref="0.0" class="motor" range="-0.785398 1.570796" axis="-0.000000 1.000000 -0.000000" />
+        <inertial pos="0.007048 -0.016370 0.001290" mass="0.090709" fullinertia="3.076e-05 2.692e-05 2.644e-05 -1.026e-06 1.286e-07 4.808e-07" />
+        <geom name="right_hip_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="right_hip_pitch_link_printed.stl" class="visual" />
+        <geom name="right_hip_pitch_link_servos_visual" material="servo_material" type="mesh" mesh="right_hip_pitch_link_servos.stl" class="visual" />
+        <body name="right_hip_yaw_link" pos="0.025500 -0.019360 -0.012502">
+          <joint name="right_hip_yaw" type="hinge" ref="0.0" class="motor" range="-0.052360 1.570796" axis="-1.000000 0.000000 0.000051" />
+          <inertial pos="-0.028084 -0.000834 -0.044179" mass="0.095601" fullinertia="3.102e-05 4.556e-05 2.604e-05 -1.581e-07 -3.389e-06 -4.129e-07" />
+          <geom name="right_hip_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="right_hip_yaw_link_printed.stl" class="visual" />
+          <geom name="right_hip_yaw_link_servos_visual" material="servo_material" type="mesh" mesh="right_hip_yaw_link_servos.stl" class="visual" />
+          <body name="right_hip_roll_link" pos="-0.015004 -0.001336 -0.067746">
+            <joint name="right_hip_roll" type="hinge" ref="0.0" class="motor" range="-0.872665 0.872665" axis="0.000050 0.019712 0.999806" />
+            <inertial pos="0.005880 0.000983 0.001762" mass="0.017221" fullinertia="1.109e-05 8.586e-06 5.175e-06 5.074e-08 -1.505e-06 4.693e-07" />
+            <geom name="right_hip_roll_link_printed_visual" material="printed_material" type="mesh" mesh="right_hip_roll_link_printed.stl" class="visual" />
+            <body name="right_knee_pitch_link" pos="0.000163 0.018334 -0.025076">
+              <joint name="right_knee_pitch" type="hinge" ref="0.0" class="motor" range="-1.483530 1.483530" axis="0.008728 0.999768 -0.019711" />
+              <inertial pos="0.000593 -0.019422 -0.038467" mass="0.161381" fullinertia="1.531e-04 1.419e-04 3.099e-05 4.555e-08 1.969e-06 -3.016e-06" />
+              <geom name="right_knee_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="right_knee_pitch_link_printed.stl" class="visual" />
+              <geom name="right_knee_pitch_link_servos_visual" material="servo_material" type="mesh" mesh="right_knee_pitch_link_servos.stl" class="visual" />
+              <body name="right_ankle_pitch_link" pos="0.001522 -0.001545 -0.077690">
+                <joint name="right_ankle_pitch" type="hinge" ref="0.0" class="motor" range="-1.570796 1.483530" axis="-0.008728 -0.999768 0.019711" />
+                <inertial pos="0.009552 -0.019196 -0.025498" mass="0.087874" fullinertia="2.079e-05 5.576e-05 6.428e-05 5.693e-07 9.253e-07 -5.163e-07" />
+                <geom name="right_ankle_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="right_ankle_pitch_link_printed.stl" class="visual" />
+                <geom name="Right_Foot_collision_box" type="box" pos="0.010113 -0.018850 -0.035768" size="0.050546 0.025990 0.003000" class="collision" />
+                <site name="right_foot" pos="0.010113 -0.018850 -0.040768" size="0.005" />
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="left_hip_pitch_link" pos="0.006375 0.045650 -0.101360">
+        <joint name="left_hip_pitch" type="hinge" ref="0.0" class="motor" range="-1.570796 0.785398" axis="-0.000000 -1.000000 -0.000000" />
+        <inertial pos="0.007035 0.016370 0.001281" mass="0.090709" fullinertia="3.078e-05 2.696e-05 2.645e-05 1.030e-06 1.259e-07 -4.828e-07" />
+        <geom name="left_hip_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="left_hip_pitch_link_printed.stl" class="visual" />
+        <geom name="left_hip_pitch_link_servos_visual" material="servo_material" type="mesh" mesh="left_hip_pitch_link_servos.stl" class="visual" />
+        <body name="left_hip_yaw_link" pos="0.025480 0.019360 -0.012539">
+          <joint name="left_hip_yaw" type="hinge" ref="0.0" class="motor" range="-1.570796 0.087266" axis="-0.999999 0.000000 0.001541" />
+          <inertial pos="-0.028149 -0.000799 -0.044152" mass="0.095602" fullinertia="3.098e-05 4.559e-05 2.605e-05 3.142e-08 -3.405e-06 -1.228e-07" />
+          <geom name="left_hip_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="left_hip_yaw_link_printed.stl" class="visual" />
+          <geom name="left_hip_yaw_link_servos_visual" material="servo_material" type="mesh" mesh="left_hip_yaw_link_servos.stl" class="visual" />
+          <body name="left_hip_roll_link" pos="-0.015104 -0.001183 -0.067727">
+            <joint name="left_hip_roll" type="hinge" ref="0.0" class="motor" range="-0.785398 0.733038" axis="-0.001541 -0.017453 -0.999847" />
+            <inertial pos="0.005918 -0.000661 0.001779" mass="0.017223" fullinertia="1.109e-05 8.541e-06 5.222e-06 2.757e-09 -1.487e-06 -6.594e-07" />
+            <geom name="left_hip_roll_link_printed_visual" material="printed_material" type="mesh" mesh="left_hip_roll_link_printed.stl" class="visual" />
+            <body name="left_knee_pitch_link" pos="0.000947 -0.019228 -0.024379">
+              <joint name="left_knee_pitch" type="hinge" ref="0.0" class="motor" range="-1.554041 1.413019" axis="0.052363 -0.998477 0.017348" />
+              <inertial pos="-0.001220 0.017708 -0.039181" mass="0.161381" fullinertia="1.534e-04 1.421e-04 3.203e-05 5.365e-08 -4.523e-07 -3.666e-06" />
+              <geom name="left_knee_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="left_knee_pitch_link_printed.stl" class="visual" />
+              <geom name="left_knee_pitch_link_servos_visual" material="servo_material" type="mesh" mesh="left_knee_pitch_link_servos.stl" class="visual" />
+              <body name="left_ankle_pitch_link" pos="-0.000453 -0.001874 -0.077698">
+                <joint name="left_ankle_pitch" type="hinge" ref="0.0" class="motor" range="-1.570796 1.570796" axis="-0.052363 0.998477 -0.017348" />
+                <inertial pos="0.008423 0.018809 -0.026178" mass="0.087878" fullinertia="2.080e-05 5.555e-05 6.420e-05 -2.090e-06 1.153e-06 1.033e-06" />
+                <geom name="left_ankle_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="left_ankle_pitch_link_printed.stl" class="visual" />
+                <geom name="Left_Foot_collision_box" type="box" pos="0.009085 0.019319 -0.036151" size="0.051222 0.028194 0.003000" class="collision" />
+                <site name="left_foot" pos="0.009085 0.019319 -0.041151" size="0.005" />
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="right_shoulder_pitch_ctrl" joint="right_shoulder_pitch" class="motor" />
+    <motor name="right_shoulder_yaw_ctrl" joint="right_shoulder_yaw" class="motor" />
+    <motor name="right_elbow_yaw_ctrl" joint="right_elbow_yaw" class="motor" />
+    <motor name="left_shoulder_pitch_ctrl" joint="left_shoulder_pitch" class="motor" />
+    <motor name="left_shoulder_yaw_ctrl" joint="left_shoulder_yaw" class="motor" />
+    <motor name="left_elbow_yaw_ctrl" joint="left_elbow_yaw" class="motor" />
+    <motor name="right_hip_pitch_ctrl" joint="right_hip_pitch" class="motor" />
+    <motor name="right_hip_yaw_ctrl" joint="right_hip_yaw" class="motor" />
+    <motor name="right_hip_roll_ctrl" joint="right_hip_roll" class="motor" />
+    <motor name="right_knee_pitch_ctrl" joint="right_knee_pitch" class="motor" />
+    <motor name="right_ankle_pitch_ctrl" joint="right_ankle_pitch" class="motor" />
+    <motor name="left_hip_pitch_ctrl" joint="left_hip_pitch" class="motor" />
+    <motor name="left_hip_yaw_ctrl" joint="left_hip_yaw" class="motor" />
+    <motor name="left_hip_roll_ctrl" joint="left_hip_roll" class="motor" />
+    <motor name="left_knee_pitch_ctrl" joint="left_knee_pitch" class="motor" />
+    <motor name="left_ankle_pitch_ctrl" joint="left_ankle_pitch" class="motor" />
+  </actuator>
+  <contact>
+    <pair geom1="Left_Foot_collision_box" geom2="floor" friction="1.1 1.1 0.005 0.0001 0.0001" />
+    <pair geom1="Right_Foot_collision_box" geom2="floor" friction="1.1 1.1 0.005 0.0001 0.0001" />
+  </contact>
+  <sensor>
+    <accelerometer name="imu_acc" site="imu" noise="0.01" />
+    <gyro name="imu_gyro" site="imu" noise="0.01" />
+    <magnetometer name="imu_mag" site="imu" noise="0.05" />
+    <framepos name="base_link_pos" objtype="site" objname="base" />
+    <framequat name="base_link_quat" objtype="site" objname="base" />
+    <framelinvel name="base_link_vel" objtype="site" objname="base" />
+    <frameangvel name="base_link_ang_vel" objtype="site" objname="base" />
+    <force name="left_foot_force" site="left_foot" />
+    <force name="right_foot_force" site="right_foot" />
+  </sensor>
+</mujoco>

@@ -32,6 +32,20 @@ One JSON file per demo, created/edited/played via the [servo GUI](../src/servo_g
   off where the body is **lowered** (sitting down, going to the knees), or the leading wave
   carries weight before the rest arrives. The editor has a *stagger* box per step, and the box
   always shows what will actually happen.
+- `balance` — `true` turns on the **IMU balance assist** for this step and its pause (tick *balance*
+  in the editor). The head IMU is rigid with the torso, so its gravity tilt is the torso attitude.
+  The first balanced step records that tilt as reference; while the legs move (and during the
+  pause) a clamped PD correction is added on top of the step's targets to keep the torso at the
+  reference: **pitch → `ankle_pitch`** of the stance leg(s), **roll → `hip_yaw`** (the lateral lean
+  joint) of the stance leg. The stance leg is the one with the straighter knee in the step
+  (`stance: auto`; both knees alike = both ankles, no roll). Consecutive balanced steps share
+  reference and corrections; a step without the flag releases them. Tuning, signs and a
+  `dry_run` mode: [hardware/balance.json](../hardware/balance.json). Only works where the Pi
+  service has the IMU; elsewhere the step just plays unassisted (logged).
+- `sync` — `true`/`false`: scale every joint's speed by its distance so **all joints arrive
+  together** (a straight line in joint space between two stable poses, instead of the short
+  joints finishing first). Default: on for `balance` steps, off otherwise; replaces the staggered
+  start for that step.
 - `boost` — `true` runs this one step **without** the power limits, i.e. at the `speed`/`acc`
   written in the step (up to 3400 / 254). For a peak move such as pushing off the floor at
   the end of `push_ups`. It draws the largest current the pack ever sees, so use it for

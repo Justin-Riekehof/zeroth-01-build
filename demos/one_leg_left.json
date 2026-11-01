@@ -1,0 +1,34 @@
+{
+ "description": "WIEDERHERGESTELLT: nur Schritt 1 (H\u00fcft-Yaw -40,7\u00b0) war aus einem Log rekonstruierbar; Schritte 2-4 der eingeteachten Version gingen durch ein \u00dcberschreiben verloren.",
+ "name": "one_leg_left",
+ "steps": [
+  {
+   "acc": 30,
+   "angles": {
+    "left_ankle_pitch": 0.3,
+    "left_elbow_yaw": -0.2,
+    "left_hip_pitch": 23.1,
+    "left_hip_roll": 0.0,
+    "left_hip_yaw": -40.7,
+    "left_knee_pitch": -0.2,
+    "left_shoulder_pitch": 0.1,
+    "left_shoulder_yaw": 0.3,
+    "right_ankle_pitch": 0.0,
+    "right_elbow_yaw": 0.0,
+    "right_hip_pitch": -16.0,
+    "right_hip_roll": 0.0,
+    "right_hip_yaw": -0.2,
+    "right_knee_pitch": 0.0,
+    "right_shoulder_pitch": -0.2,
+    "right_shoulder_yaw": 0.2
+   },
+   "boost": false,
+   "center": false,
+   "pause_s": 2.0,
+   "settle": null,
+   "speed": 300,
+   "stagger": null,
+   "title": ""
+  }
+ ]
+}

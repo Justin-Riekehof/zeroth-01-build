@@ -285,3 +285,13 @@ h2.fold { cursor: pointer; user-select: none; }
 #mocapRows .mrow.limit .bar i { background: var(--accent); }
 #mocapRows .mrow.limit .v { color: var(--accent); }
 #mocapRows .v { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* walking policy card */
+#polStatus { font-size: 11px; color: var(--muted); line-height: 1.5; word-break: break-word; }
+#polStatus.ok { color: #6fcf97; }
+#polStatus.err { color: var(--danger); }
+#polRange { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+
+/* demo step preview: the live toggle stays where "pose" was; the destructive overwrite sits apart at the row's end */
+.step .acts button.on { background: #2d4a6b; }
+.step .acts button.warn { margin-left: 14px; border-color: #b5532f; color: #f0a98a; }

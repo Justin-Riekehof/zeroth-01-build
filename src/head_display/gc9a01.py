@@ -92,10 +92,21 @@ class GC9A01(framebuf.FrameBuffer):
         pct = min(100, max(0, int(pct)))
         self.bl.duty_u16(pct * 65535 // 100)
 
-    def show(self):
+    def show(self, between=None, strips=6):
+        """Push the frame buffer. With `between`, the transfer is cut into
+        `strips` pieces and `between()` runs after each one (CS stays low, the
+        panel just keeps taking pixels) — the main loop uses the gaps to keep
+        the IMU telemetry on schedule while a ~20 ms frame goes out."""
         self._cmd(0x2A, b"\x00\x00\x00\xEF")
         self._cmd(0x2B, b"\x00\x00\x00\xEF")
         self._cmd(0x2C)
         self.dc(1); self.cs(0)
-        self.spi.write(self.buf)
+        if between is None:
+            self.spi.write(self.buf)
+        else:
+            mv = memoryview(self.buf)
+            n = len(mv) // strips
+            for i in range(strips):
+                self.spi.write(mv[i * n:(i + 1) * n if i < strips - 1 else len(mv)])
+                between()
         self.cs(1)

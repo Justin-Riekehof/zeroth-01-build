@@ -1,5 +1,5 @@
 {
-  "auto": true,
+  "auto": false,
   "back": "getup_back",
   "fallen_deg": 45.0,
   "front": "getup_front",

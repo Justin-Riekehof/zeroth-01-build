@@ -7,6 +7,8 @@ dependencies = [
     "fastapi>=0.111",
     "uvicorn>=0.30",
     "zbot-core",
+    "numpy>=1.26",
+    "onnxruntime>=1.18",       # policy inference (aarch64 wheels exist)
 ]
 
 [tool.uv.sources]

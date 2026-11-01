@@ -37,10 +37,19 @@ foreach ($f in "servo_ids.json", "joint_limits.json", "joint_offsets.json", "cen
     if (Test-Path $p) { Copy-Item $p "$Stage\hardware\$f" }
 }
 Copy-Item -Recurse (Join-Path $RepoRoot "demos") "$Stage\demos"
+# walking policies: only what the robot needs (ONNX + contract), not ckpt.bin / eval
+Get-ChildItem (Join-Path $RepoRoot "sim\policies") -Directory | ForEach-Object {
+    $onnx = Join-Path $_.FullName "policy.onnx"; $meta = Join-Path $_.FullName "policy_meta.json"
+    if ((Test-Path $onnx) -and (Test-Path $meta)) {
+        $dst = "$Stage\policies\$($_.Name)"
+        New-Item -ItemType Directory -Force $dst | Out-Null
+        Copy-Item $onnx, $meta $dst
+    }
+}
 
 $Tgz = Join-Path $env:TEMP "zbot_deploy.tgz"
 if (Test-Path $Tgz) { Remove-Item -Force $Tgz }
-tar -czf $Tgz -C $Stage src hardware demos
+tar -czf $Tgz -C $Stage src hardware demos policies
 if ($LASTEXITCODE -ne 0) { Fail "tar failed" }
 
 Step "copying to ${PiHost}:/tmp"

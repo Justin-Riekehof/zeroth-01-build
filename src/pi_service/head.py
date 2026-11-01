@@ -69,7 +69,7 @@ class ImuParser:
                 s["temp_c"] = float(d["t"])
             if "v" in d:
                 s["vsys"] = float(d["v"])
-            for k in ("mood", "rot", "fps", "lid"):
+            for k in ("mood", "rot", "fps", "lid", "gap"):
                 if k in d:
                     s[k] = d[k]
             s["source"] = "json"
@@ -157,7 +157,7 @@ class ImuReader:
     """Daemon thread: keeps the serial link to the head board open, parses
     what it sends, holds the latest sample. Reconnects on its own."""
 
-    HISTORY = 50                       # ~2.5 s at the firmware's 20 Hz
+    HISTORY = 125                      # ~2.5 s at the firmware's 50 Hz
 
     def __init__(self, port: str = "auto", axes: dict | None = None,
                  exclude_port: str | None = None, baud: int = 115200):

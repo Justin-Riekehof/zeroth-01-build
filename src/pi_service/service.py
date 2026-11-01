@@ -40,6 +40,17 @@ Fall detection + get-up (posture.py, hardware/getup.json):
     POST /getup/config      store the assignment on the robot (repo stays canonical)
     POST /getup             play the get-up sequence: {"case": "auto"|"front"|"back"}
 
+Learned policies (policy.py, ONNX at 50 Hz, files in $ZBOT_ROOT/policies/<name>/):
+    GET  /policies          installed policies + running state
+    POST /policy/start      {name, vx?, wz?, gait_freq?, speed, acc, dry_run}
+    POST /policy/cmd        change vx / wz / gait_freq while running (trained range only)
+    POST /policy/stop       soft stop: hold the pose;  /stop = E-stop, releases torque
+    GET  /policy/status
+
+Servo bench tests (bench.py, NO policy, robot must hang free), logs in $ZBOT_ROOT/bench_logs/:
+    POST /bench/start       {test: step|rect, speeds, confirm_suspended}   servo bench, robot hanging free
+    POST /bench/stop · GET /bench/status|logs
+
 Head peripherals (head.py — IMU display board + Camera Module 3):
     GET  /head              IMU sample (mg / dps / °C / V, head tilt) + camera state
     GET  /camera.mjpg       live MJPEG stream (multipart) — starts rpicam-vid on demand
@@ -63,6 +74,7 @@ Configuration:
 Run:  uvicorn service:app --host 0.0.0.0 --port 8460
 """
 
+import math
 import os
 import subprocess
 import threading
@@ -83,8 +95,17 @@ from zbot_core.motion import (GroupParams, MotionEngine, MotionError, TeleopPara
 from zbot_core.getup import (CASE_LABEL, GetupConfig, load_getup_demo,
                              describe, load_getup, save_getup, validate_getup)
 
-from head import CameraStreamer, ImuReader, mjpeg_multipart
+from head import CameraStreamer, ImuReader, head_tilt, mjpeg_multipart
 from posture import PostureMonitor
+
+try:                       # numpy/onnxruntime are only needed for policies: never block the rest
+    from policy import PolicyRunner
+except ImportError as _e:
+    PolicyRunner, _POLICY_IMPORT_ERROR = None, _e
+try:                       # bench tests need numpy only
+    from bench import BenchRunner
+except ImportError as _eb:
+    BenchRunner, _BENCH_IMPORT_ERROR = None, _eb
 
 API_VERSION = 10
 
@@ -116,6 +137,23 @@ def _head_peripherals() -> tuple[ImuReader, CameraStreamer]:
 
 
 IMU, CAMERA = _head_peripherals()
+
+
+def _torso_tilt():
+    """Fresh torso tilt for the demo balance assist (zbot_core/balance.py):
+    pitch (nose down +) / roll (right ear down +) in deg and |g| in mg, or None."""
+    snap = IMU.snapshot()
+    smp = snap["sample"]
+    if not smp or snap["age_s"] is None or snap["age_s"] > 0.3:
+        return None
+    t = head_tilt(smp, IMU.axes)
+    if t["pitch_deg"] is None:
+        return None
+    return {"pitch": t["pitch_deg"], "roll": t["roll_deg"],
+            "g": math.sqrt(smp["ax"] ** 2 + smp["ay"] ** 2 + smp["az"] ** 2)}
+
+
+ENGINE.tilt_source = _torso_tilt
 
 # ------------------------------------------------------------ bus lifecycle
 
@@ -576,6 +614,8 @@ def _start_getup(case: str) -> Demo:
 
 
 POSTURE = PostureMonitor(IMU, ENGINE, lambda: load_getup(CFG), _start_getup)
+POLICY = PolicyRunner(ENGINE, IMU, ROOT / "policies") if PolicyRunner else None
+BENCH = BenchRunner(ENGINE, ROOT, IMU) if BenchRunner else None
 
 
 def _engine(fn):
@@ -607,6 +647,7 @@ def status():
             "battery": BATTERY.snapshot(),
             "head": _head_state(),
             "posture": POSTURE.snapshot(),
+            "policy": POLICY.status() if POLICY else None,
             "live": S.snapshot()}
 
 
@@ -775,7 +816,17 @@ def robot_pose():
             missing.append(j)
     if not pose:
         raise HTTPException(400, "No servo responds.")
-    return {"pose": pose, "missing": missing}
+    return {"pose": pose, "missing": missing, "imu": _imu_stamp()}
+
+
+def _imu_stamp():
+    """Torso orientation to store with a taught pose: tells afterwards on which leg the robot stood
+    (roll: right ear down = +, so + = leaning/standing on the right side)."""
+    t = _torso_tilt()
+    if not t:
+        return None
+    lean = "right" if t["roll"] > 2.0 else "left" if t["roll"] < -2.0 else "centered"
+    return {"pitch_deg": round(t["pitch"], 1), "roll_deg": round(t["roll"], 1), "lean": lean}
 
 
 @app.post("/connect")
@@ -789,6 +840,7 @@ def connect():
 class PlayIntent(BaseModel):
     until: int | None = Field(None, ge=1)     # play up to this step (inclusive)
     start: int | None = Field(None, ge=1)     # ... starting at this one (start == until: single pose)
+    loops: int = Field(1, ge=-1)              # repeat the range n times; -1 = until stopped
 
 
 @app.post("/demo/{name}")
@@ -801,8 +853,10 @@ def play_demo(name: str, p: PlayIntent = PlayIntent()):
     for v in (p.until, p.start):
         if v is not None and v > n:
             raise HTTPException(400, f"Step {v} out of range (demo has {n} steps).")
+    if p.loops == 0:
+        raise HTTPException(400, "loops must be >= 1, or -1 for endless.")
     _engine(lambda: ENGINE.play_demo(demo, simulate=False, until=p.until,
-                                     start=p.start))
+                                     start=p.start, loops=p.loops))
     return {"ok": True, "demo": demo.name,
             "steps": (p.until or n) - (p.start or 1) + 1}
 
@@ -885,6 +939,35 @@ def _idle_bus_or_400():
     return bus
 
 
+# Feetech STS register table (read only). Names follow the STS memory map from the datasheet; the raw
+# values are returned too, because the labels are not verified on this hardware.
+SERVO_REGS = {"min_angle_limit": (9, 2), "max_angle_limit": (11, 2), "max_temp": (13, 1), "max_voltage": (14, 1),
+              "min_voltage": (15, 1), "max_torque": (16, 2), "p_coef": (21, 1), "d_coef": (22, 1),
+              "i_coef": (23, 1), "min_startup_force": (24, 2), "cw_dead": (26, 1), "ccw_dead": (27, 1),
+              "protection_current": (28, 2), "mode": (33, 1), "protective_torque": (34, 1),
+              "protection_time": (35, 1), "overload_torque": (36, 1), "speed_p": (37, 1),
+              "overcurrent_time": (38, 1), "speed_i": (39, 1), "acceleration": (41, 1), "torque_limit": (48, 2)}
+
+
+@app.get("/servo/regs")
+def servo_regs():
+    """Control-loop registers of every configured servo (P/D/I, dead zone, torque limits ...), read only.
+    Reads over the bus, so it is refused while a run is in progress."""
+    bus = _idle_bus_or_400()
+    out = {}
+    for joint, sid in sorted(CFG.servo_ids().items(), key=lambda kv: kv[1]):
+        try:
+            blk = bus.read_regs(sid, 9, 31)                    # registers 9..39
+            lim = bus.read_regs(sid, 41, 1) + bus.read_regs(sid, 48, 2)
+        except ServoBusError as e:
+            out[joint] = {"id": sid, "error": str(e)}
+            continue
+        raw = {**{9 + i: v for i, v in enumerate(blk)}, 41: lim[0], 48: lim[1], 49: lim[2]}
+        named = {k: sum(raw[a + i] << (8 * i) for i in range(n)) for k, (a, n) in SERVO_REGS.items()}
+        out[joint] = {"id": sid, "regs": named, "raw": {str(a): v for a, v in raw.items()}}
+    return {"servos": out}
+
+
 @app.post("/release")
 def release(p: ReleaseIntent = ReleaseIntent()):
     bus = _idle_bus_or_400()
@@ -901,6 +984,134 @@ def lock(p: ReleaseIntent = ReleaseIntent()):
     locked = lock_joints(bus, CFG.servo_ids(), p.joints)
     S.log(f"torque locked at current position: IDs {locked}")
     return {"ok": True, "locked": locked}
+
+
+# ------------------------------------------------------------ learned policies
+
+def _policy():
+    if POLICY is None:
+        raise HTTPException(501, f"policy runtime unavailable: {_POLICY_IMPORT_ERROR} "
+                                 "(pip install numpy onnxruntime on the Pi)")
+    return POLICY
+
+
+class PolicyStart(BaseModel):
+    name: str
+    vx: float | None = None          # m/s forward; default = middle of the trained range
+    wz: float = 0.0                  # rad/s yaw rate
+    gait_freq: float | None = None   # Hz; default = middle of the trained range
+    speed: int | None = Field(None, ge=1, le=3400)   # servo goal speed, ticks/s; None = the policy's own (else 1000)
+    acc: int = Field(0, ge=0, le=254)
+    dry_run: bool = False            # infer + log, never move or energise a servo
+
+
+class PolicyCmd(BaseModel):
+    vx: float | None = None
+    wz: float | None = None
+    gait_freq: float | None = None
+
+
+@app.get("/policies")
+def policies():
+    return {"policies": _policy().available(), "status": POLICY.status()}
+
+
+@app.post("/policy/start")
+def policy_start(p: PolicyStart):
+    """Run a walking policy at 50 Hz on the Pi. Needs the robot standing upright
+    with fresh head-IMU data; dry_run=true first (robot limp, moved by hand)."""
+    return _engine(lambda: _policy().start(p.name, vx=p.vx, wz=p.wz, gait_freq=p.gait_freq,
+                                           speed=p.speed, acc=p.acc, dry_run=p.dry_run))
+
+
+@app.post("/policy/cmd")
+def policy_cmd(c: PolicyCmd):
+    return {"ok": True, "cmd": _engine(lambda: _policy().set_cmd(**c.model_dump()))}
+
+
+@app.post("/policy/stop")
+def policy_stop():
+    """Soft stop: the loop ends and the robot HOLDS its pose (torque on).
+    /stop is the E-stop that releases everything."""
+    _policy().stop()
+    return {"ok": True}
+
+
+@app.get("/policy/status")
+def policy_status():
+    return _policy().status()
+
+
+@app.get("/policy/logs")
+def policy_logs():
+    """Per-step run logs (.npz) written when a policy run ends, dry runs included."""
+    return {"logs": _policy().logs()}
+
+
+@app.get("/policy/logs/{name}")
+def policy_log(name: str):
+    try:
+        f = _policy().log_path(name)
+    except Exception as e:                                              # noqa: BLE001
+        raise HTTPException(404, str(e))
+    return Response(f.read_bytes(), media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{f.name}"'})
+
+
+# ------------------------------------------------------------ servo bench tests
+
+def _bench():
+    if BENCH is None:
+        raise HTTPException(501, f"bench runtime unavailable: {_BENCH_IMPORT_ERROR}")
+    return BENCH
+
+
+class BenchStart(BaseModel):
+    test: str                                       # step (one joint at a time) | rect (all together) | sag | hold
+    speeds: list[int] = Field(default_factory=lambda: [1000, 2000, 3400], min_length=1, max_length=8)   # sag: [300]
+    amps: list[float] | None = None                 # step: amplitudes, deg (5, 15, 30); sag: angles (30, 60, 90)
+    rect_amp: float = 10.0
+    cycles: int = Field(4, ge=1, le=20)
+    acc: int = Field(0, ge=0, le=254)
+    v_min: float = Field(11.0, ge=10.8, le=12.6)    # abort below this pack voltage
+    joints: list[str] | None = None
+    confirm_suspended: bool = False                 # the robot hangs free, feet off the ground
+    confirm_standing: bool = False                  # hold test: the robot stands on the mat, hand at the E-stop
+    hold_s: float = Field(10.0, ge=2.0, le=60.0)    # hold test: how long to hold
+
+
+@app.post("/bench/start")
+def bench_start(p: BenchStart):
+    """Scripted servo moves WITHOUT a policy, logged at 50 Hz (see bench.py). Robot must hang free."""
+    return _engine(lambda: _bench().start(p.test, p.speeds, p.amps, p.acc, p.v_min, p.cycles, p.rect_amp,
+                                          p.joints, p.confirm_suspended, p.confirm_standing, p.hold_s))
+
+
+@app.post("/bench/stop")
+def bench_stop():
+    """Soft stop: back to the start pose, torque stays on. /stop is the E-stop."""
+    _bench().stop()
+    return {"ok": True}
+
+
+@app.get("/bench/status")
+def bench_status():
+    return _bench().status()
+
+
+@app.get("/bench/logs")
+def bench_logs():
+    return {"logs": _bench().logs()}
+
+
+@app.get("/bench/logs/{name}")
+def bench_log(name: str):
+    try:
+        f = _bench().log_path(name)
+    except Exception as e:                                              # noqa: BLE001
+        raise HTTPException(404, str(e))
+    return Response(f.read_bytes(), media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{f.name}"'})
 
 
 @app.post("/teleop/start")
@@ -982,12 +1193,13 @@ def shutdown():
     with S.lock:
         if S.live["running"]:
             raise HTTPException(400, "Run in progress — POST /stop first.")
-    r = _do_shutdown()
-    if r.returncode != 0:
+    S.log("SHUTDOWN: requested — OS halting, cut power after the ACT LED stops")   # BEFORE: the halt can
+    r = _do_shutdown()                                                              # kill this service
+    if r.returncode != 0:                                                           # before it answers
+        S.log("SHUTDOWN FAILED: " + (r.stderr or "").strip())
         raise HTTPException(500, "shutdown failed — sudoers rule for "
                                  f"'{' '.join(SHUTDOWN_CMD[1:])}' missing? "
                                  f"({(r.stderr or '').strip()})")
-    S.log("SHUTDOWN: OS halting — cut power after the ACT LED stops")
     return {"ok": True}
 
 

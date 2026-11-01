@@ -40,6 +40,9 @@ class DemoStep(BaseModel):
     center: bool = False               # center step: angles resolve to the center pose at playback
     settle: bool | None = None         # load-sag settle pass: None = only on steps with a pause and on the last step
     stagger: bool | None = None        # staggered start (servos in mirror-pair waves): None = only the FIRST move of a run
+    balance: bool = False              # IMU balance assist while moving into this step (and during its pause) — see balance.py
+    sync: bool | None = None           # all joints arrive together (speed scaled per joint): None = on for balance steps
+    imu: dict[str, float | str] | None = None   # head-IMU orientation when the pose was taught (pitch/roll deg, lean side): where the CoM / stance leg was
     boost: bool = False                # peak move: ignore the power limits (speed/acc as given) — e.g. pushing off the floor
     speed: int = Field(500, ge=1, le=3400)
     acc: int = Field(50, ge=0, le=254)
@@ -105,6 +108,7 @@ class ConfigStore:
         self.motion_limits_path = hw / "motion_limits.json"
         self.connection_path = hw / "connection.json"
         self.getup_path = hw / "getup.json"
+        self.balance_path = hw / "balance.json"
         self.demos_dir = self.root / "demos"
         hw.mkdir(parents=True, exist_ok=True)
         self.demos_dir.mkdir(parents=True, exist_ok=True)
@@ -137,6 +141,11 @@ class ConfigStore:
             if k in d and isinstance(v, (int, float)) and v > 0:
                 d[k] = int(v)
         return d
+
+    def balance(self) -> dict:
+        """Balance-assist tuning (hardware/balance.json) over the defaults."""
+        from .balance import merged
+        return merged(read_json(self.balance_path, {}))
 
     def write_motion_limits(self, d: dict) -> None:
         write_json_atomic(self.motion_limits_path, d)

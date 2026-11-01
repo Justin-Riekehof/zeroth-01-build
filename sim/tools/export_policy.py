@@ -12,10 +12,30 @@ ROOT = Path(__file__).resolve().parents[2]; sys.path.insert(0, str(ROOT))
 from sim.train.walking import ZbotModel, NUM_INPUTS, NUM_OUTPUTS  # noqa: E402
 from xax.nn.export import export  # noqa: E402
 
-ckpt, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(); assets = sys.argv[3] if len(sys.argv) > 3 else "zbot-cad"
+# --set key=value (repeatable): override a deployment setting of the training config, e.g. --set action_filter_alpha=0.2
+# for a policy that was trained without the filter but checked with it in the sim. Recorded in policy_meta.json.
+_argv = sys.argv[1:]; _sets = {}
+# --flip-joints a,b: the checkpoint was trained on a model with these joint axes mirrored; the Pi negates them (policy_meta.json)
+_flip = []
+if "--flip-joints" in _argv:
+    i = _argv.index("--flip-joints"); _flip = _argv[i + 1].split(","); del _argv[i:i + 2]
+while "--set" in _argv:
+    i = _argv.index("--set"); k, v = _argv[i + 1].split("=", 1); _sets[k] = v; del _argv[i:i + 2]
+ckpt, out = Path(_argv[0]).resolve(), Path(_argv[1]).resolve(); assets = _argv[2] if len(_argv) > 2 else "zbot-cad"
 with tarfile.open(ckpt, "r:gz") as tar:
     cfg = OmegaConf.create(tar.extractfile("config").read().decode()); model_bytes = tar.extractfile("model").read()
+_trained = {k: cfg.get(k) for k in _sets}
+def _typed(v: str):
+    for t in (int, float):
+        try:
+            return t(v)
+        except ValueError:
+            pass
+    return {"true": True, "false": False}.get(v.lower(), v)
+for k, v in _sets.items():
+    cfg[k] = _typed(v)
 heading_obs = bool(cfg.get("heading_obs", False)); action_scale = float(cfg.get("action_scale", 1.0)); n_in = NUM_INPUTS + (2 if heading_obs else 0)
+action_history = int(cfg.get("action_history", 1) or 1); n_in += NUM_OUTPUTS * (action_history - 1)
 model = eqx.tree_deserialise_leaves(io.BytesIO(model_bytes), ZbotModel(jax.random.PRNGKey(0), num_inputs=n_in))
 def policy(flat_obs: jnp.ndarray) -> jnp.ndarray:          # deterministic action = distribution mode (= mean)
     return model.actor.call_flat_obs(flat_obs).mode()
@@ -65,12 +85,26 @@ layout = [("timestep_phase", 4, "gait clock [cos, sin] x2 (walking.py TimestepPh
           ("imu_gyro", 3, "gyro rad/s, same frame"), ("lin_vel_cmd", 2, "commanded forward/lateral speed m/s"), ("ang_vel_cmd", 1, "commanded yaw rate rad/s"),
           ("gait_freq_cmd", 1, "commanded gait frequency Hz"), ("last_action", NUM_OUTPUTS, "previous action")]
 if heading_obs: layout.append(("heading", 2, "[cos psi, sin psi]: yaw relative to the start heading (IMU yaw zeroed at policy start)"))
-task_keys = ["velocity_tracking", "gait_shaping", "target_speed_min", "target_speed_max", "heading_obs", "action_scale", "gait_freq_lower", "gait_freq_upper", "ctrl_dt"]
+if action_history > 1: layout.append(("action_history", NUM_OUTPUTS * (action_history - 1), f"the {action_history - 1} actions before the previous one, newest first [a(t-2), ..., a(t-{action_history})]; at the start every missing one repeats the first previous action"))
+task_keys = ["velocity_tracking", "gait_shaping", "target_speed_min", "target_speed_max", "heading_obs", "action_scale", "gait_freq_lower", "gait_freq_upper", "ctrl_dt",
+             "servo_model", "leg_servo_speed", "arm_v_max", "cmd_rate_fraction", "clamp_to_real_limits", "start_pose", "dt",
+             "action_filter_alpha", "action_history", "leg_delay", "arm_delay", "delay_rand", "speed_zero_prob"]
+# servo-model policies: the Pi must send the speed register the sim assumed and limit the target rate like the sim did
+import math  # noqa: E402
+_types = [meta["joint_name_to_metadata"][j]["actuator_type"] for j in joints]
+_servo = bool(cfg.get("servo_model", False)); _frac = float(cfg.get("cmd_rate_fraction", 0.0) or 0.0)
+_leg_v = float(cfg.get("leg_servo_speed", 2000)) * 2 * math.pi / 4096; _arm_v = float(cfg.get("arm_v_max", 1.8))
+_rate = [round(_frac * (_arm_v if "3215" in t else _leg_v), 4) for t in _types] if _servo and _frac > 0 else None
 json.dump({"checkpoint": str(ckpt), "assets": assets, "task_config": {k: cfg.get(k) for k in task_keys if k in cfg},
            "input": {"size": n_in, "layout_in_order": [{"name": n, "size": s, "meaning": m} for n, s, m in layout]},
            "output": {"size": NUM_OUTPUTS, "meaning": f"target joint angle rad (tanh-bounded, x action_scale={action_scale}), MuJoCo joint order, 0 = servo zero; a PD loop (sim: kp 16, kd 3) tracks it at {1/float(cfg.get('ctrl_dt', 0.02)):.0f} Hz"},
-           "imu": _imu, "joint_order": joints, "servo_ids": {j: meta["joint_name_to_metadata"][j]["id"] for j in joints},
+           "servo_speed_register": int(cfg.get("leg_servo_speed")) if _servo else None,
+           "command_rate_limit_rad_s": _rate,
+           "export_overrides": {k: {"trained_with": _trained[k], "deployed_with": cfg.get(k)} for k in _sets} or None,
+           "action_filter_alpha": float(cfg.get("action_filter_alpha", 0.0) or 0.0) if _servo else 0.0,
+           "joint_sign_flip": _flip, "imu": _imu, "joint_order": joints, "servo_ids": {j: meta["joint_name_to_metadata"][j]["id"] for j in joints},
            "actuator_types": {j: meta["joint_name_to_metadata"][j]["actuator_type"] for j in joints}, "onnx_vs_jax_max_abs_diff": err,
            "files": ["policy.onnx", "tf_model/", "ckpt.bin", "policy_meta.json"]}, open(out / "policy_meta.json", "w"), indent=1)
+assert set(_flip) <= set(joints), _flip
 shutil.copy(ckpt, out / "ckpt.bin")
-print(f"exported -> {out}  inputs {n_in} (heading_obs={heading_obs})  outputs {NUM_OUTPUTS}  onnx/jax diff {err:.2e}")
+print(f"exported -> {out}  inputs {n_in} (heading_obs={heading_obs}, action_history={action_history})  outputs {NUM_OUTPUTS}  onnx/jax diff {err:.2e}")

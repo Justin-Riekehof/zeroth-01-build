@@ -1,0 +1,70 @@
+[
+ {
+  "plate": 1,
+  "material": "PETG",
+  "file": "plate_01_PETG_Finger.3mf",
+  "parts": {
+   "finger_tip_A_x2": 2,
+   "finger_tip_B_x2": 2,
+   "finger_coupler_x4": 4
+  },
+  "mass_100_g": 67.0,
+  "max_height_mm": 12.0
+ },
+ {
+  "plate": 2,
+  "material": "PETG",
+  "file": "plate_02_PETG_Mechanik.3mf",
+  "parts": {
+   "wrist_yoke_x2": 2,
+   "drive_G1_x2": 2,
+   "drive_G2_x2": 2,
+   "link_A_x2": 2,
+   "link_B_x2": 2,
+   "link_post_x4": 4
+  },
+  "mass_100_g": 193.6,
+  "max_height_mm": 48.6
+ },
+ {
+  "plate": 3,
+  "material": "PETG",
+  "file": "plate_03_PETG_Gehaeuse.3mf",
+  "parts": {
+   "housing_tray_x2": 2,
+   "housing_top_plate_x2": 2,
+   "wrist_retainer_x2": 2,
+   "cap_d14_x2": 2,
+   "cap_d12_x8": 8,
+   "cap_d10_x4": 4
+  },
+  "mass_100_g": 122.1,
+  "max_height_mm": 35.8
+ },
+ {
+  "plate": 4,
+  "material": "TPU",
+  "file": "plate_04_TPU.3mf",
+  "parts": {
+   "pad_tpu_x4": 4
+  },
+  "mass_100_g": 3.1,
+  "max_height_mm": 5.1
+ },
+ {
+  "plate": 5,
+  "material": "PETG",
+  "file": "plate_05_PETG_Nachdruck.3mf",
+  "parts": {
+   "wrist_yoke_x2": 2,
+   "housing_tray_x2": 2,
+   "housing_top_plate_x2": 2,
+   "wrist_retainer_x2": 2,
+   "drive_G1_x2": 2,
+   "link_A_x2": 2,
+   "link_B_x2": 2
+  },
+  "mass_100_g": 282.1,
+  "max_height_mm": 48.6
+ }
+]

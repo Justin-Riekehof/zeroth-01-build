@@ -119,6 +119,48 @@ def fmt(v, n=6):
     return " ".join(f"{float(x):.{n}f}" for x in np.atleast_1d(v))
 
 
+
+def sole_boxes(m, zmin: float, lo, hi, flat_tol: float = 0.0005, rise: float = 0.0035, t: float = 0.006):
+    """Collision boxes for a foot sole with side chamfers, from the printed foot mesh (link frame, m).
+
+    The lowest surface across y (x restricted to the middle of the foot) gives the flat strip (within flat_tol of the
+    sole) and, on each side, the chamfer up to `rise` above the sole: a straight line fitted through it sets the tilt.
+    Returns ([(centre, half sizes, quat) of the flat box, (from, to, radius) of the capsules on the outer chamfer edges at
+    -y and +y], zmin). The box is t thick."""
+    p, _ = trimesh.sample.sample_surface_even(m, 60000, seed=0)
+    xm = (lo[0] + hi[0]) / 2; mid = p[np.abs(p[:, 0] - xm) < 0.25 * (hi[0] - lo[0])]
+    ys = np.arange(lo[1], hi[1], 0.0005)
+    prof = []
+    for y in ys:
+        s = mid[(mid[:, 1] >= y) & (mid[:, 1] < y + 0.0005), 2]
+        if len(s): prof.append((y + 0.00025, s.min() - zmin))
+    prof = np.array(prof)
+    flat = prof[prof[:, 1] < flat_tol, 0]; y0, y1 = flat.min(), flat.max()
+    hx = (hi[0] - lo[0]) / 2; cx = xm
+    boxes = [(np.array([cx, (y0 + y1) / 2, zmin + t / 2]), np.array([hx, (y1 - y0) / 2, t / 2]), np.array([1.0, 0, 0, 0]))]
+    for sign, edge in ((-1, y0), (1, y1)):
+        side = prof[(np.sign(prof[:, 0] - edge) == sign) & (prof[:, 1] <= rise)]
+        d = np.abs(side[:, 0] - edge); k = np.polyfit(d, side[:, 1], 1)[0]           # rise per metre outwards
+        width = d.max(); th = np.arctan(k)
+        n = np.array([0.0, sign * np.sin(th), -np.cos(th)])                            # outward-down normal of the chamfer
+        face = np.array([cx, edge + sign * width / 2, zmin + k * width / 2])
+        r = 0.001                                                                         # capsule on the outer chamfer edge
+        y_out, z_out = edge + sign * width, zmin + k * width + r
+        boxes.append((np.array([lo[0] + r, y_out, z_out]), np.array([hi[0] - r, y_out, z_out]), r))
+    return boxes, zmin
+
+
+def tpu_sole(side: str, mass: float, t: float = 0.006):
+    """Collision box of the TPU overshoe (hardware/foot_sole/stl, link frame, mm): its flat bottom face, t thick.
+    Returns ([(centre, half sizes, quat)], zmin, centre of mass of the shoe)."""
+    m = trimesh.load(str(ROOT / "hardware/foot_sole/stl" / f"foot_sole_{side}.stl"), force="mesh")
+    v = m.vertices / 1000.0; zmin = v[:, 2].min(); bot = v[v[:, 2] < zmin + 0.0002]
+    lo, hi = bot.min(0), bot.max(0)
+    c = np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, zmin + t / 2])
+    h = np.array([(hi[0] - lo[0]) / 2, (hi[1] - lo[1]) / 2, t / 2])
+    com = v.mean(0) if not m.is_volume else np.asarray(m.center_mass) / 1000.0
+    return [(c, h, np.array([1.0, 0, 0, 0]))], zmin, com
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "sim/assets/zbot-cad"))
@@ -127,6 +169,10 @@ def main():
                     help="'imu' (default): site axes = the real chip axes, the sim sensors output raw QMI8658 readings. "
                          "'body': site axes = body axes (x fwd, y left, z up), the Pi must rotate the raw readings first.")
     ap.add_argument("--no-backpack", action="store_true")
+    ap.add_argument("--sole", default="printed", choices=("printed", "tpu"),
+                    help="printed: the bare PETG foot (flat strip + chamfers). tpu: the slip-on TPU overshoe of "
+                         "hardware/foot_sole (flat sole 3.5 mm lower, as wide as the foot, + its mass)")
+    ap.add_argument("--sole-mass", type=float, default=0.022, help="mass of one TPU overshoe in kg (printed shoe weighed 2026-10-31: 22 g)")
     args = ap.parse_args(); out = Path(args.out)
 
     # ---- IMU pose: chip position + chip axes, from the head module's CAD pose ----------------------------------
@@ -245,12 +291,20 @@ def main():
             m.vertices = (R_SIM @ (m.vertices - base_cad).T).T; m.export(out / "meshes" / f"backpack_{part}.stl")
         M, com, I = combine(parts); bp = (M, R_SIM @ (com - base_cad), R_SIM @ I @ R_SIM.T)
 
-    # ---- feet: collision box = bottom 12 mm slab of the foot link mesh (link frame) ----------------------------
+    # ---- feet: the sole as the printed part has it (link frame) ----------------------------------------------------
+    # Only a ~1.7 cm wide strip is flat; on both sides a ~15 deg chamfer rises ~3.5 mm over ~1.2 cm. The old single box
+    # (bottom 12 mm slab, 5.8 cm wide and flat) gave the sim a sideways support three times wider than the real foot and
+    # let the policies stand on the box edges (2026-10-29: feet tilted > 5 deg in 80 % of the contact time). Now: a
+    # box for the flat strip + a thin capsule along the outer edge of each chamfer: the foot rolls over the same edge as
+    # on the real sole, with ~3x fewer contact points than tilted boxes (those made an MJX step 2.8x slower: 25 vs 9 ms).
     feet = {}
     for side in ("left", "right"):
         L = link_of_joint[f"{side}_ankle_pitch"]; m = trimesh.load(str(out / "meshes" / f"{link_names[L]}_printed.stl"), force="mesh")
         v = m.vertices; zmin = v[:, 2].min(); sl = v[v[:, 2] < zmin + 0.012]; lo, hi = sl.min(0), sl.max(0)
-        feet[side] = ((lo + hi) / 2, (hi - lo) / 2, zmin)
+        feet[side] = sole_boxes(m, zmin, lo, hi) if args.sole == "printed" else tpu_sole(side, args.sole_mass)
+        if args.sole == "tpu":                       # the overshoe's mass rides on the foot link
+            Mf, comf, If = inertial[L]; ms, cs = args.sole_mass, feet[side][2]
+            inertial[L] = combine([(Mf, comf, If), (ms, cs, np.zeros((3, 3)))])
     imu_sim = to_sim(imu_cad_mm / 1000.0); imu_quat = quat_of(R_site)
     base_z = base_cad[2] - z_floor + 0.001
 
@@ -289,8 +343,11 @@ def main():
                 w(f'{sp}</body>')
         for side in ("left", "right"):
             if L == link_of_joint[f"{side}_ankle_pitch"]:
-                c, h, zmin = feet[side]; S = side.capitalize()
+                boxes, zmin = feet[side][:2]; S = side.capitalize()
+                (c, h, q), edges = boxes[0], boxes[1:]
                 w(f'{sp}<geom name="{S}_Foot_collision_box" type="box" pos="{fmt(c)}" size="{fmt(h)}" class="collision" />')
+                for (a, b, r), suffix in zip(edges, ("chamfer_neg", "chamfer_pos")):
+                    w(f'{sp}<geom name="{S}_Foot_{suffix}" type="capsule" fromto="{fmt(a)} {fmt(b)}" size="{r:.6f}" class="collision" />')
                 w(f'{sp}<site name="{side}_foot" pos="{c[0]:.6f} {c[1]:.6f} {zmin - 0.002:.6f}" size="0.005" />')
         for name in order:
             c = link_of_joint[name]
@@ -305,7 +362,13 @@ def main():
     tree_order = [ln.split('name="')[1].split('"')[0] for ln in o if ln.lstrip().startswith("<joint ")]
     assert len(tree_order) == 16
     for name in tree_order: w(f'    <motor name="{name}_ctrl" joint="{name}" class="motor" />')   # ctrl index == joint order
-    w('  </actuator>\n  <contact>\n    <pair geom1="Left_Foot_collision_box" geom2="floor" />\n    <pair geom1="Right_Foot_collision_box" geom2="floor" />\n  </contact>')
+    w('  </actuator>\n  <contact>')
+    for S in ("Left", "Right"):
+        for suffix in ("collision_box", "chamfer_neg", "chamfer_pos")[:3 if args.sole == "printed" else 1]:
+            # TPU on a hard floor grips better than PETG
+            fr = ' friction="1.1 1.1 0.005 0.0001 0.0001"' if args.sole == "tpu" else ""
+            w(f'    <pair geom1="{S}_Foot_{suffix}" geom2="floor"{fr} />')
+    w('  </contact>')
     w('  <sensor>\n    <accelerometer name="imu_acc" site="imu" noise="0.01" />\n    <gyro name="imu_gyro" site="imu" noise="0.01" />\n    <magnetometer name="imu_mag" site="imu" noise="0.05" />')
     w('    <framepos name="base_link_pos" objtype="site" objname="base" />\n    <framequat name="base_link_quat" objtype="site" objname="base" />')
     w('    <framelinvel name="base_link_vel" objtype="site" objname="base" />\n    <frameangvel name="base_link_ang_vel" objtype="site" objname="base" />')

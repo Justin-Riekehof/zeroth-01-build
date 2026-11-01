@@ -46,7 +46,7 @@ boards (`60-picotool.rules`, group `plugdev`).
 
 ## Telemetry
 
-One JSON line per ~50 ms, native sensor units (same as the stock demo showed):
+One JSON line every 20 ms (50 Hz, `rate HZ` changes it), native sensor units (same as the stock demo showed). 50 Hz is what the walking policy needs — it takes a fresh sample every control step:
 
 | key | unit | |
 |---|---|---|
@@ -55,6 +55,7 @@ One JSON line per ~50 ms, native sensor units (same as the stock demo showed):
 | `t` | °C | IMU die temperature |
 | `v` | V | board supply (VSYS via the board's 1:2 divider on GPIO 29; ≈4.2 V on USB) |
 | `mood rot fps` | | eye state, display rotation, render rate |
+| `gap` | ms | longest interval between two lines in the last second — should stay ≈ 20–30; if it climbs towards 40+ the eye drawing is starving the telemetry |
 
 ## Commands
 
@@ -71,7 +72,8 @@ Lines on the same serial port; from the GUI/HTTP: `POST /head/cmd {"line": "..."
 | `axes fwd=-z right=+x` | which board axes point out of the face / to the right — **persisted** |
 | `bl PCT` | backlight 0–100 — persisted |
 | `color R G B` | iris colour — persisted |
-| `info` | prints the config as JSON |
+| `rate HZ` | telemetry rate 5–200 Hz (default 50, not persisted) |
+| `info` | prints the config (and the rate) as JSON |
 
 ## Orientation — calibrating once
 

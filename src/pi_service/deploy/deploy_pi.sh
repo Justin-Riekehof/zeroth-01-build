@@ -6,7 +6,7 @@
 #   ./src/pi_service/deploy/deploy_pi.sh --host justin@10.0.0.5
 #
 # Ships zbot_core + pi_service + calibration (servo_ids/joint_limits/joint_offsets/center_pose/getup)
-# + demos to $PI_HOST:~/zbot, installs both packages editable into ~/venv,
+# + demos + walking policies (ONNX + meta) to $PI_HOST:~/zbot, installs both packages editable into ~/venv,
 # refreshes the systemd unit and health-checks /status.
 # connection.json is deliberately NOT shipped: it is host-specific — the Pi falls
 # back to port "auto" until you pin /dev/serial/by-id/... there.
@@ -43,9 +43,15 @@ for f in servo_ids.json joint_limits.json joint_offsets.json center_pose.json mo
     [[ -f "$REPO_ROOT/hardware/$f" ]] && cp "$REPO_ROOT/hardware/$f" "$STAGE/hardware/$f"
 done
 cp -r "$REPO_ROOT/demos" "$STAGE/demos"
+# walking policies: only what the robot needs (ONNX + contract), not ckpt.bin / eval
+for d in "$REPO_ROOT"/sim/policies/*/; do
+    [[ -f "$d/policy.onnx" && -f "$d/policy_meta.json" ]] || continue
+    mkdir -p "$STAGE/policies/$(basename "$d")"
+    cp "$d/policy.onnx" "$d/policy_meta.json" "$STAGE/policies/$(basename "$d")/"
+done
 
 TGZ="$STAGE/zbot_deploy.tgz"
-tar -czf "$TGZ" -C "$STAGE" src hardware demos
+tar -czf "$TGZ" -C "$STAGE" src hardware demos policies
 
 step "copying to $PI_HOST:/tmp"
 scp -q "$TGZ" "$PI_HOST:/tmp/zbot_deploy.tgz" \

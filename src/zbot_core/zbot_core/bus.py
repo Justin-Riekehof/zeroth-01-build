@@ -14,13 +14,14 @@ import threading
 import time
 from typing import Protocol, runtime_checkable
 
-from scservo_sdk import COMM_SUCCESS, PortHandler, sms_sts
+from scservo_sdk import COMM_SUCCESS, GroupSyncRead, PortHandler, sms_sts
 from serial.tools import list_ports
 
 BAUD = 1_000_000
 ADDR_TORQUE_ENABLE = 40
 ADDR_ID = 5                    # EPROM register holding the servo ID
-ADDR_PRESENT_VOLTAGE = 62      # supply rail in 0.1 V units (SMS_STS_PRESENT_VOLTAGE)
+ADDR_PRESENT_POSITION = 56     # 2 B position + 2 B speed (sign-magnitude, bit 15) in one block
+ADDR_PRESENT_VOLTAGE = 62      # supply rail in 0.1 V units (SMS_STS_PRESENT_VOLTAGE); 60 = load (2 B), 63 = temperature
 TICKS_PER_REV = 4096
 POS_MIN_SAFE = 40      # ~3.5 deg
 POS_MAX_SAFE = 4055    # ~356.5 deg
@@ -104,6 +105,73 @@ class ServoBus:
         with self._lock:
             res, err = self._servo.WritePosEx(servo_id, ticks, speed, acc)
         self._check(res, err, f"Move to {ticks}")
+
+    def sync_read(self, ids: list[int]) -> dict[int, tuple[int, int]]:
+        """Position (ticks) and speed (ticks/s, signed) of every ID in ONE bus
+        transaction — the 50 Hz policy loop cannot afford 16 round trips.
+        Raises if any servo is missing from the answer."""
+        with self._lock:
+            grp = GroupSyncRead(self._servo, ADDR_PRESENT_POSITION, 4)
+            for i in ids:
+                grp.addParam(i)
+            res = grp.txRxPacket()
+            out = {}
+            if res == COMM_SUCCESS:
+                for i in ids:
+                    ok, _ = grp.isAvailable(i, ADDR_PRESENT_POSITION, 4)
+                    if ok:
+                        d = grp.getData(i, ADDR_PRESENT_POSITION, 4)
+                        out[i] = (self._servo.scs_tohost(self._servo.scs_loword(d), 15),
+                                  self._servo.scs_tohost(self._servo.scs_hiword(d), 15))
+        missing = [i for i in ids if i not in out]
+        if res != COMM_SUCCESS or missing:
+            raise ServoBusError(f"Sync read failed (IDs {missing or ids}): "
+                                f"{self._servo.getTxRxResult(res).strip()}")
+        return out
+
+    def sync_read_ext(self, ids: list[int]) -> dict[int, tuple[int, int, int, float, int]]:
+        """Position, speed, load, voltage and temperature of every ID in ONE bus transaction
+        (registers 56..63 are contiguous): (ticks, ticks/s signed, load -1000..1000 = +-100 % of the
+        torque limit, volts, deg C). For the bench tests; the 50 Hz policy loop uses sync_read."""
+        with self._lock:
+            grp = GroupSyncRead(self._servo, ADDR_PRESENT_POSITION, 8)
+            for i in ids:
+                grp.addParam(i)
+            res = grp.txRxPacket()
+            out = {}
+            if res == COMM_SUCCESS:
+                for i in ids:
+                    ok, _ = grp.isAvailable(i, ADDR_PRESENT_POSITION, 8)
+                    if ok:
+                        a = ADDR_PRESENT_POSITION
+                        out[i] = (self._servo.scs_tohost(grp.getData(i, a, 2), 15),
+                                  self._servo.scs_tohost(grp.getData(i, a + 2, 2), 15),
+                                  self._servo.scs_tohost(grp.getData(i, a + 4, 2), 10),
+                                  grp.getData(i, a + 6, 1) / 10.0,
+                                  grp.getData(i, a + 7, 1))
+        missing = [i for i in ids if i not in out]
+        if res != COMM_SUCCESS or missing:
+            raise ServoBusError(f"Extended sync read failed (IDs {missing or ids}): "
+                                f"{self._servo.getTxRxResult(res).strip()}")
+        return out
+
+    def sync_move(self, targets: dict[int, int], speed: int, acc: int):
+        """Goal position of many servos in ONE broadcast packet (no reply)."""
+        with self._lock:
+            for i, ticks in targets.items():
+                self._servo.SyncWritePosEx(i, ticks, speed, acc)
+            res = self._servo.groupSyncWrite.txPacket()
+            self._servo.groupSyncWrite.clearParam()
+        if res != COMM_SUCCESS:
+            raise ServoBusError(f"Sync move failed: "
+                                f"{self._servo.getTxRxResult(res).strip()}")
+
+    def read_regs(self, servo_id: int, addr: int, length: int) -> list[int]:
+        """Raw bytes of `length` registers starting at `addr` (read only; the servo's own EEPROM/SRAM table)."""
+        with self._lock:
+            data, res, err = self._servo.readTxRx(servo_id, addr, length)
+        self._check(res, err, f"Read registers {addr}..{addr + length - 1}")
+        return list(data)
 
     def torque_off(self, servo_id: int):
         with self._lock:
@@ -218,6 +286,22 @@ class SimBus:
         self._target[servo_id] = float(ticks)
         self._speed[servo_id] = max(1.0, float(speed))
 
+    def sync_read(self, ids: list[int]) -> dict[int, tuple[int, int]]:
+        self._advance()
+        return {i: (round(self._p(i)), 0) for i in ids}
+
+    def sync_read_ext(self, ids: list[int]) -> dict[int, tuple[int, int, int, float, int]]:
+        self._advance()
+        return {i: (round(self._p(i)), 0, 0, self.voltage if self.voltage is not None else 0.0, 30)
+                for i in ids}
+
+    def sync_move(self, targets: dict[int, int], speed: int, acc: int):
+        for i, ticks in targets.items():
+            self.move(i, ticks, speed, acc)
+
+    def read_regs(self, servo_id: int, addr: int, length: int) -> list[int]:
+        return [0] * length
+
     def torque_off(self, servo_id: int):
         pass
 
@@ -250,6 +334,10 @@ class Bus(Protocol):
     def ping(self, servo_id: int) -> int: ...
     def read_pos(self, servo_id: int) -> int: ...
     def move(self, servo_id: int, ticks: int, speed: int, acc: int) -> None: ...
+    def sync_read(self, ids: list[int]) -> dict[int, tuple[int, int]]: ...
+    def sync_read_ext(self, ids: list[int]) -> dict[int, tuple[int, int, int, float, int]]: ...
+    def sync_move(self, targets: dict[int, int], speed: int, acc: int) -> None: ...
+    def read_regs(self, servo_id: int, addr: int, length: int) -> list[int]: ...
     def torque_off(self, servo_id: int) -> None: ...
     def torque_on(self, servo_id: int) -> bool: ...
     def read_torque(self, servo_id: int) -> int | None: ...

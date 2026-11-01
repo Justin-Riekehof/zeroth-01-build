@@ -18,16 +18,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Generic, Optional, Sequence, TypedDict, TypeVar, Union, cast
 
+import attrs
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import ksim
 import mujoco
+import numpy as np
 import xax
 from jaxtyping import Array, PRNGKeyArray
 from kscale.web.gen.api import JointMetadataOutput
 from ksim.actuators import NoiseType, StatefulActuators
+from ksim.resets import update_data_field
 from ksim.types import PhysicsData, PlannerState
+from ksim.utils.mujoco import get_qpos_data_idxs_by_name
 from mujoco import mjx
 from mujoco_scenes.mjcf import load_mjmodel
 from xax.nn.export import export
@@ -93,6 +97,65 @@ class ZbotTaskConfig(ksim.PPOConfig):
     domain_randomize: bool = xax.field(
         value=True,
         help="Whether to randomize the task parameters.",
+    )
+
+    # --- servo model measured on the robot (bench tests 2026-10-25, sim/tools/bench_fit.py) ---------------
+    # off = the original soft-PD actuator (trapezoid planner with v 5 rad/s, a 39 rad/s^2 for every joint).
+    servo_model: bool = xax.field(
+        value=False,
+        help="Use the bench-measured servo model: per-joint speed limit, acceleration limit and command delay.",
+    )
+    leg_servo_speed: float = xax.field(
+        value=2000.0,
+        help="Speed register the Pi sends (ticks/s, 4096 = one turn); the legs follow it, so v_max = speed * 2pi/4096.",
+    )
+    servo_kp: float = xax.field(
+        value=32.0,
+        help="servo_model: P register of the real servos (all 16 read 32/32/0 = factory default; the sag test measured "
+        "~45 Nm/rad on the legs = 2x the soft sim value of kp 16). 0 keeps the metadata.json kp (16).",
+    )
+    action_filter_alpha: float = xax.field(
+        value=0.0,
+        help="servo_model: > 0 low-passes the policy action before clamp and rate limiter, once per control step: "
+        "filt += alpha * (action - filt), exactly like the Pi runner (action_filter_alpha in policy_meta.json). 0.2 lets "
+        "a period-2 zig-zag through at 11 %, 10 Hz at ~19 %, the ~1.2 Hz gait at ~83 % (~80 ms lag).",
+    )
+    cmd_rate_fraction: float = xax.field(
+        value=0.0,
+        help="servo_model: > 0 limits how fast the commanded target may move, to this fraction of the servo speed limit "
+        "(legs: leg_servo_speed, arms: arm_v_max), BEFORE the delay line - exactly what the Pi runner does with "
+        "command_rate_limit_rad_s from policy_meta.json. 0.7 = the servos never have to run faster than 70 %.",
+    )
+    clamp_to_real_limits: bool = xax.field(
+        value=False,
+        help="servo_model: clamp every target to hardware/joint_limits.json (intersected with the sim range) before the "
+        "servo sees it, exactly like the Pi runner does. Off keeps the old behaviour (targets beyond a limit press into "
+        "the sim's joint stop).",
+    )
+    arm_v_max: float = xax.field(value=1.8, help="STS3215 (arms) top speed in rad/s, whatever the register says.")
+    leg_a_max: float = xax.field(value=350.0, help="STS3250 (legs) acceleration limit, rad/s^2 (bench fit).")
+    arm_a_max: float = xax.field(value=8.0, help="STS3215 (arms) acceleration limit, rad/s^2 (bench fit).")
+    leg_delay: float = xax.field(value=0.04, help="STS3250 command delay in s (bench fit: 2 control steps).")
+    arm_delay: float = xax.field(value=0.06, help="STS3215 command delay in s (bench fit: 3 control steps).")
+    delay_rand: float = xax.field(
+        value=0.0,
+        help="Per-episode random shift of every servo delay, uniform in +-delay_rand s (one value for the whole bus). "
+        "0.02 = legs 20-60 ms: the policy cannot tune its feedback to one exact delay (a delay-tuned high-gain loop "
+        "oscillates at ~1 / (2 x total lag), the 5-6 Hz jitter of servo_ctrl_v1-v3).",
+    )
+    start_pose: str = xax.field(
+        value="zero",
+        help="'zero': every episode starts with all joints at 0 (upright). 'center': the real robot's centre pose "
+        "(center_pose_deg), torso leaning, feet flat.",
+    )
+    center_pose_deg: str = xax.field(
+        value="left_hip_pitch=18.7,right_hip_pitch=-16.1",
+        help="hardware/center_pose.json: joint=deg pairs that differ from 0 in the real centre pose.",
+    )
+    hip_yaw_range_deg: float = xax.field(
+        value=0.0,
+        help="> 0: clip the hip-yaw joint ranges to +-this many degrees (the real ones are [-90, 5] / [-3, 90]; "
+        "walking uses ~5 deg). 0 keeps the model's ranges.",
     )
 
     # Checkpointing parameters.
@@ -254,6 +317,206 @@ class FeetechActuators(StatefulActuators):
         return PlannerState(position=initial_position, velocity=initial_velocity)
 
 
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class ServoState(PlannerState):
+    """Planner state of the servo model: the setpoint (position, velocity) plus the last commands.
+
+    buffer[0] is the newest command of the most recent physics step, buffer[k] the one k steps earlier; last_cmd is the
+    rate-limited command of the previous physics step; filt the low-passed action; delay_shift the episode's random
+    delay offset in physics steps (DELAY_UNSET until the first step of the episode draws it); actions the policy actions
+    of the last control steps, newest first (actions[0] = the one being applied), tick the physics step count."""
+
+    buffer: Array
+    last_cmd: Array
+    filt: Array
+    delay_shift: Array
+    actions: Array
+    tick: Array
+
+
+DELAY_UNSET = -(2 ** 20)
+
+
+def servo_step(
+    position: Array, velocity: Array, target: Array, dt: float, v_max: Array, a_max: Array
+) -> tuple[Array, Array]:
+    """One step of a time-optimal position servo: speed limit v_max, acceleration limit a_max.
+
+    The setpoint moves toward `target` as fast as it may and still stops on it (no overshoot, no chatter
+    around the target even for the legs' a_max of ~350 rad/s^2 at a 4 ms step)."""
+    err = target - position
+    v_stop = jnp.sign(err) * jnp.sqrt(2.0 * a_max * jnp.abs(err))   # fastest speed that can still stop here
+    v_reach = err / dt                                              # lands exactly on the target this step
+    v_des = jnp.where(jnp.abs(v_stop) < jnp.abs(v_reach), v_stop, v_reach)
+    v_des = jnp.clip(v_des, -v_max, v_max)
+    new_velocity = velocity + jnp.clip(v_des - velocity, -a_max * dt, a_max * dt)
+    return position + new_velocity * dt, new_velocity
+
+
+class ServoModelActuators(FeetechActuators):
+    """FeetechActuators with the servo behaviour measured on the robot.
+
+    The torque law is the sys-ID'd duty model of the parent (tracks the setpoint); what changes is the
+    setpoint: the command first passes a per-joint delay line, then a speed- and acceleration-limited
+    servo_step (STS3250 legs follow the speed register, STS3215 arms top out at ~1.8 rad/s)."""
+
+    def __init__(self, *args, v_max_j: Array, a_max_j: Array, delay_steps_j: Array,
+                 lo_j: Array | None = None, hi_j: Array | None = None, cmd_rate_j: Array | None = None,
+                 filter_alpha_phys: float = 0.0, delay_rand_steps: int = 0, action_history: int = 1,
+                 phys_per_ctrl: int = 1, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.lo_j, self.hi_j = lo_j, hi_j        # the Pi clamps every policy target to the joint limits: so does the sim
+        self.cmd_rate_j = cmd_rate_j             # rad/s the commanded target may move (Pi: command_rate_limit_rad_s)
+        # per PHYSICS step: (1 - a)^n = (1 - alpha) over the n physics steps of one control step, so a constant action
+        # is filtered exactly like the Pi does it once per control step
+        self.filter_alpha_phys = float(filter_alpha_phys)
+        self.v_max_j = v_max_j
+        self.a_max_j = a_max_j
+        self.delay_steps_j = jnp.asarray(delay_steps_j, dtype=jnp.int32)
+        # per episode every delay moves by the same random shift in [-delay_rand_steps, +delay_rand_steps], at least 0
+        self.delay_rand_steps = int(delay_rand_steps)
+        self.buffer_len = int(jnp.max(self.delay_steps_j)) + self.delay_rand_steps + 1
+        # the policy's past actions for ActionHistoryObservation (walking.py): the observation carry of this ksim version
+        # is not batched per env, the planner state is. Pushed on the LAST physics step of a control step, when the
+        # engine's random action latency (< 1 control step) is surely over.
+        self.action_history = int(action_history)
+        self.phys_per_ctrl = int(phys_per_ctrl)
+
+    def get_default_state(self, initial_position: Array, initial_velocity: Array) -> ServoState:
+        buffer = jnp.tile(initial_position[None, :], (self.buffer_len, 1))
+        return ServoState(position=initial_position, velocity=initial_velocity, buffer=buffer,
+                          last_cmd=initial_position, filt=initial_position,
+                          delay_shift=jnp.array(DELAY_UNSET, dtype=jnp.int32),
+                          actions=jnp.tile(initial_position[None, :], (self.action_history, 1)),  # = ksim's first action
+                          tick=jnp.array(0, dtype=jnp.int32))
+
+    def delays(self, delay_shift: Array) -> Array:
+        """the per-joint delay in physics steps for an episode's shift"""
+        return jnp.clip(self.delay_steps_j + delay_shift, 0, self.buffer_len - 1)
+
+    def get_stateful_ctrl(
+        self,
+        action: Array,
+        physics_data: PhysicsData,
+        planner_state: PlannerState,
+        rng: PRNGKeyArray,
+    ) -> tuple[Array, PlannerState]:
+        if not isinstance(planner_state, ServoState):   # the plain-MuJoCo render path resets with a PlannerState
+            planner_state = self.get_default_state(planner_state.position, planner_state.velocity)
+        delay_rng, tor_rng = jax.random.split(rng)
+        drawn = jax.random.randint(delay_rng, (), -self.delay_rand_steps, self.delay_rand_steps + 1, dtype=jnp.int32)
+        delay_shift = jnp.where(planner_state.delay_shift == DELAY_UNSET, drawn, planner_state.delay_shift)
+        last_of_ctrl = (planner_state.tick % self.phys_per_ctrl) == self.phys_per_ctrl - 1
+        actions = jnp.where(last_of_ctrl, jnp.concatenate([action[None, :], planner_state.actions[:-1]], axis=0),
+                            planner_state.actions)
+
+        # what the Pi sends: low-pass the action, clamp to the joint limits, then limit how fast the target may move
+        filt = planner_state.filt
+        if self.filter_alpha_phys > 0:
+            filt = filt + self.filter_alpha_phys * (action - filt)
+            action = filt
+        cmd = action if self.lo_j is None else jnp.clip(action, self.lo_j, self.hi_j)
+        if self.cmd_rate_j is not None:
+            step = self.cmd_rate_j * self.dt
+            cmd = planner_state.last_cmd + jnp.clip(cmd - planner_state.last_cmd, -step, step)
+        buffer = jnp.concatenate([cmd[None, :], planner_state.buffer[:-1]], axis=0)
+        delayed = jnp.take_along_axis(buffer, self.delays(delay_shift)[None, :], axis=0)[0]
+        position, velocity = servo_step(
+            planner_state.position, planner_state.velocity, delayed, self.dt, self.v_max_j, self.a_max_j
+        )
+
+        current_pos_j = physics_data.qpos[7:]
+        current_vel_j = physics_data.qvel[6:]
+        raw_duty_j = self.kp_j * self.error_gain_j * (position - current_pos_j) + self.kd_j * (velocity - current_vel_j)
+        duty_j = jnp.clip(raw_duty_j, -self.max_pwm_j, self.max_pwm_j)
+        torque_j = duty_j * self.vin_j * self.kt_j / self.r_j
+        torque_j = self.add_noise(self.torque_noise, self.torque_noise_type, torque_j, tor_rng)
+        return torque_j, ServoState(position=position, velocity=velocity, buffer=buffer, last_cmd=cmd, filt=filt,
+                                    delay_shift=delay_shift, actions=actions, tick=planner_state.tick + 1)
+
+
+def parse_center_pose(text: str) -> dict[str, float]:
+    return {k.strip(): float(v) for k, v in (kv.split("=") for kv in text.split(",") if kv.strip())}
+
+
+def real_joint_limits(physics_model: ksim.PhysicsModel) -> tuple[np.ndarray, np.ndarray]:
+    """Per joint (MuJoCo joint order) the range the real robot may use: hardware/joint_limits.json (what the Pi clamps
+    every policy target to, same angle convention as the sim) intersected with the sim joint range (which carries the
+    hip_yaw_range_deg clip). Radians. Works for mujoco.MjModel and mjx.Model."""
+    mappings = get_qpos_data_idxs_by_name(physics_model)
+    rng = np.asarray(physics_model.jnt_range)[1:]                        # row 0 is the free base joint
+    lo, hi = rng[:, 0].copy(), rng[:, 1].copy()
+    real = json.load(open(Path(__file__).resolve().parents[2] / "hardware" / "joint_limits.json"))
+    for name, idx in mappings.items():
+        if name in real:
+            i = int(idx[0]) - 7
+            lo[i] = max(lo[i], np.radians(real[name]["min_deg"]))
+            hi[i] = min(hi[i], np.radians(real[name]["max_deg"]))
+    return lo, hi
+
+
+def center_start_qpos(mj_model: mujoco.MjModel, angles_deg: dict[str, float]) -> np.ndarray:
+    """Base pose (qpos[:7]) with which the real centre pose stands on both feet: base pitched until the soles lie
+    flat, lowered until they touch the floor. Writes it to mj_model.qpos0[:7] and returns the joint angles (rad,
+    MuJoCo joint order) that go with it.
+
+    NEVER write joint angles into mj_model.qpos0: MuJoCo's kinematics uses qpos - qpos0, so that would move the
+    joint's zero instead of the start pose. The joint angles are set by CenterPoseReset at every episode start."""
+    data = mujoco.MjData(mj_model)
+    joints = np.zeros(mj_model.nq - 7)
+    for name, deg in angles_deg.items():
+        adr = mj_model.joint(name).qposadr[0]
+        joints[adr - 7] = np.radians(deg)
+    feet = [g for g in range(mj_model.ngeom)
+            if "Foot_collision" in (mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_GEOM, g) or "")]
+    if len(feet) != 2:
+        raise ValueError(f"expected 2 foot collision geoms, found {len(feet)}")
+
+    def pose(pitch: float) -> None:
+        mujoco.mj_resetData(mj_model, data)
+        data.qpos[7:] = joints
+        data.qpos[3:7] = [np.cos(pitch / 2), 0.0, np.sin(pitch / 2), 0.0]
+        mujoco.mj_forward(mj_model, data)
+
+    def tilt(pitch: float) -> float:
+        pose(pitch)
+        return float(sum(1.0 - abs(data.geom_xmat[g].reshape(3, 3)[2, 2]) for g in feet))
+
+    lo, hi = -0.6, 0.6                                   # golden-section search: tilt() has one minimum
+    for _ in range(60):
+        a, b = lo + 0.382 * (hi - lo), lo + 0.618 * (hi - lo)
+        lo, hi = (lo, b) if tilt(a) < tilt(b) else (a, hi)
+    pitch = 0.5 * (lo + hi)
+    pose(pitch)
+    lowest = min(data.geom_xpos[g][2] - float(np.abs(data.geom_xmat[g].reshape(3, 3)[2]) @ mj_model.geom_size[g])
+                 for g in feet)
+    mj_model.qpos0[0:3] = [data.qpos[0], data.qpos[1], data.qpos[2] - lowest + 0.001]
+    mj_model.qpos0[3:7] = [np.cos(pitch / 2), 0.0, np.sin(pitch / 2), 0.0]
+    logger.info("start pose 'center': base pitch %.1f deg, height %.3f m", np.degrees(pitch), mj_model.qpos0[2])
+    return joints
+
+
+@attrs.define(frozen=True, kw_only=True)
+class CenterPoseReset(ksim.Reset):
+    """Episode start in the real robot's centre pose: sets the joint angles (the base pose is in qpos0)."""
+
+    joint_qpos: tuple[float, ...] = attrs.field()
+
+    def __call__(self, data: PhysicsData, curriculum_level: Array, rng: PRNGKeyArray) -> PhysicsData:
+        new_qpos = jnp.concatenate([data.qpos[:7], jnp.array(self.joint_qpos)])
+        return update_data_field(data, "qpos", new_qpos)
+
+    @classmethod
+    def from_model(cls, physics_model: ksim.PhysicsModel, center_pose_deg: str) -> "CenterPoseReset":
+        """physics_model: mujoco.MjModel (tests, rendering) or mjx.Model (training: no names, no .joint())"""
+        mappings = get_qpos_data_idxs_by_name(physics_model)
+        joints = np.zeros(int(physics_model.nq) - 7)
+        for name, deg in parse_center_pose(center_pose_deg).items():
+            joints[int(mappings[name][0]) - 7] = np.radians(deg)
+        return cls(joint_qpos=tuple(float(x) for x in joints))
+
+
 ZbotModel = TypeVar("ZbotModel", bound=eqx.Module)
 
 
@@ -324,6 +587,18 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
 
             # Apply parameters based on the joint suffix
             self._configure_actuator_params(mj_model, dof_id, joint_name, params)
+
+        if self.config.hip_yaw_range_deg > 0:
+            lim = np.radians(self.config.hip_yaw_range_deg)
+            for i in range(mj_model.njnt):
+                name = mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_JOINT, i)
+                if name and "hip_yaw" in name:
+                    mj_model.jnt_range[i] = np.clip(mj_model.jnt_range[i], -lim, lim)
+                    logger.info("%s range clipped to %s deg", name, np.degrees(mj_model.jnt_range[i]).round(1))
+        if self.config.start_pose == "center":
+            center_start_qpos(mj_model, parse_center_pose(self.config.center_pose_deg))
+        elif self.config.start_pose != "zero":
+            raise ValueError(f"start_pose must be 'zero' or 'center', not '{self.config.start_pose}'")
 
         return mj_model
 
@@ -480,6 +755,7 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
         # is in MuJoCo actuator order, which in our MJCF equals joint order. Sorting by
         # servo id (upstream behavior) scrambles per-joint parameters for this build.
         sorted_joints = sorted(self.joint_mappings.items(), key=lambda x: x[1]["nn_id"])
+        is_arm_j = [False] * num_joints
 
         for i, (joint_name, mapping) in enumerate(sorted_joints):
             joint_metadata = metadata[joint_name]
@@ -491,6 +767,7 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
                 raise ValueError(f"'actuator_type' is not available for joint {joint_name}")
             if not isinstance(actuator_type, str):
                 raise TypeError(f"'actuator_type' for joint {joint_name} must be a string.")
+            is_arm_j[i] = "3215" in actuator_type          # STS3215 = arms, STS3250 = legs
 
             params = load_actuator_params(self.config.actuator_params_path, actuator_type)
 
@@ -514,6 +791,49 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
             kd_j = kd_j.at[i].set(float(joint_metadata.kd))
 
         self.log_joint_config(physics_model)
+
+        if self.config.servo_model:
+            import math
+
+            if self.config.servo_kp > 0:
+                kp_j = jnp.full_like(kp_j, self.config.servo_kp)
+
+            arm = jnp.array(is_arm_j)
+            leg_v = self.config.leg_servo_speed * 2.0 * math.pi / 4096.0
+            delay_s = jnp.where(arm, self.config.arm_delay, self.config.leg_delay)
+            logger.info("servo model: legs v_max %.2f rad/s a_max %.0f delay %.0f ms | arms v_max %.2f a_max %.1f "
+                        "delay %.0f ms", leg_v, self.config.leg_a_max, self.config.leg_delay * 1000,
+                        self.config.arm_v_max, self.config.arm_a_max, self.config.arm_delay * 1000)
+            return ServoModelActuators(
+                max_torque_j=max_torque_j,
+                max_velocity_j=max_velocity_j,
+                max_pwm_j=max_pwm_j,
+                vin_j=vin_j,
+                kt_j=kt_j,
+                r_j=r_j,
+                kp_j=kp_j,
+                kd_j=kd_j,
+                vmax_j=vmax_j,
+                amax_j=amax_j,
+                dt=self.config.dt,
+                error_gain_j=error_gain_j,
+                action_noise=0.0,
+                action_noise_type="none",
+                torque_noise=0.0,
+                torque_noise_type="none",
+                v_max_j=jnp.where(arm, self.config.arm_v_max, leg_v),
+                a_max_j=jnp.where(arm, self.config.arm_a_max, self.config.leg_a_max),
+                delay_steps_j=jnp.round(delay_s / self.config.dt).astype(jnp.int32),
+                **({"lo_j": jnp.array(real_joint_limits(physics_model)[0]),
+                    "hi_j": jnp.array(real_joint_limits(physics_model)[1])} if self.config.clamp_to_real_limits else {}),
+                **({"cmd_rate_j": self.config.cmd_rate_fraction * jnp.where(arm, self.config.arm_v_max, leg_v)}
+                   if self.config.cmd_rate_fraction > 0 else {}),
+                filter_alpha_phys=(1.0 - (1.0 - self.config.action_filter_alpha) ** (self.config.dt / self.config.ctrl_dt)
+                                   if self.config.action_filter_alpha > 0 else 0.0),
+                delay_rand_steps=int(round(self.config.delay_rand / self.config.dt)),
+                action_history=int(getattr(self.config, "action_history", 1)),
+                phys_per_ctrl=int(round(self.config.ctrl_dt / self.config.dt)),
+            )
 
         return FeetechActuators(
             max_torque_j=max_torque_j,

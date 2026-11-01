@@ -17,6 +17,7 @@ errors (HTTP 400 etc.). Log strings are part of the observable behavior
 (the regression suites assert on them); change them deliberately.
 """
 
+import itertools
 import json
 import threading
 import time
@@ -27,6 +28,7 @@ from pydantic import BaseModel, Field
 from .bus import (CENTER_TICKS, POS_MAX_SAFE, POS_MIN_SAFE, ServoBusError,
                   SimBus, rel_deg_to_ticks, ticks_to_rel_deg)
 from . import mocap
+from .balance import TiltBalancer, pick_stance
 from .config import ConfigStore, Demo, mirror_joint
 
 POLL_S = 0.04          # position poll interval during a test
@@ -200,6 +202,115 @@ class TeleopParams(BaseModel):
 
 # ---------------------------------------------------------------- engine
 
+class _BalanceSession:
+    """IMU balance assist over a run of demo steps (see balance.py). Holds the
+    controller across consecutive balanced steps, so its reference tilt and
+    corrections carry over from one step to the next."""
+
+    def __init__(self, eng, plan):
+        self.eng, self.S = eng, eng.S
+        self.by_joint = {e["joint"]: e for e in plan}
+        self.cfg = eng.cfg.balance()
+        self.ctrl: TiltBalancer | None = None
+        self.base: dict[int, int] = {}       # sid -> uncorrected target ticks
+        self.sent: dict[int, int] = {}       # sid -> last commanded ticks
+        self.hold_ids: set[int] = set()
+        self._warned = False
+        self.t_last_log = 0.0
+
+    def _tilt(self):
+        src = self.eng.tilt_source
+        try:
+            return src() if src else None
+        except Exception:
+            return None
+
+    def prepare(self, label: str, angles: dict, bus) -> bool:
+        """Arm for one step. False = no assist (disabled / no IMU)."""
+        if not self.cfg["enabled"]:
+            return False
+        t = self._tilt()
+        if t is None:
+            if not self._warned:
+                self._warned = True
+                self.S.log(f"{label}: balance assist skipped — no fresh IMU data")
+            return False
+        stance = pick_stance(self.cfg, {k: v for k, v in angles.items() if "knee" in k})
+        if self.ctrl is None:
+            ps, rs = [], []
+            t_end = time.monotonic() + 0.3        # reference = tilt at rest, averaged
+            while time.monotonic() < t_end:
+                t = self._tilt() or t
+                ps.append(t["pitch"]); rs.append(t["roll"])
+                time.sleep(0.03)
+            self.ctrl = TiltBalancer(self.cfg, stance)
+            self.ctrl.set_reference(sum(ps) / len(ps), sum(rs) / len(rs))
+            self.S.log(f"{label}: balance assist ON — reference pitch "
+                       f"{self.ctrl.ref[0]:+.1f} deg, roll {self.ctrl.ref[1]:+.1f} deg"
+                       + (" (DRY RUN: only logging)" if self.cfg["dry_run"] else ""))
+        else:
+            self.ctrl.set_stance(stance)
+            self.ctrl.max_dev = (0.0, 0.0)
+        self.S.log(f"{label}: balance stance {stance} -> "
+                   + ", ".join(list(self.ctrl.pitch_joints) + list(self.ctrl.roll_joints)))
+        return True
+
+    def drop(self, label: str):
+        if self.ctrl is not None:
+            self.S.log(f"{label}: balance assist off (corrections released)")
+        self.ctrl = None
+        self.base.clear(); self.sent.clear()
+
+    def begin(self, bus, targets: dict):
+        """New move: remember the uncorrected targets of the balanced joints."""
+        self.base = dict(targets)
+        for j in self.ctrl.joints:
+            e = self.by_joint.get(j)
+            if e and e["id"] not in self.base:
+                self.base[e["id"]] = bus.read_pos(e["id"])
+        self.sent = dict(self.base)
+
+    def step(self, bus, targets: dict | None = None) -> dict:
+        """One control tick: read the tilt, command changed corrections.
+        Returns {sid: corrected target ticks} for the balanced joints."""
+        t = self._tilt()
+        if t is None or self.ctrl is None:
+            return {}
+        off = self.ctrl.update(t["pitch"], t["roll"], t.get("g", 1000.0),
+                               time.monotonic())
+        out = {}
+        for j, deg in off.items():
+            e = self.by_joint.get(j)
+            if not e or e["id"] not in self.base:
+                continue
+            sid = e["id"]
+            if self.cfg["dry_run"]:
+                deg = 0.0
+            lo_t, hi_t = sorted((to_ticks(e["lo"], e["offset"]),
+                                 to_ticks(e["hi"], e["offset"])))
+            base_deg = to_rel(self.base[sid], e["offset"])
+            tgt = max(lo_t, min(hi_t, to_ticks(base_deg + deg, e["offset"])))
+            out[sid] = tgt
+            if abs(tgt - self.sent.get(sid, tgt)) >= 3:
+                self.eng._cmd(bus, sid, tgt, self.cfg["speed"], self.cfg["acc"])
+                self.sent[sid] = tgt
+        now = time.monotonic()
+        if now - self.t_last_log > 0.5:
+            self.t_last_log = now
+            fp, fr = self.ctrl._f
+            self.S.log(f"balance: pitch {fp - self.ctrl.ref[0]:+.1f} roll "
+                       f"{fr - self.ctrl.ref[1]:+.1f} deg off ref; corrections "
+                       + ", ".join(f"{j.replace('_pitch', '').replace('_', ' ')} {d:+.1f}"
+                                   for j, d in off.items() if abs(d) >= 0.05 or
+                                   j in {**self.ctrl.pitch_joints, **self.ctrl.roll_joints}))
+        return out
+
+    def summary(self, label: str):
+        if self.ctrl:
+            self.S.log(f"{label}: balance max deviation pitch "
+                       f"{self.ctrl.max_dev[0]:.1f} deg, roll {self.ctrl.max_dev[1]:.1f} deg")
+
+
 class MotionEngine:
     """Owns the (single) run lifecycle against one bus, plus the live state."""
 
@@ -209,6 +320,9 @@ class MotionEngine:
         self._clamped: set = set()          # (speed, acc) pairs already reported this run
         self._stagger_next = False          # stagger the FIRST group move of a run (see _stagger_waves)
         self._tele: SimpleNamespace | None = None   # active teleop session
+        # () -> {"pitch","roll","g"} (deg, deg, mg) of the torso, or None: set
+        # by the Pi service from the head IMU; None = no balance assist
+        self.tilt_source = None
         self._mocap_state: dict = {}                # per-arm memory of the pose solver
 
     def _cmd(self, bus, sid: int, ticks: int, speed: int, acc: int,
@@ -298,7 +412,8 @@ class MotionEngine:
 
     def _move_all_and_wait(self, bus, p, plan, targets: dict, label: str,
                            held: set | None = None, settle: bool = False,
-                           stagger: bool | None = None):
+                           stagger: bool | None = None,
+                           balance=None, sync: bool = False):
         """Command several servos at once and poll until all reached (or
         timeout). Servos in `held` (parked, holding) are read too, so their
         live angle is streamed while OTHER joints test.
@@ -310,7 +425,15 @@ class MotionEngine:
         centering, not for range sweeps.
 
         stagger controls the staggered start (see below): None keeps the
-        per-run default (first move only), True/False force it for this move."""
+        per-run default (first move only), True/False force it for this move.
+
+        sync=True scales each servo's speed by its distance, so all of them
+        arrive together: the path between two stable poses is then a straight
+        line in joint space instead of "short joints first". It replaces the
+        staggered start.
+
+        balance is a _Balance session (IMU assist): while waiting, its
+        corrections are added to the stance joints' targets."""
         S = self.S
         id2joint = {e["id"]: e["joint"] for e in plan}
         id2off = {e["id"]: e.get("offset", 0.0) for e in plan}
@@ -330,11 +453,20 @@ class MotionEngine:
         self._stagger_next = False
         stagger_s = (self.cfg.motion_limits().get("stagger_ms", 0) / 1000.0
                      if want else 0.0)
+        speeds = {sid: p.speed for sid in targets}
+        if sync:
+            stagger_s = 0.0
+            far = max(abs(t - starts[sid]) for sid, t in targets.items()) or 1
+            speeds = {sid: max(20, min(p.speed, int(p.speed * abs(t - starts[sid]) / far)))
+                      for sid, t in targets.items()}
+        eff = dict(targets)                  # targets + balance corrections
+        if balance:
+            balance.begin(bus, targets)
         for k, wave in enumerate(self._stagger_waves(targets, plan)):
             if k and stagger_s > 0:
                 time.sleep(stagger_s)
             for sid in wave:
-                self._cmd(bus, sid, targets[sid], p.speed, p.acc,
+                self._cmd(bus, sid, targets[sid], speeds[sid], p.acc,
                           boost=getattr(p, "boost", False))
         S.set(phase=label)
         timeout = max(abs(t - starts[sid]) for sid, t in targets.items()) \
@@ -346,10 +478,12 @@ class MotionEngine:
                 raise ServoBusError("aborted by user")
             done = True
             multi = dict(S.snapshot().get("multi") or {})
+            if balance:
+                eff.update(balance.step(bus, targets))
             for sid, t in targets.items():
                 pos = bus.read_pos(sid)
                 multi[id2joint[sid]] = to_rel(pos, id2off[sid])
-                if abs(pos - t) > TOLERANCE:
+                if abs(pos - eff[sid]) > TOLERANCE:
                     done = False
             for sid in watch:                    # live view of holding joints
                 try:
@@ -369,7 +503,9 @@ class MotionEngine:
             corrected = False
             for _ in range(2):                   # at most two trim iterations
                 trims = {}
-                for sid, t in targets.items():
+                for sid, t in eff.items():
+                    if sid not in targets:
+                        continue
                     err = t - bus.read_pos(sid)
                     if 10 < abs(err) <= 300:     # sag-sized, not a blockage
                         e = by_id[sid]
@@ -391,6 +527,7 @@ class MotionEngine:
             resid = []
             multi = dict(S.snapshot().get("multi") or {})
             for sid, t in targets.items():
+                t = eff[sid]
                 pos = bus.read_pos(sid)
                 multi[id2joint[sid]] = to_rel(pos, id2off[sid])
                 if abs(t - pos) > TOLERANCE:
@@ -822,7 +959,7 @@ class MotionEngine:
         return first
 
     def play_demo(self, demo: Demo, simulate: bool, until: int | None = None,
-                  start: int | None = None):
+                  start: int | None = None, loops: int = 1):
         """Run a taught-in demo: per step, move all its joints simultaneously
         (clamped to limits, offsets applied, settle pass), honor pauses, and
         hold the final pose.
@@ -831,7 +968,12 @@ class MotionEngine:
         steps. `until` alone stops after that step, `start == until` moves
         straight to that one pose without running the steps before it — each
         step keeps its own speed/acc either way. Step numbers in the log stay
-        the ones from the editor."""
+        the ones from the editor.
+
+        `loops` repeats the selected range: n >= 1 times, -1 = until stopped
+        (stop/abort ends it between or during moves; the last pose is held)."""
+        if loops != -1 and loops < 1:
+            raise MotionError("loops must be >= 1, or -1 for endless.")
         n_all = len(demo.steps)
         lo = 1 if start is None else start
         hi = n_all if until is None else until
@@ -860,54 +1002,77 @@ class MotionEngine:
                 S.log(f"direct move: starting at step {lo}"
                       + (f" of {n}" if hi == n else f", stopping after {hi}")
                       + " — the earlier steps are skipped")
-            for i, step in numbered:
-                sp = SimpleNamespace(speed=step.speed, acc=step.acc)
-                targets, clamped = {}, []
-                # a center step ("center": true, or every angle exactly 0 = the
-                # old "+ center" steps) follows the center pose override
-                is_center = bool(getattr(step, "center", False)) or (
-                    bool(step.angles) and all(abs(v) < 1e-6 for v in step.angles.values()))
-                if is_center:
-                    ov = [f"{e['joint']} {e['center']:+.1f}" for e in plan if e["center"]]
-                    S.log(f"step {i}: center step -> "
-                          + (f"center pose override ({', '.join(ov)} deg), 0 deg elsewhere"
-                             if ov else "mount pose (all 0 deg, no override set)"))
-                for j, deg in step.angles.items():
-                    e = by_joint.get(j)
-                    if not e:
-                        continue
+            bal = _BalanceSession(self, plan)
+            reps = itertools.count(1) if loops == -1 else range(1, loops + 1)
+            for rep in reps:
+                last_rep = loops != -1 and rep == loops
+                if loops != 1:
+                    S.log(f"demo '{demo.name}': loop {rep}" + ("" if loops == -1 else f"/{loops}"))
+                for i, step in numbered:
+                    sp = SimpleNamespace(speed=step.speed, acc=step.acc)
+                    targets, clamped, deg_of = {}, [], {}
+                    # a center step ("center": true, or every angle exactly 0 = the
+                    # old "+ center" steps) follows the center pose override
+                    is_center = bool(getattr(step, "center", False)) or (
+                        bool(step.angles) and all(abs(v) < 1e-6 for v in step.angles.values()))
                     if is_center:
-                        deg = e["center"]
-                    d = max(e["lo"], min(e["hi"], deg))
-                    if d != deg:
-                        clamped.append(f"{j} {deg:+.1f}->{d:+.1f}")
-                    targets[e["id"]] = to_ticks(d, e["offset"])
-                if clamped:
-                    S.log(f"step {i}: clamped to joint limits: "
-                          + ", ".join(clamped))
-                if not targets:
-                    S.log(f"step {i}: no responding joints — skipped")
-                    continue
-                moved.update(targets)
-                title = getattr(step, "title", "") or ""
-                if getattr(step, "boost", False):
-                    sp.boost = True
-                    S.log(f"step {i}: POWER BOOST — speed {step.speed}, acc "
-                          f"{step.acc}, power limits bypassed (peak current!)")
-                stag = self.stagger_for(step, i == lo)
-                if stag and i != lo:
-                    S.log(f"step {i}: staggered start (waves {stagger_ms} ms apart)")
-                self._move_all_and_wait(bus, sp, plan, targets,
-                                        f"demo '{demo.name}' step {i}/{n}"
-                                        + (f" ({title})" if title else ""),
-                                        held, settle=self.settle_for(step, i == hi),
-                                        stagger=stag)
-                if step.pause_s:
-                    deadline = time.monotonic() + step.pause_s
-                    while time.monotonic() < deadline:
-                        if S.abort.is_set():
-                            raise ServoBusError("aborted by user")
-                        time.sleep(0.05)
+                        ov = [f"{e['joint']} {e['center']:+.1f}" for e in plan if e["center"]]
+                        S.log(f"step {i}: center step -> "
+                              + (f"center pose override ({', '.join(ov)} deg), 0 deg elsewhere"
+                                 if ov else "mount pose (all 0 deg, no override set)"))
+                    for j, deg in step.angles.items():
+                        e = by_joint.get(j)
+                        if not e:
+                            continue
+                        if is_center:
+                            deg = e["center"]
+                        d = max(e["lo"], min(e["hi"], deg))
+                        if d != deg:
+                            clamped.append(f"{j} {deg:+.1f}->{d:+.1f}")
+                        targets[e["id"]] = to_ticks(d, e["offset"])
+                        deg_of[e["id"]] = d
+                    if clamped:
+                        S.log(f"step {i}: clamped to joint limits: "
+                              + ", ".join(clamped))
+                    if not targets:
+                        S.log(f"step {i}: no responding joints — skipped")
+                        continue
+                    moved.update(targets)
+                    title = getattr(step, "title", "") or ""
+                    if getattr(step, "boost", False):
+                        sp.boost = True
+                        S.log(f"step {i}: POWER BOOST — speed {step.speed}, acc "
+                              f"{step.acc}, power limits bypassed (peak current!)")
+                    stag = self.stagger_for(step, i == lo and rep == 1)
+                    use_bal = False
+                    if getattr(step, "balance", False):
+                        knees = {j: deg_of[e["id"]] for j, e in by_joint.items()
+                                 if "knee" in j and e["id"] in deg_of}
+                        use_bal = bal.prepare(f"step {i}", knees, bus)
+                    elif bal.ctrl is not None:
+                        bal.drop(f"step {i}")
+                    sync = getattr(step, "sync", None)
+                    sync = use_bal if sync is None else bool(sync)
+                    if sync:
+                        S.log(f"step {i}: synchronised joint arrival")
+                    if stag and not (i == lo and rep == 1):
+                        S.log(f"step {i}: staggered start (waves {stagger_ms} ms apart)")
+                    self._move_all_and_wait(bus, sp, plan, targets,
+                                            f"demo '{demo.name}' step {i}/{n}"
+                                            + (f" ({title})" if title else ""),
+                                            held, settle=self.settle_for(step, i == hi and last_rep),
+                                            stagger=stag, sync=sync,
+                                            balance=bal if use_bal else None)
+                    if step.pause_s:
+                        deadline = time.monotonic() + step.pause_s
+                        while time.monotonic() < deadline:
+                            if S.abort.is_set():
+                                raise ServoBusError("aborted by user")
+                            if use_bal:
+                                bal.step(bus)    # keep balancing while it waits
+                            time.sleep(0.05 if not use_bal else POLL_S)
+                    if use_bal:
+                        bal.summary(f"step {i}")
             # demos end in a defined pose: hold it (release via release-torque)
             for e in plan:
                 if e["id"] in moved:

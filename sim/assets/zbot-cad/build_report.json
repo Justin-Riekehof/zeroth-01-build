@@ -164,8 +164,8 @@
   "cable pi_usb_to_waveshare": 2.2,
   "cable pololu_5v_usbc": 3.1,
   "cable test_leads_5v": 0.5,
-  "base PETG": 141.5,
-  "lid PETG": 39.9
+  "base PETG": 140.9,
+  "lid PETG": 40.0
  },
- "total_mass_kg": 2.627
+ "total_mass_kg": 2.6265
 }

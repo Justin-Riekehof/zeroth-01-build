@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Train the walking policy on the backpack model (zbot-pixel-backpack) on one GPU, detached.
 # Usage: sim/tools/train_backpack.sh <exp_name> [extra key=value overrides...]      (GPU=1 for the second card,
+#        XLA_MEM=0.6 to cap the GPU memory share, e.g. next to the watchers' evaluations on GPU 0,
 #        ASSETS=zbot-pixel-backpack for the old Z-Bot-2-based model; default zbot-cad = this robot from the WebUI CAD)
 # Runs as a transient systemd *user* service (unit zbot-train-<exp>, Restart=on-failure) so it survives VS Code /
 # Claude session restarts and crashes: a Bash-tool shell lives in the editor's snap.code.*.scope cgroup and
@@ -18,6 +19,7 @@ systemd-run --user --collect --quiet --unit="$UNIT" \
   -p WorkingDirectory="$ROOT" -p KillSignal=SIGKILL -p TimeoutStopSec=15 -p Restart=on-failure -p RestartSec=30 \
   -p StandardOutput=append:"$DIR/train.log" -p StandardError=append:"$DIR/train.log" \
   -E CUDA_VISIBLE_DEVICES="$GPU" -E MUJOCO_GL=egl -E ASSETS="$ASSETS" -E HOME="$HOME" -E PATH="$PATH" \
+  ${XLA_MEM:+-E XLA_PYTHON_CLIENT_MEM_FRACTION=$XLA_MEM} \
   "$VENV/bin/python" -m sim.train.walking \
   robot_urdf_path="$ROOT/sim/assets/$ASSETS" exp_dir="$DIR" "$@"
 sleep 1; systemctl --user show -p MainPID --value "$UNIT" > "$DIR/train.pid"

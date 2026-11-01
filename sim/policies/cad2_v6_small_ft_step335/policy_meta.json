@@ -186,5 +186,9 @@
   "tf_model/",
   "ckpt.bin",
   "policy_meta.json"
+ ],
+ "joint_sign_flip": [
+  "left_hip_roll",
+  "right_hip_roll"
  ]
 }

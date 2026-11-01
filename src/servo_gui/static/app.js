@@ -119,6 +119,24 @@ const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _v1 = new THREE.Vector3();
 const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 let stance = null;
+// head-IMU orientation mode: latest fresh {pitch, roll} (deg) from renderHead,
+// and the body axes of the model at its calibrated rest pose
+let imuTilt = null;
+let bodyLeft = null, bodyFwd = null;
+const _qi = new THREE.Quaternion(), _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+
+function captureBodyAxes() {
+  // rest pose = upright: lateral axis from the feet, forward = left x up
+  // (right-handed body frame x fwd, y left, z up), both horizontal
+  if (footNodes.length !== 2) { bodyLeft = bodyFwd = null; return; }
+  const [l, r] = ['foot_left', 'foot_right'].map(n => {
+    const o = findNode(n); o.updateWorldMatrix(true, true);
+    return new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
+  });
+  const left = l.sub(r); left.y = 0; left.normalize();
+  bodyLeft = left;
+  bodyFwd = new THREE.Vector3().crossVectors(left, new THREE.Vector3(0, 1, 0)).normalize();
+}
 
 function captureSoleNormals() {
   // at the calibrated rest pose both soles are flat on the ground, so the
@@ -146,9 +164,20 @@ renderer.setAnimationLoop(() => {
       const si = footNodes.indexOf(stance);
       if (mins[1 - si] < mins[si] - 0.005) stance = footNodes[1 - si];
     }
+    // IMU mode: the torso attitude is MEASURED, so set pitch/roll from the head
+    // IMU (nose down +, right ear down +; yaw is not observable and stays at
+    // the load orientation). The floor snap below then lands the lowest foot.
+    const useImu = $('imuOrient').checked && imuTilt && bodyLeft && bodyFwd;
+    if (useImu) {
+      _qa.setFromAxisAngle(bodyLeft, THREE.MathUtils.degToRad(imuTilt.pitch));
+      _qb.setFromAxisAngle(bodyFwd, THREE.MathUtils.degToRad(imuTilt.roll));
+      _qi.copy(_qa).multiply(_qb).multiply(baseQuat);
+      modelRoot.quaternion.slerp(_qi, 0.35);       // smoothing against sensor noise
+      modelRoot.updateMatrixWorld(true);
+    }
     // tilt so the stance sole's normal points straight down (damped P-step),
     // rotating about the stance foot's contact point so it stays anchored
-    const n = soleNormal.get(stance);
+    const n = useImu ? null : soleNormal.get(stance);
     if (n) {
       const nW = _v1.copy(n).applyQuaternion(stance.getWorldQuaternion(_q1));
       const delta = _q2.setFromUnitVectors(nW, DOWN);
@@ -233,6 +262,7 @@ async function loadModel() {
   buildRig();
   footNodes = ['foot_left', 'foot_right'].map(findNode).filter(Boolean);
   captureSoleNormals();                // rest pose = soles flat on the ground
+  captureBodyAxes();
   select(null);                        // re-highlight on the NEW node objects
   await loadAttachments();             // own printed add-ons, torso-fixed
 }
@@ -1152,6 +1182,8 @@ async function piPoll() {
         renderHead(s.head);
         renderPosture(s.posture);
         renderBattery(s.battery);
+        if (!polLoaded) refreshPolicies();
+        renderPolicy(s.policy);
         $('connState').textContent = `Pi ${conn.pi_url} — bus `
           + (s.bus.connected
              ? (s.bus.simulated ? 'SIMULATED' : `connected (${s.bus.port})`)
@@ -1195,6 +1227,8 @@ async function piPoll() {
       renderHead(null);
       renderPosture(null);
       renderBattery(null);
+      renderPolicy(null);
+      polLoaded = false;                         // re-read the list once the Pi is back
       if (shutdownAt) {
         const safe = Date.now() - shutdownAt >= SHUTDOWN_GRACE_MS;
         $('connState').textContent = `Pi ${conn.pi_url} — shutting down …`;
@@ -1218,6 +1252,98 @@ async function piPoll() {
 piPoll();
 
 $('piStop').onclick = guard(() => pi.post('/stop'));
+
+// ------------------------------------------------------------ walking policy
+// The loop runs on the Pi (50 Hz, ONNX); this card only starts/stops it and
+// changes the commands. Intents only — nothing per-cycle crosses the network.
+let policies = [];
+let polLoaded = false;
+let polRunning = false;
+const polNum = id => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
+
+function polPick() {
+  const p = policies.find(x => x.name === $('polSel').value);
+  if (!p) { $('polRange').textContent = '–'; return; }
+  const [v0, v1] = p.speed_range, [g0, g1] = p.gait_freq_range;
+  $('polVx').min = v0; $('polVx').max = v1;
+  $('polGait').min = g0; $('polGait').max = g1;
+  $('polRange').textContent = `trained: ${v0}–${v1} m/s forward, gait ${g0}–${g1} Hz`;
+  if (!polRunning) {            // defaults = middle of the trained range
+    $('polVx').value = +((v0 + v1) / 2).toFixed(3);
+    $('polGait').value = +((g0 + g1) / 2).toFixed(3);
+  }
+}
+
+async function refreshPolicies() {
+  try {
+    const r = await pi.get('/policies');
+    policies = r.policies ?? [];
+    polLoaded = true;
+    const keep = $('polSel').value;
+    $('polSel').innerHTML = policies.map(p =>
+      `<option value="${p.name}">${p.name} (${p.speed_range[0]}–${p.speed_range[1]} m/s)</option>`).join('');
+    if (policies.some(p => p.name === keep)) $('polSel').value = keep;
+    polPick();
+    if (!policies.length) clientMsg('no policies on the Pi — run deploy_pi');
+  } catch (e) {
+    policies = [];
+    $('polSel').innerHTML = '';
+    $('polRange').textContent = e.message.includes('policy runtime')
+      ? 'policy runtime missing on the Pi (numpy / onnxruntime)' : 'policies unavailable: ' + e.message;
+  }
+}
+
+function renderPolicy(p) {
+  // p: null (Pi unreachable / runtime missing) | /status.policy
+  polRunning = !!p?.running;
+  const st = $('polStatus');
+  $('polStart').disabled = !p || polRunning || !policies.length;
+  $('polSoft').disabled = !polRunning;
+  $('polSel').disabled = polRunning;
+  $('polDry').disabled = polRunning;
+  if (!p) { st.textContent = '–'; st.className = 'hint'; return; }
+  const s = p.stats;
+  if (polRunning) {
+    const l = p.last ?? {};
+    st.className = 'hint ok';
+    st.textContent = `${p.dry_run ? 'DRY RUN' : 'RUNNING'} ${p.policy} — ${s.steps} steps · `
+      + `${s.mean_step_ms}/${s.max_step_ms} ms mean/max · ${s.overruns} overruns · `
+      + `IMU age max ${s.max_imu_age_ms} ms · tilt ${l.tilt_deg ?? '–'}° · heading ${l.heading_deg ?? '–'}°`;
+  } else if (s.stop_reason) {
+    const bad = !['stopped'].includes(s.stop_reason);
+    st.className = 'hint' + (bad ? ' err' : '');
+    st.textContent = `last run: ${s.steps} steps, ${s.mean_step_ms}/${s.max_step_ms} ms, `
+      + `${s.overruns} overruns — ${s.stop_reason}`;
+  } else {
+    st.className = 'hint';
+    st.textContent = 'idle';
+  }
+}
+
+$('polSel').onchange = polPick;
+$('polStart').onclick = guard(async () => {
+  const dry = $('polDry').checked;
+  if (!dry && !confirm('Start the walking policy on the robot?\n\n'
+      + '· standing upright, secured (rope / hand on the back)\n'
+      + '· dry run done: step time, IMU age and joint angles look right\n'
+      + '· ■ E-STOP within reach')) return;
+  const body = { name: $('polSel').value, dry_run: dry,
+                 speed: polNum('polSpeed') ?? undefined,   // empty = the policy's own speed register (servo-model policies) acc: polNum('polAcc') ?? 0,
+                 wz: polNum('polWz') ?? 0 };
+  const vx = polNum('polVx'), gf = polNum('polGait');
+  if (vx !== null) body.vx = vx;
+  if (gf !== null) body.gait_freq = gf;
+  renderPolicy(await pi.post('/policy/start', body));
+  clientMsg(`policy ${body.name} started${dry ? ' (dry run)' : ''}`);
+});
+$('polSoft').onclick = guard(() => pi.post('/policy/stop'));
+$('polEstop').onclick = guard(() => pi.post('/stop'));
+// commands can be changed while it walks (the Pi rejects anything outside the trained range)
+for (const id of ['polVx', 'polWz', 'polGait'])
+  $(id).addEventListener('change', guard(async () => {
+    if (!polRunning) return;
+    await pi.post('/policy/cmd', { vx: polNum('polVx'), wz: polNum('polWz'), gait_freq: polNum('polGait') });
+  }));
 
 // ------------------------------------------------------------ battery
 // One widget for both modes. USB: /api/battery (this computer's adapter),
@@ -1393,6 +1519,8 @@ function drawTilt(roll, pitch) {
 function renderHead(h) {
   const imu = h?.imu, s = imu?.sample, cam = h?.camera;
   const fresh = s && imu.age_s !== null && imu.age_s < 1.5;
+  imuTilt = fresh && s.pitch_deg != null && s.roll_deg != null
+    ? { pitch: s.pitch_deg, roll: s.roll_deg } : null;
   $('headDot').className = 'dot ' + (fresh ? 'live' : s ? 'stale' : '');
   for (const el of $('imuBars').querySelectorAll('.fill'))
     setBar(el, fresh ? s[el.dataset.k] : 0,
@@ -1427,10 +1555,22 @@ $('piShutdown').onclick = guard(async () => {
   if (!confirm('Pi wirklich herunterfahren?\n\nDie Servos halten ihre Pose '
       + 'weiter (eigene Versorgung). Hauptschalter erst ausschalten, wenn '
       + 'die grüne ACT-LED aufgehört hat zu blinken (~15 s).')) return;
-  await pi.post('/shutdown');
-  shutdownAt = Date.now();
-  clientMsg('Pi is shutting down — the banner appears once it is safe to '
-    + 'cut the main switch.');
+  // The Pi halts BEFORE it answers: systemd often kills the HTTP service first, so the POST fails at the
+  // network level although the shutdown is running. Only an HTTP error answer (e.g. sudoers rule
+  // missing, run in progress) means "not shutting down"; a dropped connection means "probably halting"
+  // and the poll decides (banner when silent for 15 s, warning if still up after 45 s).
+  const t0 = Date.now();
+  try {
+    await pi.post('/shutdown');
+    clientMsg('Pi is shutting down — the banner appears once it is safe to '
+      + 'cut the main switch.');
+  } catch (e) {
+    const dropped = e instanceof TypeError || e.name === 'TimeoutError' || e.name === 'AbortError';
+    if (!dropped) throw e;
+    clientMsg('Connection dropped while the Pi answered — it is most likely shutting down; '
+      + 'waiting for it to go silent …');
+  }
+  shutdownAt = t0;
 });
 $('shutdownBannerOk').onclick = () => {
   $('shutdownBanner').classList.add('hidden');
@@ -1827,7 +1967,8 @@ function renderDemoList() {
 }
 
 const escAttr = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-const stepSummary = s => (s.title ? `${s.title}: ` : '') + stepPose(s);
+const imuTag = s => s.imu ? ` · IMU pitch ${s.imu.pitch_deg}° roll ${s.imu.roll_deg}° (${s.imu.lean})` : '';
+const stepSummary = s => (s.title ? `${s.title}: ` : '') + stepPose(s) + imuTag(s);
 // center step: flagged, or every angle exactly 0 (old "+ center" steps) — it
 // follows the center pose override at playback (same rule as the engine)
 const isCenterStep = s => !!s.center
@@ -1904,13 +2045,15 @@ function exitStepPreview(msg = true) {
   if (msg) clientMsg('preview ended — model mirrors the robot again');
 }
 
+let previewT = 0;                  // when the preview began (guards against an accidental double click)
 function applyStepPose(i) {
   for (const [j, d] of Object.entries(stepAngles(editSteps[i])))
     if (pivots.has(j)) setJointAngle(j, d);
   previewI = i;
+  previewT = performance.now();
   renderDemoSteps();
   clientMsg(`PREVIEW step #${i + 1} — model detached from live. Click joints `
-    + '& use the pose slider to adjust, then "⟳ update"; "↩ live" returns');
+    + '& use the pose slider to adjust, then "⟳ overwrite from model" (end of the row); "↩ live" returns');
 }
 
 // Mirrors MotionEngine.stagger_for: an explicit per-step flag wins, otherwise
@@ -1929,9 +2072,8 @@ function renderDemoSteps() {
       <input type="number" data-k="acc" data-lo="0" data-hi="254" value="${s.acc}" min="0" max="254" title="Acceleration into this step — 0…254">
       <input type="text" inputmode="decimal" data-k="pause_s" data-lo="0" data-hi="10" value="${s.pause_s}" title="Pause AFTER this step [s] — 0…10; comma or dot both work">
       <input type="text" class="ttl" data-k="title" maxlength="60" value="${escAttr(s.title ?? '')}" placeholder="${escAttr(stepPose(s))}" title="Step title (optional, shown here and in the playback log)">
-      <span class="acts"><label class="stg" title="Staggered start: this step's servos leave in mirror-pair waves instead of all at once. Spreads the current peak and turns a lunge into a push — wanted where the body is LIFTED, unwanted where it is lowered (sitting down, going to the knees). Default: only the first step of a run, which is the one leaving torque-off"><input type="checkbox" data-k="stagger"${staggerOf(s, i) ? ' checked' : ''}>stagger</label>${i === previewI
-        ? '<button data-a="upd" title="Replace this step\'s angles with the current model pose (only joints already in the step)">⟳ update</button>'
-          + '<button data-a="pose" title="End the preview — the model follows the robot again">↩ live</button>'
+      <span class="acts"><label class="stg" title="Staggered start: this step's servos leave in mirror-pair waves instead of all at once. Spreads the current peak and turns a lunge into a push — wanted where the body is LIFTED, unwanted where it is lowered (sitting down, going to the knees). Default: only the first step of a run, which is the one leaving torque-off"><input type="checkbox" data-k="stagger"${staggerOf(s, i) ? ' checked' : ''}>stagger</label><label class="stg" title="Synchronised arrival: each joint's speed is scaled by its distance so ALL joints arrive together (straight line in joint space) instead of the short ones finishing first. Default: on for balance steps"><input type="checkbox" data-k="sync"${(s.sync == null ? !!s.balance : s.sync) ? ' checked' : ''}>sync</label><label class="stg" title="IMU balance assist: while moving into this step (and during its pause) the head IMU holds the torso at the tilt it had when the balanced steps began — ankle pitch for pitch, hip yaw (lean) for roll of the stance leg. Needs the Pi service with the head IMU; tuning in hardware/balance.json"><input type="checkbox" data-k="balance"${s.balance ? ' checked' : ''}>balance</label>${i === previewI
+        ? '<button data-a="pose" class="on" title="End the preview — the model follows the robot again">↩ live</button>'
         : '<button data-a="pose" title="Show this step\'s pose on the 3D model (detaches the model from the live robot while previewing)">▣ pose</button>'}
       <button data-a="goto" title="Move the robot DIRECTLY to this step's pose, skipping the earlier steps — with this step's own speed/acc. Plays the saved demo, so save first if you edited">⇥ go to</button>
       <button data-a="robot" title="Overwrite this step's angles with the robot's CURRENT physical pose (release torque, hand-pose, then click) — title/speed/pause stay">⟲ robot</button>
@@ -1939,7 +2081,9 @@ function renderDemoSteps() {
       <button data-a="up" title="Move this step one up"${i === 0 ? ' disabled' : ''}>▲</button>
       <button data-a="down" title="Move this step one down"${i === editSteps.length - 1 ? ' disabled' : ''}>▼</button>
       <button data-a="dup" title="Duplicate this step (copy inserted right after it)">⧉ dup</button>
-      <button data-a="del" title="Remove this step">✕</button></span>
+      <button data-a="del" title="Remove this step">✕</button>${i === previewI
+        ? '<button data-a="upd" class="warn" title="OVERWRITE this step\'s angles with the current model pose (only joints already in the step) — deliberately placed away from the pose button">⟳ overwrite from model</button>'
+        : ''}</span>
     </div>`).join('');
 }
 // Drag-and-drop reordering (HTML5 DnD; the "⠿n" handle is the drag source, the
@@ -2057,6 +2201,7 @@ $('demoSteps').addEventListener('click', e => {
     if (previewI === i) exitStepPreview();
     else applyStepPose(i);
   } else if (a === 'upd') {
+    if (performance.now() - previewT < 1000) return;     // ignore a click right after the preview opened
     const st = editSteps[i];
     for (const j of Object.keys(st.angles))
       st.angles[j] = +((jointAngles.get(j) ?? 0).toFixed(1));
@@ -2100,6 +2245,7 @@ async function overwriteStepFromRobot(i) {
                        : await api.get('/api/robot_pose');
   if (!r.pose) throw new Error(r.detail ?? 'no pose available');
   st.angles = { ...r.pose };
+  if (r.imu) st.imu = r.imu; else delete st.imu;     // torso orientation at teach time (wireless only)
   delete st.center;                          // a measured pose, no longer "center"
   exitStepPreview(false);
   for (const [j, d] of Object.entries(r.pose))
@@ -2115,7 +2261,7 @@ $('demoAddRobot').onclick = guard(async () => {
   const r = wireless() ? await pi.get('/robot_pose')
                        : await api.get('/api/robot_pose');
   if (!r.pose) throw new Error(r.detail ?? 'no pose available');
-  editSteps.push({ angles: r.pose, speed: +$('gSpeed').value || 300,
+  editSteps.push({ angles: r.pose, ...(r.imu ? { imu: r.imu } : {}), speed: +$('gSpeed').value || 300,
     acc: $('gAcc').value === '' ? 30 : +$('gAcc').value, pause_s: 0 });
   exitStepPreview(false);      // mirroring the robot = the twin is back
   for (const [j, d] of Object.entries(r.pose))
@@ -2199,6 +2345,9 @@ async function playDemo({ start = null, until = null } = {}) {
   const body = {};
   if (start !== null) body.start = start;
   if (until !== null) body.until = until;
+  const loops = Math.trunc(Number($('demoLoops').value) || 1);
+  if (loops === 0 || loops < -1) { clientMsg('loops must be >= 1, or -1 for endless'); return; }
+  if (loops !== 1) body.loops = loops;
   if (wireless())
     await pi.post('/demo/' + encodeURIComponent(name), body);
   else
@@ -2206,6 +2355,7 @@ async function playDemo({ start = null, until = null } = {}) {
   if (start !== null && start === until)
     clientMsg(`moving directly to step #${start} of '${name}' (earlier steps skipped)`);
   else if (until !== null) clientMsg(`playing '${name}' up to step #${until}`);
+  if (loops !== 1) clientMsg(`looping '${name}': ${loops === -1 ? 'endless — press STOP to end' : loops + '×'}`);
 }
 $('demoPlay').onclick = guard(() => playDemo());
 
@@ -2319,10 +2469,13 @@ async function seedGetup(kase) {
 $('guMakeFront').onclick = guard(() => seedGetup('front'));
 $('guMakeBack').onclick = guard(() => seedGetup('back'));
 
-$('guAuto').onchange = () => {
+// The on/off switch is a safety setting: it applies at once (repo + robot),
+// together with any other pending get-up edits.
+$('guAuto').onchange = guard(async () => {
   getupCfg.auto = $('guAuto').checked;
-  markGetup(`auto get-up ${getupCfg.auto ? 'ON' : 'off'} — "save get-up" to apply`);
-};
+  await saveGetup();
+  clientMsg(`auto get-up ${getupCfg.auto ? 'ON' : 'OFF'}`);
+});
 $('getup').addEventListener('change', e => {
   const box = e.target.closest('.gucase');
   if (!box || e.target.dataset.a !== 'pick') return;

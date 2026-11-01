@@ -2,15 +2,17 @@
 #
 # Runs under MicroPython on the Waveshare RP2040-LCD-1.28 in the robot's
 # head (USB-serial to the Pi). Every frame it draws the eye, reads the IMU
-# and — at ~20 Hz — prints one JSON line the Pi service parses:
+# and — at 50 Hz by default, `rate HZ` changes it — prints one JSON line the
+# Pi service parses (the walking policy runs at 50 Hz and wants a fresh sample
+# every step):
 #   {"ax":..,"ay":..,"az":..,"gx":..,"gy":..,"gz":..,"t":..,"v":..,
-#    "mood":"neutral","rot":90,"fps":28}
+#    "mood":"neutral","rot":90,"fps":28,"gap":21}
 # Units stay the sensor's: mg, dps, °C, V — the same numbers the stock
 # Waveshare demo showed, just machine-readable.
 #
 # Commands arrive as lines on the same serial port (see README.md):
 #   mood neutral|happy|sleepy|surprised   blink   look X Y   rot DEG
-#   axes fwd=-z right=+x   bl PCT   color R G B   info
+#   axes fwd=-z right=+x   bl PCT   color R G B   rate HZ   info
 # rot/axes/bl/color persist in config.json on the board's flash.
 
 import json
@@ -374,6 +376,61 @@ class YawFollow:
         return self.out * MAX_DX * 0.9
 
 
+# ------------------------------------------------------------------ telemetry
+class Telemetry:
+    """IMU JSON lines on a fixed schedule. The render loop is slow (a frame is
+    ~35 ms: draw + SPI), so poll() is called from the main loop AND between the
+    strips of the SPI transfer; only the drawing itself still blocks it. `gap`
+    in the line is the longest interval between two lines in the last second
+    (ms) — the number to watch if the policy sees stale IMU data."""
+
+    def __init__(self, imu, vsys, hz=50):
+        self.imu, self.vsys = imu, vsys
+        self.eye = None
+        self.fps = 0.0
+        self.set_rate(hz)
+        self.last = time.ticks_us()
+        self.prev_tx = self.last
+        self.gap_ms = self.gap_max = 0.0
+        self.gap_t0 = self.last
+        self.slow_n = 0
+        self.temp, self.volt = 0.0, 0.0
+
+    def set_rate(self, hz):
+        self.hz = clamp(int(hz), 5, 200)
+        self.period_us = 1_000_000 // self.hz
+
+    def poll(self):
+        now = time.ticks_us()
+        if time.ticks_diff(now, self.last) < self.period_us:
+            return None
+        # keep the cadence without bursting after a long frame
+        self.last = time.ticks_add(self.last, self.period_us)
+        if time.ticks_diff(now, self.last) > self.period_us:
+            self.last = now
+        ax, ay, az, gx, gy, gz = self.imu.read()
+        if self.slow_n == 0:                      # temperature / supply change slowly
+            self.temp = self.imu.temperature()
+            self.volt = self.vsys.read_u16() * 3.3 / 65535 * 2      # board divider 1:2
+        self.slow_n = (self.slow_n + 1) % 25
+        gap = time.ticks_diff(now, self.prev_tx) / 1000.0
+        self.prev_tx = now
+        self.gap_ms = max(self.gap_ms, gap)
+        if time.ticks_diff(now, self.gap_t0) >= 1_000_000:
+            self.gap_max, self.gap_ms, self.gap_t0 = self.gap_ms, 0.0, now
+        print(json.dumps({
+            "ax": round(ax, 1), "ay": round(ay, 1), "az": round(az, 1),
+            "gx": round(gx, 2), "gy": round(gy, 2), "gz": round(gz, 2),
+            "t": round(self.temp, 1), "v": round(self.volt, 3),
+            "mood": self.eye.mood, "rot": CONFIG["rot"], "fps": round(self.fps, 1),
+            "gap": round(self.gap_max, 1),
+        }))
+        return (ax, ay, az, gx, gy, gz)
+
+
+TELE = None
+
+
 # ------------------------------------------------------------------ commands
 def handle(line, eye, lcd):
     parts = line.strip().split()
@@ -417,19 +474,24 @@ def handle(line, eye, lcd):
         elif cmd == "color" and len(args) >= 3:
             CONFIG["iris"] = [clamp(int(a), 0, 255) for a in args[:3]]
             save_config()
+        elif cmd == "rate" and args:
+            TELE.set_rate(int(args[0]))
         elif cmd == "info":
-            print(json.dumps({"config": CONFIG, "mood": eye.mood}))
+            print(json.dumps({"config": CONFIG, "mood": eye.mood, "rate": TELE.hz}))
     except ValueError:
         pass
 
 
 # ------------------------------------------------------------------ main loop
 def main():
+    global TELE
     lcd = GC9A01(rotation=CONFIG["rot"])
     lcd.brightness(CONFIG["bl"])
     imu = QMI8658()
     vsys = ADC(Pin(29))
     eye = Eye()
+    TELE = Telemetry(imu, vsys)
+    TELE.eye = eye
     splash(lcd)
     eye.upper, eye.lower = 1.0, 0.6              # lids closed -> the eye opens
     eye.next_blink = time.ticks_add(time.ticks_ms(), 2500)
@@ -438,7 +500,6 @@ def main():
     poll.register(sys.stdin, select.POLLIN)
 
     last = time.ticks_ms()
-    last_tx = last
     frames, fps, fps_t0 = 0, 0.0, last
     surprise_cooldown = last
     cmd_buf = ""
@@ -461,6 +522,7 @@ def main():
             elif ch and ch != "\r":
                 cmd_buf = (cmd_buf + ch)[-120:]
 
+        TELE.poll()
         acc = imu.read()
         ax, ay, az, gx, gy, gz = acc
         eye.g_dx, eye.g_dy = gravity_offsets(acc)
@@ -477,21 +539,14 @@ def main():
             lcd.brightness(100)               # a warning is never dimmed
         else:
             eye.draw(lcd)
-        lcd.show()
+        lcd.show(TELE.poll)
 
         frames += 1
         if time.ticks_diff(now, fps_t0) >= 1000:
             fps = frames * 1000.0 / time.ticks_diff(now, fps_t0)
             frames, fps_t0 = 0, now
-        if time.ticks_diff(now, last_tx) >= 50:        # ~20 Hz telemetry
-            last_tx = now
-            print(json.dumps({
-                "ax": round(ax, 1), "ay": round(ay, 1), "az": round(az, 1),
-                "gx": round(gx, 2), "gy": round(gy, 2), "gz": round(gz, 2),
-                "t": round(imu.temperature(), 1),
-                "v": round(vsys.read_u16() * 3.3 / 65535 * 2, 3),   # board divider 1:2
-                "mood": eye.mood, "rot": CONFIG["rot"], "fps": round(fps, 1),
-            }))
+            TELE.fps = fps
+        TELE.poll()
 
 
 # A crash must leave a trace (crash.txt on the board's flash — read it with

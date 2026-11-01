@@ -156,6 +156,6 @@
   },
   "mass_model": {
     "source": "hardware/mass_model.json",
-    "total_mass_kg": 2.627
+    "total_mass_kg": 2.6265
   }
 }

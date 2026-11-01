@@ -137,6 +137,8 @@
       <div id="centerPoseRow" class="hint hidden">center pose override: <span id="centerPoseVal"></span></div>
       <label class="check"><input type="checkbox" id="groundSnap" checked>
         ground contact (gravity feel — lowest foot stays on the floor)</label>
+      <label class="check"><input type="checkbox" id="imuOrient" checked>
+        orientation from head IMU (pitch/roll of the model follow the real robot instead of the stance sole lying flat; needs live IMU, else falls back to the sole alignment)</label>
     </section>
 
     <section id="attachSection" class="hidden">
@@ -221,11 +223,40 @@
       <pre id="log"></pre>
     </section>
 
+    <section id="policySection" class="pi-only">
+      <h2>Walking policy <span class="hint">— ONNX on the Pi, 50 Hz</span></h2>
+      <div class="row">
+        <select id="polSel" title="Trained walking policies installed on the Pi (~/zbot/policies, deployed from sim/policies)"></select>
+      </div>
+      <div id="polRange" class="hint">–</div>
+      <label class="check" title="Reads the servos and IMU, runs the network and logs — but sends NO servo command and switches NO torque on. Do this first, with the robot limp or held in your hands: the status line shows step time, IMU age and tilt"><input type="checkbox" id="polDry" checked> dry run (no servo commands)</label>
+      <div class="row">
+        <label title="Forward speed command, m/s — only the range this policy was trained on is accepted">vx m/s <input type="number" id="polVx" step="0.01"></label>
+        <label title="Yaw-rate command, rad/s">turn rad/s <input type="number" id="polWz" step="0.05" value="0" min="-0.5" max="0.5"></label>
+        <label title="Gait frequency, Hz — the trained range">gait Hz <input type="number" id="polGait" step="0.05"></label>
+      </div>
+      <details>
+        <summary class="hint">servo tracking (advanced)</summary>
+        <div class="row">
+          <label title="Goal speed written to every servo each step, ticks/s (4096 = one turn). Empty = the speed the policy was trained with (servo-model policies: 2000), else 1000. NOT the 300 of the demo power limits — those are far too slow to follow a 50 Hz policy">speed <input type="number" id="polSpeed" value="" placeholder="auto" min="1" max="3400" step="100"></label>
+          <label title="Servo acceleration register, 0 = no ramp">acc <input type="number" id="polAcc" value="0" min="0" max="254"></label>
+        </div>
+      </details>
+      <div class="row">
+        <button id="polStart" class="primary" title="Start the policy. Needs the robot standing upright with fresh head-IMU data (gravity on the chip Y axis); refused otherwise">▶ start</button>
+        <button id="polSoft" title="Soft stop: the loop ends and the robot holds its pose (torque stays on)">■ stop &amp; hold</button>
+        <button id="polEstop" class="danger" title="E-stop: abort, all torque off">■ E-STOP</button>
+      </div>
+      <div id="polStatus" class="hint">–</div>
+    </section>
+
     <section>
       <h2>Demos <span class="hint">— teach-in sequences (stored in demos/)</span></h2>
       <div class="row">
         <select id="demoList"></select>
         <button id="demoPlay" class="primary" title="Play the selected demo — clamped to joint limits; final pose is held (release via release torque)">▶ play</button>
+        <label class="hint" title="Repeat the whole play n times; -1 = endless until STOP">loops
+          <input id="demoLoops" type="number" min="-1" step="1" value="1" style="width:4.5em"></label>
       </div>
       <div class="row pi-only">
         <button id="piStop" class="danger" title="E-stop on the Pi: abort the run, all torque off">■ STOP</button>
@@ -289,7 +320,7 @@
             <button id="guMakeBack">→ back</button>
           </div>
         </div>
-        <label class="check" title="On the Pi: when the robot falls while NO run is active and then lies still, it plays the matching demo by itself (max. attempts per fall). Falls during a demo never trigger it — push_ups goes to the floor on purpose. STOP cancels"><input type="checkbox" id="guAuto"> auto get-up after a fall (Pi)</label>
+        <label class="check" title="On the Pi: when the robot falls while NO run is active and then lies still, it plays the matching demo by itself (max. attempts per fall). Falls during a demo never trigger it — push_ups goes to the floor on purpose. STOP cancels"><input type="checkbox" id="guAuto"> auto get-up after a fall (Pi) — applies immediately</label>
         <div class="row">
           <button id="guSave" title="Save the assignment into hardware/getup.json in the repo (wireless: also onto the robot, effective at once)">save get-up</button>
           <button id="guNow" class="pi-only" title="Pick front/back from the IMU and stand up now">▶ get up now</button>
@@ -379,6 +410,6 @@
     <button id="shutdownBannerOk" class="primary">OK</button>
   </div>
 </div>
-<script type="module" src="app.js?v=51"></script>
+<script type="module" src="app.js?v=53"></script>
 </body>
 </html>

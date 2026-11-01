@@ -472,6 +472,7 @@ class PlayParams(BaseModel):
     simulate: bool = False
     until: int | None = Field(None, ge=1)     # play up to this step (inclusive)
     start: int | None = Field(None, ge=1)     # ... starting at this one (start == until: single pose)
+    loops: int = Field(1, ge=-1)              # repeat the range n times; -1 = until stopped
 
 
 @app.post("/api/demo/play")
@@ -485,8 +486,10 @@ def demo_play(p: PlayParams):
     for v in (p.until, p.start):
         if v is not None and v > n:
             raise HTTPException(400, f"Step {v} out of range (demo has {n} steps).")
+    if p.loops == 0:
+        raise HTTPException(400, "loops must be >= 1, or -1 for endless.")
     _engine(lambda: ENGINE.play_demo(demo, p.simulate, until=p.until,
-                                     start=p.start))
+                                     start=p.start, loops=p.loops))
     return {"ok": True, "steps": (p.until or n) - (p.start or 1) + 1}
 
 

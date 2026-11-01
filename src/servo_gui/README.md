@@ -165,7 +165,8 @@ plays the matching case. The board's axes come from `imu_axes` in the Pi's
 
 **auto get-up** (opt-in): if the robot falls while **no run is active** and then lies still
 for `hold_s`, the Pi plays the matching case itself, at most `max_attempts` times per fall.
-Falls during a demo never trigger it (push_ups goes to the floor on purpose). STOP cancels it.
+Falls during a demo never trigger it (push_ups goes to the floor on purpose). STOP cancels it. The checkbox switches it on/off immediately (saved to the repo and,
+wirelessly, onto the robot — no separate *save get-up* needed).
 Thresholds (`fallen_deg` 60, `upright_deg` 35, `hold_s` 1.5, `still_dps` 30) live in the same
 file.
 

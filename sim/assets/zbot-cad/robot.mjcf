@@ -64,13 +64,13 @@
            The head has no joint, so the chip is rigid to the base. Site axes = the real chip axes: x_imu to the robot right, y_imu up, z_imu backwards. -->
       <site name="imu" pos="0.021745 0.027420 0.114280" quat="0.500000 0.500000 -0.500000 -0.500000" size="0.006" rgba="0 1 0 1" />
       <body name="backpack" pos="0 0 0">
-        <!-- backpack v4.2 (hardware/backpack_v2), 574 g: components from hardware/mass_model.json (datasheets), printed shells from mesh volume -->
-        <inertial pos="-0.062732 -0.010771 0.010640" mass="0.5737" fullinertia="2.583e-03 1.755e-03 1.372e-03 6.197e-05 6.818e-05 -8.355e-05" />
+        <!-- backpack v4.2 (hardware/backpack_v2), 573 g: components from hardware/mass_model.json (datasheets), printed shells from mesh volume -->
+        <inertial pos="-0.062763 -0.011130 0.010628" mass="0.5732" fullinertia="2.576e-03 1.754e-03 1.365e-03 6.723e-05 6.860e-05 -7.449e-05" />
         <geom name="backpack_base_visual" material="backpack_base_material" type="mesh" mesh="backpack_base.stl" class="visual" />
         <geom name="backpack_lid_visual" material="backpack_lid_material" type="mesh" mesh="backpack_lid.stl" class="visual" />
       </body>
       <body name="right_shoulder_pitch_link" pos="0.006375 -0.078150 0.048640">
-        <joint name="right_shoulder_pitch" type="hinge" ref="0.0" class="motor" range="-1.658063 0.000000" axis="0.000000 1.000000 0.000000" />
+        <joint name="right_shoulder_pitch" type="hinge" ref="0.0" class="motor" range="-1.658063 1.762783" axis="0.000000 1.000000 0.000000" />
         <inertial pos="0.000190 -0.016688 -0.003040" mass="0.026900" fullinertia="6.643e-06 1.454e-05 1.480e-05 5.220e-08 3.725e-08 -1.118e-06" />
         <geom name="right_shoulder_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="right_shoulder_pitch_link_printed.stl" class="visual" />
         <body name="right_shoulder_yaw_link" pos="0.018884 -0.030000 -0.016231">
@@ -86,7 +86,7 @@
         </body>
       </body>
       <body name="left_shoulder_pitch_link" pos="0.006375 0.078150 0.048640">
-        <joint name="left_shoulder_pitch" type="hinge" ref="0.0" class="motor" range="0.000000 1.658063" axis="0.000000 -1.000000 0.000000" />
+        <joint name="left_shoulder_pitch" type="hinge" ref="0.0" class="motor" range="-1.919862 1.658063" axis="0.000000 -1.000000 0.000000" />
         <inertial pos="0.000077 0.016687 -0.003048" mass="0.026899" fullinertia="6.655e-06 1.454e-05 1.479e-05 -1.437e-08 3.085e-07 1.120e-06" />
         <geom name="left_shoulder_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="left_shoulder_pitch_link_printed.stl" class="visual" />
         <body name="left_shoulder_yaw_link" pos="0.018328 0.030000 -0.016856">
@@ -112,7 +112,7 @@
           <geom name="right_hip_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="right_hip_yaw_link_printed.stl" class="visual" />
           <geom name="right_hip_yaw_link_servos_visual" material="servo_material" type="mesh" mesh="right_hip_yaw_link_servos.stl" class="visual" />
           <body name="right_hip_roll_link" pos="-0.015004 -0.001336 -0.067746">
-            <joint name="right_hip_roll" type="hinge" ref="0.0" class="motor" range="-0.872665 0.872665" axis="-0.000050 -0.019712 -0.999806" />
+            <joint name="right_hip_roll" type="hinge" ref="0.0" class="motor" range="-0.872665 0.872665" axis="0.000050 0.019712 0.999806" />
             <inertial pos="0.005880 0.000983 0.001762" mass="0.017221" fullinertia="1.109e-05 8.586e-06 5.175e-06 5.074e-08 -1.505e-06 4.693e-07" />
             <geom name="right_hip_roll_link_printed_visual" material="printed_material" type="mesh" mesh="right_hip_roll_link_printed.stl" class="visual" />
             <body name="right_knee_pitch_link" pos="0.000163 0.018334 -0.025076">
@@ -124,8 +124,10 @@
                 <joint name="right_ankle_pitch" type="hinge" ref="0.0" class="motor" range="-1.570796 1.483530" axis="-0.008728 -0.999768 0.019711" />
                 <inertial pos="0.009116 -0.019139 -0.022637" mass="0.065874" fullinertia="1.864e-05 5.356e-05 6.423e-05 5.628e-07 5.967e-07 -4.736e-07" />
                 <geom name="right_ankle_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="right_ankle_pitch_link_printed.stl" class="visual" />
-                <geom name="Right_Foot_collision_box" type="box" pos="0.010162 -0.019041 -0.029275" size="0.050144 0.026807 0.005993" class="collision" />
-                <site name="right_foot" pos="0.010162 -0.019041 -0.037268" size="0.005" />
+                <geom name="Right_Foot_collision_box" type="box" pos="0.010162 -0.018849 -0.032268" size="0.050144 0.006250 0.003000" class="collision" />
+                <geom name="Right_Foot_chamfer_neg" type="capsule" fromto="-0.038982 -0.036599 -0.031049 0.059306 -0.036599 -0.031049" size="0.001000" class="collision" />
+                <geom name="Right_Foot_chamfer_pos" type="capsule" fromto="-0.038982 -0.001099 -0.031490 0.059306 -0.001099 -0.031490" size="0.001000" class="collision" />
+                <site name="right_foot" pos="0.010162 -0.018849 -0.037268" size="0.005" />
               </body>
             </body>
           </body>
@@ -142,7 +144,7 @@
           <geom name="left_hip_yaw_link_printed_visual" material="printed_material" type="mesh" mesh="left_hip_yaw_link_printed.stl" class="visual" />
           <geom name="left_hip_yaw_link_servos_visual" material="servo_material" type="mesh" mesh="left_hip_yaw_link_servos.stl" class="visual" />
           <body name="left_hip_roll_link" pos="-0.015104 -0.001183 -0.067727">
-            <joint name="left_hip_roll" type="hinge" ref="0.0" class="motor" range="-0.785398 0.733038" axis="-0.001541 -0.017453 -0.999847" />
+            <joint name="left_hip_roll" type="hinge" ref="0.0" class="motor" range="-0.785398 0.733038" axis="0.001541 0.017453 0.999847" />
             <inertial pos="0.005918 -0.000661 0.001779" mass="0.017223" fullinertia="1.109e-05 8.541e-06 5.222e-06 2.757e-09 -1.487e-06 -6.594e-07" />
             <geom name="left_hip_roll_link_printed_visual" material="printed_material" type="mesh" mesh="left_hip_roll_link_printed.stl" class="visual" />
             <body name="left_knee_pitch_link" pos="0.000947 -0.019228 -0.024379">
@@ -154,8 +156,10 @@
                 <joint name="left_ankle_pitch" type="hinge" ref="0.0" class="motor" range="-1.570796 1.570796" axis="-0.052363 0.998477 -0.017348" />
                 <inertial pos="0.008127 0.018638 -0.023402" mass="0.065878" fullinertia="1.876e-05 5.350e-05 6.417e-05 -2.077e-06 9.362e-07 9.081e-07" />
                 <geom name="left_ankle_pitch_link_printed_visual" material="printed_material" type="mesh" mesh="left_ankle_pitch_link_printed.stl" class="visual" />
-                <geom name="Left_Foot_collision_box" type="box" pos="0.009095 0.019261 -0.029665" size="0.050832 0.028861 0.005986" class="collision" />
-                <site name="left_foot" pos="0.009095 0.019261 -0.037651" size="0.005" />
+                <geom name="Left_Foot_collision_box" type="box" pos="0.009095 0.019150 -0.032651" size="0.050832 0.008500 0.003000" class="collision" />
+                <geom name="Left_Foot_chamfer_neg" type="capsule" fromto="-0.040737 0.000150 -0.031703 0.058927 0.000150 -0.031703" size="0.001000" class="collision" />
+                <geom name="Left_Foot_chamfer_pos" type="capsule" fromto="-0.040737 0.038650 -0.031949 0.058927 0.038650 -0.031949" size="0.001000" class="collision" />
+                <site name="left_foot" pos="0.009095 0.019150 -0.037651" size="0.005" />
               </body>
             </body>
           </body>
@@ -183,7 +187,11 @@
   </actuator>
   <contact>
     <pair geom1="Left_Foot_collision_box" geom2="floor" />
+    <pair geom1="Left_Foot_chamfer_neg" geom2="floor" />
+    <pair geom1="Left_Foot_chamfer_pos" geom2="floor" />
     <pair geom1="Right_Foot_collision_box" geom2="floor" />
+    <pair geom1="Right_Foot_chamfer_neg" geom2="floor" />
+    <pair geom1="Right_Foot_chamfer_pos" geom2="floor" />
   </contact>
   <sensor>
     <accelerometer name="imu_acc" site="imu" noise="0.01" />

@@ -1,0 +1,79 @@
+{
+    "error_string": "Success.",
+    "export_time": 1145,
+    "layer_height": 0.20000000298023224,
+    "plate_index": 0,
+    "prepare_time": 144,
+    "return_code": 0,
+    "sliced_plates": [
+        {
+            "feature_type_times": {
+                "Bottom surface": 580.749755859375,
+                "Bridge": 398.64837646484375,
+                "Brim": 143.9556427001953,
+                "Custom": 402.1836242675781,
+                "Flush": 26.0,
+                "Gap infill": 499.1607971191406,
+                "Inner wall": 4429.32275390625,
+                "Internal solid infill": 3503.998779296875,
+                "Outer wall": 2654.507080078125,
+                "Overhang wall": 126.95866394042969,
+                "Sparse infill": 3460.01123046875,
+                "Top surface": 737.1947021484375,
+                "Travel": 1244.4163818359375,
+                "Undefined": 1237.67041015625
+            },
+            "filament_change_times": 0,
+            "filaments": [
+                {
+                    "filament_id": "GFU01",
+                    "id": 1,
+                    "main_used_g": 69.86176300048828,
+                    "total_used_g": 69.86176300048828
+                }
+            ],
+            "generate_support_material_time": 207,
+            "id": 1,
+            "infill_time": 749,
+            "layer_filament_change": 0,
+            "main_predication": 17752.73828125,
+            "make_perimeters_time": 1358,
+            "obj_cached_cnt": 0,
+            "objects": [
+                {
+                    "bbox": {
+                        "depth": 61.14305114746094,
+                        "height": 23.635271072387695,
+                        "width": 105.17350769042969,
+                        "x": 75.41328430175781,
+                        "y": 127.2725830078125,
+                        "z": 0.0
+                    },
+                    "id": 38,
+                    "name": "foot_sole_left.stl",
+                    "triangle_count": 48036
+                },
+                {
+                    "bbox": {
+                        "depth": 57.70064163208008,
+                        "height": 24.438007354736328,
+                        "width": 103.58708190917969,
+                        "x": 75.80210876464844,
+                        "y": 67.58431243896484,
+                        "z": 0.0
+                    },
+                    "id": 49,
+                    "name": "foot_sole_right.stl",
+                    "triangle_count": 46680
+                }
+            ],
+            "sliced_time": 4906,
+            "sliced_time_with_cache": 2341,
+            "total_predication": 18200.17578125,
+            "triangle_count": 94716,
+            "warning_message": ""
+        }
+    ],
+    "sparse_infill_density": 20.0,
+    "wall_loops": 3
+}

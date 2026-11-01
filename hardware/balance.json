@@ -1,0 +1,13 @@
+{
+  "_comment": "IMU balance assist for demo steps with \"balance\": true (see src/zbot_core/zbot_core/balance.py). Holds the torso at the tilt it had when the balanced steps began: pitch via ankle_pitch, roll via hip_yaw (lean) of the stance leg. kp/kd = joint deg per deg / per deg/s of deviation; max_deg clamps each correction, slew_dps limits how fast it changes. stance: auto (the straighter knee carries) | left | right | both. pitch_sign/roll_sign flip a joint's direction if the correction pushes the wrong way. dry_run: only log, command nothing - use it first, tilting the robot by hand.",
+  "kp_pitch": 0.6,
+  "kd_pitch": 0.08,
+  "kp_roll": 0.4,
+  "kd_roll": 0.05,
+  "deadband_deg": 0.7,
+  "max_deg": 8.0,
+  "slew_dps": 40.0,
+  "stance": "auto",
+  "dry_run": false,
+  "enabled": true
+}

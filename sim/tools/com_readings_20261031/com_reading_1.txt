@@ -1,0 +1,4 @@
+IMU |a| mg 1105, std per axis [0.5 0.4 0.6] | pose spread (max joint std) 0.00 deg
+Right: foot tilt vs gravity   4.4 deg (pitch +3.8, roll -2.2) | CoM projected on sole x  -24.8 y   56.3 mm | sole x -40..61 y -45..7 | height above sole 256 mm
+Left: foot tilt vs gravity   8.1 deg (pitch +7.7, roll -2.3) | CoM projected on sole x  -36.2 y  -35.5 mm | sole x -42..60 y -9..48 | height above sole 257 mm
+{'left_ankle_pitch': -0.2, 'left_hip_pitch': 18.9, 'left_hip_roll': 0.0, 'left_hip_yaw': 0.1, 'left_knee_pitch': 0.1, 'right_ankle_pitch': -0.3, 'right_hip_pitch': -15.9, 'right_hip_roll': -0.1, 'right_hip_yaw': 0.0, 'right_knee_pitch': 0.3}
