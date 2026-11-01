@@ -230,6 +230,22 @@ def test_run_writes_a_replayable_step_log(runner):
         runner.log_path("../x.npz")
 
 
+def test_off_center_start_warns_but_still_runs_and_is_logged(runner):
+    import json
+    bus = service.S.bus
+    sid = IDS["right_ankle_pitch"]
+    bus._pos[sid] = 2048 + 30                # about +2.6°, above START_POSE_WARN_DEG
+    runner.start(NAME, dry_run=True)
+    assert any("start pose off center: right_ankle_pitch +2.6" in e["msg"] for e in service.S.snapshot()["log"])
+    time.sleep(0.2)
+    runner.stop()
+    _wait_done(runner)
+    meta = json.loads(str(np.load(runner.log_path(runner.status()["last_log"]))["meta"]))
+    assert meta["start_pose_dev_deg"]["right_ankle_pitch"] == pytest.approx(2.64, abs=0.01)
+    assert abs(meta["start_pose_dev_deg"]["left_ankle_pitch"]) < 0.1
+    assert meta["start_acc_mg"] == [0.0, 1000.0, 0.0]
+
+
 def test_servo_model_speed_and_rate_limit():
     assert P.resolve_speed(None, None) == 1000                    # old policies: the old default
     assert P.resolve_speed(2000, None) == 2000                    # servo-model policy: its own register

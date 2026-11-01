@@ -56,6 +56,7 @@ RAMP_STEPS = 50             # 1 s: blend from the current pose into the policy
 GYRO_CAL_S = 1.0            # standing still at start: measure the gyro zero offset
 GYRO_STILL_DPS = 8.0        # per-axis std-dev above this = robot is being moved -> no calibration
 STANDING_G_TOL = 1.5        # |chip-Y reading - 9.81| allowed at start (m/s²)
+START_POSE_WARN_DEG = 1.0   # joint further than this from the center pose at start: warn, the run still starts
 MAX_WZ = 0.5                # rad/s, clamp for the yaw-rate command
 LOG_MAX_STEPS = 30000       # 10 min at 50 Hz; recording stops there, the run goes on
 
@@ -276,6 +277,8 @@ class PolicyRunner:
         self.name: str | None = None
         self._pol: LoadedPolicy | None = None
         self.gyro_bias = np.zeros(3)
+        self._start_dev: dict[str, float] = {}
+        self._start_acc_mg: list[float] = []
         self.dry_run = False
         self.last: dict = {}
         self.log_dir = self.root.parent / "policy_logs"
@@ -395,15 +398,17 @@ class PolicyRunner:
         The QMI8658 sits a few dps off zero (seen: -3 dps = 24° of fake heading in 8 s); the sim
         gyro has no such offset and the heading input integrates it, so the policy would steer
         against a turn that never happened."""
-        samples, seen = [], None
+        samples, accs, seen = [], [], None
         t_end = time.monotonic() + GYRO_CAL_S
         while time.monotonic() < t_end:
             s, _ = self._imu_sample()
             if s.get("seq") != seen:
                 seen = s.get("seq")
                 samples.append([s["gx"], s["gy"], s["gz"]])
+                accs.append([s["ax"], s["ay"], s["az"]])
             time.sleep(0.01)
         a = np.array(samples)
+        self._start_acc_mg = np.mean(accs, axis=0).tolist() if accs else []
         if len(a) < 5:
             raise PolicyError(f"gyro calibration got only {len(a)} IMU samples in {GYRO_CAL_S} s")
         sd = a.std(axis=0)
@@ -438,6 +443,13 @@ class PolicyRunner:
                 far.append(f"{e['joint']} {deg:+.1f}° outside [{e['lo']:+.0f}, {e['hi']:+.0f}]")
         if far:
             raise PolicyError("joint(s) outside their limits: " + "; ".join(far))
+        # the run blends in from wherever the robot stands, so an off-center joint would go unnoticed
+        center = self.cfg.center_pose()
+        self._start_dev = {e["joint"]: round(to_rel(pos[e["id"]][0], e["offset"]) - center.get(e["joint"], 0.0), 2)
+                           for e in plan}
+        off = [f"{j} {d:+.1f}°" for j, d in self._start_dev.items() if abs(d) > START_POSE_WARN_DEG]
+        if off:
+            self.S.log("WARNING: start pose off center: " + ", ".join(off))
 
     # -- the loop
     def _run(self, pol: LoadedPolicy, plan: list[dict], bus, speed: int, acc: int, dry: bool,
@@ -607,6 +619,7 @@ class PolicyRunner:
                 "offsets": [e["offset"] for e in plan], "limits_deg": [[e["lo"], e["hi"]] for e in plan],
                 "action_scale": pol.action_scale, "servo_speed": speed, "servo_acc": acc,
                 "gyro_bias_dps": [float(x) for x in gyro_bias], "cmd": cmd,
+                "start_pose_dev_deg": self._start_dev, "start_acc_mg": self._start_acc_mg,
                 "obs_layout": [[n, k] for n, k in EXPECTED_LAYOUT],
                 "imu_raw_units": "ax ay az [mg], gx gy gz [dps], raw chip axes",
                 "speed_units": "servo ticks/s as read from the bus",
