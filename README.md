@@ -60,7 +60,7 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 - **Simulation model & walking policies** ✅ : MuJoCo model generated from the *built* robot rather than the upstream CAD — backpack geometry, datasheet masses from the stitched meshes and the head IMU in its real place and orientation. Five walking variants trained on it on the local GPU rig, with an unattended training queue and a checkpoint picker ([sim/](sim/README.md)). Export tooling is engine-independent, so the same Feetech model runs in the sim and on the robot
 - **Phase 3 — Sim-to-real**: *next* — export a policy to ONNX, run it on the Pi and measure where the simulation and the real robot disagree
 
-Milestones are tagged as releases (`v0.1-parts-printed`, `v0.2-arms-assembled`, `v0.3-first-motion`, …) so the build history is easy to follow chronologically.
+Notable changes are listed in the [changelog](CHANGELOG.md). Milestones are tagged as releases (`v0.1-parts-printed`, `v0.2-arms-assembled`, `v0.3-first-motion`, …) so the build history is easy to follow chronologically.
 
 ## Software
 
