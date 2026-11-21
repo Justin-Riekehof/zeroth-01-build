@@ -30,6 +30,7 @@ commanded speed in stages from a stepping checkpoint, a share of zero commands k
 """
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -124,6 +125,19 @@ CHAINS["boot"] = (BOOT, T / "train_chain_boot.json")
 # 2026-11-01: the same bootstrap from scratch, now with random foot friction (FootFrictionRandomizer)
 FRICTION = [{"run": "servo_fric2", "after": "servo_fric1", "iters": 2500, "pick": "boot", "set": FOLLOW}]
 CHAINS["friction"] = (FRICTION, T / "train_chain_friction.json")
+# 2026-11-02: servo_fric1 never reached 50 % real steps (low friction drags the mean), servo_fric2 goes on from its step 750
+FRICTION2 = [{"run": "servo_fric3", "after": "servo_fric2", "iters": 2500, "pick": "boot", "set": FOLLOW}]
+CHAINS["friction2"] = (FRICTION2, T / "train_chain_friction2.json")
+# 2026-11-02: climbing-shoe rubber under the soles (user expects mu 0.6-1.0), from scratch like servo_fric1
+RUBBER = [{"run": "servo_rubber2", "after": "servo_rubber1", "iters": 2500, "pick": "boot", "set": FOLLOW}]
+CHAINS["rubber"] = (RUBBER, T / "train_chain_rubber.json")
+# 2026-11-03: the same from scratch with the flat-foot penalty at -30 instead of -8 (servo_rubber2: 43 % of contact > 5 deg)
+RUBBER3 = [{"run": "servo_rubber4", "after": "servo_rubber3", "iters": 2500, "pick": "boot", "set": FOLLOW}]
+CHAINS["rubber3"] = (RUBBER3, T / "train_chain_rubber3.json")
+# 2026-11-05: from scratch with the naive bootstrap speed capped at 1.2 x command (servo_rubber3-7 learnt one fixed
+# ~8 cm/s gait from the uncapped one) and the stride target tied to the command from the start
+RUBBER8 = [{"run": "servo_rubber9", "after": "servo_rubber8", "iters": 2500, "pick": "boot", "set": FOLLOW}]
+CHAINS["rubber8"] = (RUBBER8, T / "train_chain_rubber8.json")
 STEPS_WALK, STEPS_REAL = 0.6, 0.5
 
 
@@ -246,7 +260,9 @@ def launch(stage: dict, src: dict, why: str, state: dict):
     args = overrides(prev, stage["set"]) + [f"load_from_ckpt_path={ckpt}", f"max_steps={step + stage['iters']}"]
     # the full environment: without XDG_RUNTIME_DIR / DBUS_SESSION_BUS_ADDRESS systemd-run cannot reach the user manager
     # ("Failed to connect to bus") and the stage silently never starts (servo_ctrl_v10, 2026-10-29)
-    env = {**os.environ, "GPU": "1", "ASSETS": "zbot-cad"}
+    # the same model and GPU as the previous stage (fixed to zbot-cad on GPU 1 until 2026-11-01), evaluation on the other GPU
+    gpu = next((t.split("=", 1)[1] for t in shlex.split((T / prev / "launch.sh").read_text()) if t.startswith("GPU=")), "1")
+    env = {**os.environ, "GPU": gpu, "ASSETS": W.assets(prev)}
     env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     r = subprocess.run([str(ROOT / "sim/tools/train_backpack.sh"), run] + args, capture_output=True, text=True,
                        env=env, cwd=ROOT)
@@ -256,7 +272,7 @@ def launch(stage: dict, src: dict, why: str, state: dict):
                     "-p", "Restart=on-failure", "-p", "RestartSec=60", "-p", f"WorkingDirectory={ROOT}",
                     "-E", f"HOME={Path.home()}", "-E", f"PATH={os.environ.get('PATH', '/usr/bin:/bin')}", str(VENV / "bin/python"),
                     "sim/tools/calm_watch.py", run, "--interval", "40", "--window", "6", "--min-iters", "200",
-                    "--eval-gpu", "0", "--video-every", "100", "--collapse-after", "200"], capture_output=True)
+                    "--eval-gpu", "0" if gpu == "1" else "1", "--video-every", "100", "--collapse-after", "200"], capture_output=True)
     m = src["metrics"]
     state["events"].append({"time": time.strftime("%Y-%m-%d %H:%M"), "started": run, "from": f"{prev} step {step}",
                             "why": why, "from_metrics": {k: m.get(k) for k in ("falls", "tracking_ratio",

@@ -15,7 +15,7 @@
 #   jitter    no extra penalties: the 5-6 Hz oscillation was the hopping gait, real steps removed it (v8/v9: 0.21)
 # Watcher: no videos (user, 2026-10-30), stagnation only after 800 (scratch needs ~700 to walk), tracking collapse
 # only after 800. Parameters: RUN, GPU (training), ASSETS (zbot-cad = printed soles, zbot-cad-tpu = TPU overshoes),
-# EVAL_GPU (-1 = CPU: both GPUs train), MAX_STEPS.
+# EVAL_GPU (-1 = CPU: both GPUs train), VIDEO_EVERY, MAX_STEPS.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 VENV="$HOME/Documents/stash/ksim-zbot/.venv"
@@ -40,5 +40,5 @@ GPU=${GPU:-1} ASSETS=${ASSETS:-zbot-cad} sim/tools/train_backpack.sh "$RUN" \
 systemctl --user reset-failed "zbot-calmwatch-$RUN" 2>/dev/null || true
 systemd-run --user --collect --quiet --unit="zbot-calmwatch-$RUN" -p Restart=on-failure -p RestartSec=60 \
   -p WorkingDirectory="$PWD" -E HOME="$HOME" -E PATH="$PATH" "$VENV/bin/python" sim/tools/calm_watch.py "$RUN" \
-  --interval 40 --window 6 --min-iters 800 --collapse-after 800 --eval-gpu "${EVAL_GPU:-0}" --video-every 0
+  --interval 40 --window 6 --min-iters 800 --collapse-after 800 --eval-gpu "${EVAL_GPU:-0}" --video-every "${VIDEO_EVERY:-0}"
 echo "watcher zbot-calmwatch-$RUN started"

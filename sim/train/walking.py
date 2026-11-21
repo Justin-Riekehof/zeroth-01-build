@@ -24,6 +24,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import ksim
+from ksim.utils.mujoco import get_site_data_idx_from_name
 import optax
 import xax
 from jax.scipy.spatial.transform import Rotation
@@ -79,12 +80,41 @@ class FootFrictionRandomizer(ksim.PhysicsRandomizer):
 
     mu_lower: float = attrs.field()
     mu_upper: float = attrs.field()
+    log_uniform: bool = attrs.field(default=False)
 
     def __call__(self, model: ksim.PhysicsModel, rng: jax.Array) -> dict[str, jax.Array]:
         if model.npair == 0:
             raise ValueError("The model has no contact pairs: nothing to randomize.")
-        mu = jax.random.uniform(rng, minval=self.mu_lower, maxval=self.mu_upper)
+        if self.log_uniform:
+            mu = jnp.exp(jax.random.uniform(rng, minval=jnp.log(self.mu_lower), maxval=jnp.log(self.mu_upper)))
+        else:
+            mu = jax.random.uniform(rng, minval=self.mu_lower, maxval=self.mu_upper)
         return {"pair_friction": jnp.asarray(model.pair_friction).at[:, :2].set(mu)}     # both tangential directions
+
+
+@attrs.define(frozen=True, kw_only=True)
+class ImuTiltRandomizer(ksim.PhysicsRandomizer):
+    """Constant tilt of the IMU site per environment, up to max_deg about a random axis in the chip's x/z plane (level
+    when the head is upright). On the robot the IMU stands at 9-13 deg forward where the model says 17.2 (2026-10-31/11-01,
+    head mount and leg compliance not separated): the policy must not rely on the absolute angle."""
+
+    site_id: int = attrs.field()
+    max_deg: float = attrs.field()
+
+    @classmethod
+    def from_site_name(cls, model: ksim.PhysicsModel, name: str, max_deg: float) -> "ImuTiltRandomizer":
+        return cls(site_id=get_site_data_idx_from_name(model, name), max_deg=max_deg)
+
+    def __call__(self, model: ksim.PhysicsModel, rng: jax.Array) -> dict[str, jax.Array]:
+        rng_axis, rng_angle = jax.random.split(rng)
+        heading = jax.random.uniform(rng_axis, minval=0.0, maxval=2 * jnp.pi)
+        half = 0.5 * jnp.radians(self.max_deg) * jax.random.uniform(rng_angle, minval=-1.0, maxval=1.0)
+        w2, x2, y2, z2 = jnp.cos(half), jnp.sin(half) * jnp.cos(heading), 0.0, jnp.sin(half) * jnp.sin(heading)
+        site_quat = jnp.asarray(model.site_quat)
+        w1, x1, y1, z1 = site_quat[self.site_id]
+        tilted = jnp.stack([w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2, w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+                            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2, w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2])
+        return {"site_quat": site_quat.at[self.site_id].set(tilted)}
 
 
 @attrs.define(frozen=True)
@@ -276,9 +306,19 @@ class TimestepPhaseObservation(ksim.TimestepObservation):
         return jnp.array([jnp.cos(phase), jnp.sin(phase)]).flatten()
 
 
+@attrs.define(frozen=True, kw_only=True)
 class NaiveVelocityReward(ksim.Reward):
+    """Raw forward speed. Uncapped it pays for any overspeed, and the bootstrap stage then bakes in one fixed fast gait
+    (servo_rubber3-7: ~8 cm/s at every command of 3-5 cm/s, later re-weighting never removed it). cap > 0 clips the
+    speed at cap x command."""
+
+    cap: float = attrs.field(default=0.0)
+
     def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
-        return trajectory.qvel[..., 0].clip(max=5.0), None
+        vx = trajectory.qvel[..., 0]
+        if self.cap > 0:
+            return jnp.minimum(vx, self.cap * trajectory.command["linear_velocity_command"][..., 0]), None
+        return vx.clip(max=5.0), None
 
 
 @attrs.define(frozen=True, kw_only=True)
@@ -404,11 +444,17 @@ class ForwardProgressReward(ksim.Reward):
 
     window_steps: int = attrs.field(default=40)
     linvel_obs_name: str = attrs.field(default="sensor_observation_base_link_vel")
+    # Capped at the command, overspeed still pays in full and keeps every window safely at 1 (servo_rubber7/10: a sharp
+    # tracking kernel left this as the only speed signal, the policy went to 2x command). peak: falls again above it.
+    # servo_rubber11: a sharp peak (zero at 2x) made it shuffle at 0.3-0.7x; peak_tol keeps the full reward up to (1 + tol)x
+    peak: bool = attrs.field(default=False)
+    peak_tol: float = attrs.field(default=0.0)
 
     def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
         vx = moving_average(trajectory.obs[self.linvel_obs_name][..., :2], self.window_steps)[..., 0]
         cmd = trajectory.command["linear_velocity_command"][..., 0]
-        progress = jnp.clip(vx / jnp.maximum(cmd, 1e-3), -1.0, 1.0)
+        ratio = vx / jnp.maximum(cmd, 1e-3)
+        progress = jnp.clip(jnp.minimum(ratio, 2.0 + self.peak_tol - ratio) if self.peak else ratio, -1.0, 1.0)
         return jnp.where((cmd > 1e-3) & ~trajectory.done, progress, 0.0), None
 
 
@@ -1003,19 +1049,39 @@ class JointLimitPenalty(ksim.Reward):
     lower: tuple[float, ...] = attrs.field()
     upper: tuple[float, ...] = attrs.field()
     margin: tuple[float, ...] | float = attrs.field(default=0.087)
+    # "sum" over the joints instead of the mean: servo_rubber17 - only the two hip yaws ride their stop, the mean over
+    # 20 joints made that 10x cheaper than intended and the policy kept leaning on the stop (margin_share 0.94)
+    reduce_sum: bool = attrs.field(default=False)
 
     def __call__(self, trajectory: ksim.Trajectory, reward_carry: PyTree) -> tuple[Array, PyTree]:
         q = trajectory.qpos[..., 7:]
         margin = jnp.asarray(self.margin)
         dist = jnp.minimum(q - jnp.array(self.lower), jnp.array(self.upper) - q)
-        inside = jnp.maximum(margin - dist, 0.0) / margin
-        return jnp.where(trajectory.done, 0.0, jnp.square(inside).mean(axis=-1)), None
+        inside = jnp.clip(jnp.maximum(margin - dist, 0.0) / margin, max=2.0) if self.reduce_sum else jnp.maximum(margin - dist, 0.0) / margin
+        pen = jnp.square(inside).sum(axis=-1) if self.reduce_sum else jnp.square(inside).mean(axis=-1)
+        return jnp.where(trajectory.done, 0.0, pen), None
 
     @classmethod
-    def from_model(cls, physics_model: ksim.PhysicsModel, margin_deg: float, scale: float) -> "JointLimitPenalty":
+    def from_model(cls, physics_model: ksim.PhysicsModel, margin_deg: float, scale: float,
+                   reduce_sum: bool = False) -> "JointLimitPenalty":
         lo, hi = real_joint_limits(physics_model)                    # real limits intersected with the sim range
         return cls(lower=tuple(float(x) for x in lo), upper=tuple(float(x) for x in hi),
-                   margin=tuple(float(x) for x in limit_margins(lo, hi, np.radians(margin_deg))), scale=scale)
+                   margin=tuple(float(x) for x in limit_margins(lo, hi, np.radians(margin_deg))), scale=scale,
+                   reduce_sum=reduce_sum)
+
+
+def action_clip_bounds(mj_model, margin_deg: float, reserve_deg: float = 0.0) -> dict:
+    """ZbotModel kwargs for action_clip_margin_deg > 0: per joint the real range (real_joint_limits) shrunk by
+    limit_margins (= the hardware gate's margin, hip yaw 1.5 / 2.5 deg). servo_rubber16/17: penalties did not stop the
+    policy from aiming the hip yaw 15-20 deg beyond its 3/5 deg limits and using the Pi clamp as an end stop."""
+    if margin_deg <= 0:
+        return {}
+    lo, hi = real_joint_limits(mj_model)
+    # + reserve_deg (action_clip_reserve_deg): servo_rubber19 parked the right hip-yaw target on the clip half the time
+    # and the load bent the joint the last 1-1.5 deg into the gate margin -> keep the target that much further inside
+    m = limit_margins(lo, hi, np.radians(margin_deg)) + np.radians(reserve_deg)
+    m = np.minimum(m, np.where(lo < 0, -lo, m)); m = np.minimum(m, np.where(hi > 0, hi, m))   # never past the zero pose
+    return {"clip_lo": tuple(float(x) for x in lo + m), "clip_hi": tuple(float(x) for x in hi - m)}
 
 
 def limit_margins(lo: np.ndarray, hi: np.ndarray, margin: float) -> np.ndarray:
@@ -1108,6 +1174,7 @@ class StrideLengthReward(ksim.Reward):
     min_swing: float = attrs.field(default=0.2)
     ctrl_dt: float = attrs.field(default=0.02)
     needs_command: bool = attrs.field(default=False)   # pay only while a forward speed is commanded
+    per_command: bool = attrs.field(default=False)     # target = commanded speed x gait period, at most `target`
     pos_obs: str = attrs.field(default="feet_position_observation")
     contact_obs: str = attrs.field(default="feet_contact_observation")
 
@@ -1128,7 +1195,14 @@ class StrideLengthReward(ksim.Reward):
         _, (x_lift, run) = jax.lax.scan(fwd, (x[0], jnp.zeros(2, dtype=jnp.int32)), (x, liftoff, ~contact))
         run_before = jnp.concatenate([jnp.zeros_like(run[:1]), run[:-1]], axis=0)   # swing length up to touchdown
         real = run_before.astype(jnp.float32) * self.ctrl_dt >= self.min_swing
-        stride = jnp.clip((x - x_lift) / self.target, 0.0, 1.0)
+        target = self.target
+        if self.per_command:
+            # a foot travels speed x gait period per swing: a fixed 4 cm at 1.0-1.25 Hz means 4-5 cm/s at every command,
+            # servo_rubber4 walked 1.2-1.6x the command of 3-6 cm/s (2026-11-04)
+            v = trajectory.command["linear_velocity_command"][..., :1]
+            f = trajectory.command["gait_frequency_command"][..., :1]
+            target = jnp.clip(v / jnp.maximum(f, 0.1), 0.01, self.target)
+        stride = jnp.clip((x - x_lift) / target, 0.0, 1.0)
         r = (stride * touchdown * real * contact[..., ::-1]).sum(axis=-1)
         if self.needs_command:
             r = jnp.where(trajectory.command["linear_velocity_command"][..., 0] > 1e-3, r, 0.0)
@@ -1182,6 +1256,8 @@ class ZbotActor(eqx.Module):
     max_std: float = eqx.static_field()
     var_scale: float = eqx.static_field()
     mean_scale: float = eqx.static_field()
+    clip_lo: tuple[float, ...] | None = eqx.static_field()
+    clip_hi: tuple[float, ...] | None = eqx.static_field()
 
     def __init__(
         self,
@@ -1192,6 +1268,8 @@ class ZbotActor(eqx.Module):
         var_scale: float,
         mean_scale: float,
         num_inputs: int = NUM_INPUTS,
+        clip_lo: tuple[float, ...] | None = None,
+        clip_hi: tuple[float, ...] | None = None,
     ) -> None:
         self.mlp = eqx.nn.MLP(
             in_size=num_inputs,
@@ -1205,6 +1283,8 @@ class ZbotActor(eqx.Module):
         self.max_std = max_std
         self.var_scale = var_scale
         self.mean_scale = mean_scale
+        self.clip_lo = clip_lo
+        self.clip_hi = clip_hi
 
     def forward(
         self,
@@ -1251,6 +1331,8 @@ class ZbotActor(eqx.Module):
 
         # Scale the mean.
         mean_n = jnp.tanh(mean_n) * self.mean_scale
+        if self.clip_lo is not None:   # action_clip_margin_deg: the target never leaves the real range minus the margin
+            mean_n = jnp.clip(mean_n, jnp.array(self.clip_lo), jnp.array(self.clip_hi))
 
         # Softplus and clip to ensure positive standard deviations.
         std_n = jnp.clip((jax.nn.softplus(std_n) + self.min_std) * self.var_scale, max=self.max_std)
@@ -1346,7 +1428,8 @@ class ZbotModel(eqx.Module):
     actor: ZbotActor
     critic: ZbotCritic
 
-    def __init__(self, key: PRNGKeyArray, num_inputs: int = NUM_INPUTS) -> None:
+    def __init__(self, key: PRNGKeyArray, num_inputs: int = NUM_INPUTS,
+                 clip_lo: tuple[float, ...] | None = None, clip_hi: tuple[float, ...] | None = None) -> None:
         self.actor = ZbotActor(
             key,
             min_std=0.01,
@@ -1354,6 +1437,8 @@ class ZbotModel(eqx.Module):
             var_scale=1.0,
             mean_scale=1.0,
             num_inputs=num_inputs,
+            clip_lo=clip_lo,
+            clip_hi=clip_hi,
         )
         self.critic = ZbotCritic(key)
 
@@ -1437,14 +1522,25 @@ class ZbotWalkingTaskConfig(ZbotTaskConfig):
     stride_min_swing: float = xax.field(value=0.2, help="Shortest swing (s) that counts as a step for the stride reward.")
     gait_clock_reward: float = xax.field(value=0.0, help="Scale of the reward for feet following the gait clock (gait_shaping), e.g. 2.")
     naive_velocity_scale: float = xax.field(value=0.25, help="Scale of the raw forward-speed reward (velocity_tracking). Raise it (1-2) when the policy marches on the spot: tracking alone is satisfied by a standing gait with small oscillation.")
+    naive_velocity_cap: float = xax.field(value=0.0, help="If > 0, the raw forward-speed reward stops growing at this multiple of the commanded speed (e.g. 1.2), so the bootstrap does not teach overspeed. 0 = up to 5 m/s.")
+    joint_limit_sum: bool = xax.field(value=False, help="joint_limit_penalty sums over the joints (depth clipped at 2) instead of averaging: one joint riding its stop then costs the full scale.")
+    action_clip_margin_deg: float = xax.field(value=0.0, help="> 0: clip the policy's action mean (also in the ONNX export) to the real joint range shrunk by this margin (at most half the zero-pose distance, hip yaw 1.5/2.5 deg). 0 = off.")
+    action_clip_reserve_deg: float = xax.field(value=0.0, help="Extra distance (deg) the action clip keeps on top of action_clip_margin_deg, for the deflection under load; never past the zero pose.")
     joint_limit_margin_deg: float = xax.field(value=5.0, help="Width of the band in front of the joint limits that joint_limit_penalty punishes.")
     track_reward_scale: float = xax.field(value=2.0, help="Scale of the linear velocity tracking reward (velocity_tracking).")
     track_error_scale: float = xax.field(value=0.25, help="Error scale of the velocity tracking reward; smaller = stricter.")
     track_window_s: float = xax.field(value=0.0, help="Track the velocity averaged over this window (s), ~one step (0.8): the body sways with every real step, the instantaneous velocity says little about the speed. 0 = instantaneous.")
+    stride_per_command: bool = xax.field(value=False, help="Stride target = commanded speed / gait frequency (at most stride_target) instead of a fixed stride_target, which pays for walking faster than the command.")
     stride_needs_command: bool = xax.field(value=False, help="Stride reward only while a forward speed is commanded: otherwise it pays for walking on at command 0.")
     foot_friction_min: float = xax.field(value=0.2, help="Foot/floor friction, lower bound per environment (domain_randomize). Laminate measured ~0.2 on 2026-11-01, uncalibrated.")
     foot_friction_max: float = xax.field(value=1.2, help="Foot/floor friction, upper bound per environment (domain_randomize).")
+    foot_friction_log: bool = xax.field(value=False, help="Draw the foot friction log-uniformly: half the environments below the geometric mean. servo_fric1 (uniform 0.1-1.5, 21 % below 0.4) fell 15-16 of 16 at mu 0.1-0.2, 3 of 16 at mu 0.8-1.5.")
+    imu_tilt_deg: float = xax.field(value=0.0, help="Constant IMU tilt per environment, up to this angle (domain_randomize). The real IMU differs from the model by 4-8 deg. 0 = off.")
     forward_progress_reward: float = xax.field(value=0.0, help="Scale of the forward speed as a share of the command (-1..1, 0 at command 0), e.g. 10: makes walking pay more than stepping on the spot.")
+    forward_progress_peak: bool = xax.field(value=False, help="Forward progress peaks at the command and falls again above it (2 - v/cmd), so overspeed stops paying.")
+    caps_temporal: float = xax.field(value=0.0, help="CAPS-style loss term (not a reward): weight on the squared second difference of the MEAN action over consecutive steps. Hits the 5-6 Hz zig-zag ~1000x harder than a 1 Hz gait. e.g. 1.0")
+    caps_spatial: float = xax.field(value=0.0, help="CAPS-style loss term: weight on the squared change of the mean action when the sensor inputs (joint pos/vel, IMU) get small noise; lowers the loop gain that drives the dead-time oscillation. e.g. 1.0")
+    forward_progress_peak_tol: float = xax.field(value=0.0, help="With forward_progress_peak: full reward from 1x up to (1 + tol)x the command, then falling, 0 at (2 + tol)x.")
     track_norm: str = xax.field(value="l2", help="Tracking error norm: 'l2' exp(-err^2/scale) (flat far from the command: with a strict scale a 5 cm/s drift earned 0 and no gradient - servo_ctrl_v13/v16 walked backwards unnoticed), 'l1' exp(-|err|/scale) (sharp at the command, a slope everywhere).")
 
 
@@ -1477,7 +1573,8 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
     def get_physics_randomizers(self, physics_model: ksim.PhysicsModel) -> list[ksim.PhysicsRandomizer]:
         if self.config.domain_randomize:
             return [
-                FootFrictionRandomizer(mu_lower=self.config.foot_friction_min, mu_upper=self.config.foot_friction_max),
+                FootFrictionRandomizer(mu_lower=self.config.foot_friction_min, mu_upper=self.config.foot_friction_max,
+                                       log_uniform=self.config.foot_friction_log),
                 ksim.StaticFrictionRandomizer(scale_lower=0.5, scale_upper=1.5),
                 ksim.ArmatureRandomizer(),
                 ksim.MassAdditionRandomizer.from_body_name(
@@ -1485,6 +1582,8 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
                 ),
                 ksim.JointDampingRandomizer(scale_lower=0.95, scale_upper=1.05),
                 ksim.JointZeroPositionRandomizer(scale_lower=-0.05, scale_upper=0.05),
+                *([ImuTiltRandomizer.from_site_name(physics_model, "imu", self.config.imu_tilt_deg)]
+                  if self.config.imu_tilt_deg > 0 else []),
             ]
         else:
             return []
@@ -1685,6 +1784,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
             if self.config.stride_reward:
                 shaping.append(StrideLengthReward(target=self.config.stride_target, min_swing=self.config.stride_min_swing,
                                                   ctrl_dt=self.config.ctrl_dt, needs_command=self.config.stride_needs_command,
+                                                  per_command=self.config.stride_per_command,
                                                   scale=self.config.stride_reward))
             if self.config.gait_clock_reward:
                 shaping.append(GaitClockReward(scale=self.config.gait_clock_reward))
@@ -1698,7 +1798,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
                 shaping.append(TargetLimitPenalty.from_model(physics_model, self.config.target_limit_penalty))
             if self.config.joint_limit_penalty:
                 shaping.append(JointLimitPenalty.from_model(physics_model, self.config.joint_limit_margin_deg,
-                                                            self.config.joint_limit_penalty))
+                                                            self.config.joint_limit_penalty, self.config.joint_limit_sum))
         if self.config.velocity_tracking:
             return [
                 DHHealthyReward(scale=0.5),
@@ -1709,9 +1809,12 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
                 AngularVelocityTrackingReward(scale=0.75),
                 OrientationPenalty(scale=-2.0),
                 FeetContactPenalty(contact_obs_key="contact_observation_feet", scale=-2.0),
-                *([NaiveVelocityReward(scale=self.config.naive_velocity_scale)] if self.config.naive_velocity_scale else []),
+                *([NaiveVelocityReward(scale=self.config.naive_velocity_scale, cap=self.config.naive_velocity_cap)]
+                  if self.config.naive_velocity_scale else []),
                 *([ForwardProgressReward(window_steps=max(1, round((self.config.track_window_s or 0.8) / self.config.ctrl_dt)),
-                                         scale=self.config.forward_progress_reward)]
+                                         scale=self.config.forward_progress_reward,
+                                         peak=self.config.forward_progress_peak,
+                                         peak_tol=self.config.forward_progress_peak_tol)]
                   if self.config.forward_progress_reward else []),
             ] + shaping
         return shaping + [
@@ -1738,7 +1841,12 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         ]
 
     def get_model(self, key: PRNGKeyArray) -> ZbotModel:
-        return ZbotModel(key, num_inputs=self.num_actor_inputs)
+        clip = {}
+        if self.config.action_clip_margin_deg > 0:   # raw MJCF, like export_policy.py (get_mujoco_model is not traceable here)
+            from mujoco_scenes.mjcf import load_mjmodel
+            clip = action_clip_bounds(load_mjmodel(os.path.join(self.config.robot_urdf_path, "robot.mjcf"), scene="smooth"),
+                                      self.config.action_clip_margin_deg, self.config.action_clip_reserve_deg)
+        return ZbotModel(key, num_inputs=self.num_actor_inputs, **clip)
 
     def get_initial_model_carry(self, rng: PRNGKeyArray) -> Array:
         return jnp.zeros(0)
@@ -1848,6 +1956,35 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         )
 
         return ppo_variables, jnp.zeros(0)
+
+    def get_loss_and_metrics(self, model_arr, model_static, trajectories, rewards, init_carry, on_policy_variables, rng):
+        """PPO loss plus CAPS smoothness terms on the mean action (Mysore et al. 2021). As rewards the jitter penalties
+        cost PPO almost nothing (servo_ctrl_v4: ~3 % of the return) and stronger ones made it stop walking
+        (servo_ctrl_v5/v6); as a loss term the gradient goes straight into the actor, no credit assignment needed."""
+        rng, rng_s = jax.random.split(rng)
+        loss, aux = super().get_loss_and_metrics(model_arr, model_static, trajectories, rewards, init_carry,
+                                                 on_policy_variables, rng)
+        if not (self.config.caps_temporal or self.config.caps_spatial):
+            return loss, aux
+        model = eqx.combine(model_arr, model_static)
+        mean_fn = lambda obs, cmd: self._run_actor(model, obs, cmd).mode()
+        mean_fn = jax.vmap(jax.vmap(mean_fn))                            # over batch and time
+        mu = mean_fn(trajectories.obs, trajectories.command)            # (B, T, n)
+        valid = ~trajectories.done
+        extra = jnp.zeros(())
+        if self.config.caps_temporal:
+            jerk = mu[:, 2:] - 2 * mu[:, 1:-1] + mu[:, :-2]
+            ok = valid[:, 2:] & valid[:, 1:-1] & valid[:, :-2]
+            extra += self.config.caps_temporal * ((jerk ** 2).mean(-1) * ok).sum() / (ok.sum() + 1e-6)
+        if self.config.caps_spatial:
+            sigma = {"joint_position_observation": 0.01, "joint_velocity_observation": 0.1,
+                     "sensor_observation_imu_gyro": 0.05, "sensor_observation_imu_acc": 0.1}
+            obs = dict(trajectories.obs)
+            for k, (name, sd) in zip(jax.random.split(rng_s, len(sigma)), sigma.items()):
+                obs[name] = obs[name] + sd * jax.random.normal(k, obs[name].shape)
+            mu_n = mean_fn(FrozenDict(obs), trajectories.command)
+            extra += self.config.caps_spatial * (((mu_n - mu) ** 2).mean(-1) * valid).sum() / (valid.sum() + 1e-6)
+        return loss + extra, aux
 
     def sample_action(
         self,

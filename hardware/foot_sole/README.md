@@ -45,3 +45,20 @@ Dateien: `stl/foot_sole_{left,right}[_ribs|_herringbone|_nubs|_studs].stl`.
   kleinste gemessene μ einschließen.
 - Druck: Sohle unten, Spitzen direkt auf dem Bett (keine Stützen). Stollen-/Noppenspitzen mit Brim oder 0,2-mm-Schicht,
   Elefantenfuß-Kompensation aus. Stollen sind die empfindlichste Variante (Wand 1,9 mm Boden darüber).
+
+## Variante `rubber`: aufgeklebtes Kletterschuh-Gummi (2026-11-06)
+
+TPU-Boden um die Gummistärke (1,8 mm, `RUBBER_T`) dünner und **ohne Unterkanten-Fase**, damit das Gummi die ganze
+flache Unterseite bündig mit der Wand bedeckt. TPU + Gummi enden auf derselben Sohlenebene wie die anderen Profile
+(links −37,35 + 1,8 = −39,15 mm) → Sim-Geometrie bleibt gleich, nur die Bodenreibung ändert sich.
+TPU-Boden unter dem Fuß min. 2,1 mm (Median ~4,3 mm, die Fußunterseite ist gewölbt).
+
+- `.cad/bin/python hardware/foot_sole/make_sole.py rubber` → `stl/foot_sole_{left,right}_rubber.stl` +
+  `print/rubber_template_A4.pdf` (Unterseiten-Kontur 1:1, Ansicht von unten = auf die Lauffläche geschaut, Spitze oben;
+  durchgezogen = Schnittlinie, gestrichelt = +2 mm Übermaß). Mit 100 % drucken, 100-mm-Maßstäbe nachmessen.
+- `.cad/bin/python hardware/foot_sole/make_bambu_project.py --slice --variant rubber` →
+  `print/Robot_Shoes_TPU_rubber_project.3mf` (Slicer: ~64 g, ~4 h 37 min für das Paar).
+- Gummi: glatte Seite = Lauffläche (mehr Kontaktfläche auf hartem Boden), raue/angeschliffene Seite = Klebeseite.
+- Kleben: Kontaktkleber (Neopren/PU, Schuhreparatur), beide Seiten anschleifen + mit Isopropanol entfetten, beidseitig
+  dünn auftragen, ablüften, kurz warm aktivieren (Föhn), einmal kräftig pressen. Kein Sekundenkleber (spröde, löst sich
+  bei Biegung/Schälung an den Kanten). Am genauesten: mit Übermaß schneiden, aufkleben, bündig an der TPU-Kante beschneiden.

@@ -9,7 +9,7 @@ from pathlib import Path
 import equinox as eqx, jax, jax.numpy as jnp, numpy as np
 from omegaconf import OmegaConf
 ROOT = Path(__file__).resolve().parents[2]; sys.path.insert(0, str(ROOT))
-from sim.train.walking import ZbotModel, NUM_INPUTS, NUM_OUTPUTS  # noqa: E402
+from sim.train.walking import ZbotModel, NUM_INPUTS, NUM_OUTPUTS, action_clip_bounds  # noqa: E402
 from xax.nn.export import export  # noqa: E402
 
 # --set key=value (repeatable): override a deployment setting of the training config, e.g. --set action_filter_alpha=0.2
@@ -36,7 +36,11 @@ for k, v in _sets.items():
     cfg[k] = _typed(v)
 heading_obs = bool(cfg.get("heading_obs", False)); action_scale = float(cfg.get("action_scale", 1.0)); n_in = NUM_INPUTS + (2 if heading_obs else 0)
 action_history = int(cfg.get("action_history", 1) or 1); n_in += NUM_OUTPUTS * (action_history - 1)
-model = eqx.tree_deserialise_leaves(io.BytesIO(model_bytes), ZbotModel(jax.random.PRNGKey(0), num_inputs=n_in))
+from mujoco_scenes.mjcf import load_mjmodel as _load_mj  # noqa: E402
+# action_clip_margin_deg: the actor clips its mean to the real range minus the margin -> same bounds here and in the ONNX
+_clip = action_clip_bounds(_load_mj(str(ROOT / "sim/assets" / assets / "robot.mjcf"), scene="smooth"),
+                           float(cfg.get("action_clip_margin_deg", 0.0) or 0.0), float(cfg.get("action_clip_reserve_deg", 0.0) or 0.0))
+model = eqx.tree_deserialise_leaves(io.BytesIO(model_bytes), ZbotModel(jax.random.PRNGKey(0), num_inputs=n_in, **_clip))
 def policy(flat_obs: jnp.ndarray) -> jnp.ndarray:          # deterministic action = distribution mode (= mean)
     return model.actor.call_flat_obs(flat_obs).mode()
 out.mkdir(parents=True, exist_ok=True); shutil.rmtree(out / "tf_model", ignore_errors=True)
@@ -55,7 +59,12 @@ def mlp_to_onnx(actor, n_in: int, path: Path) -> None:
     inits += [numpy_helper.from_array(np.array([0], np.int64), "s0"), numpy_helper.from_array(np.array([NUM_OUTPUTS], np.int64), "s1"),
               numpy_helper.from_array(np.array([1], np.int64), "ax"), numpy_helper.from_array(np.array(float(actor.mean_scale), np.float32), "mean_scale")]
     nodes += [helper.make_node("Slice", [x, "s0", "s1", "ax"], ["mean_raw"]), helper.make_node("Tanh", ["mean_raw"], ["mean_t"]),
-              helper.make_node("Mul", ["mean_t", "mean_scale"], ["action"])]
+              helper.make_node("Mul", ["mean_t", "mean_scale"], ["action" if actor.clip_lo is None else "action_raw"])]
+    if actor.clip_lo is not None:   # action_clip_margin_deg: Max/Min with the per-joint bounds of the actor
+        inits += [numpy_helper.from_array(np.array(actor.clip_lo, np.float32), "clip_lo"),
+                  numpy_helper.from_array(np.array(actor.clip_hi, np.float32), "clip_hi")]
+        nodes += [helper.make_node("Max", ["action_raw", "clip_lo"], ["action_lo"]),
+                  helper.make_node("Min", ["action_lo", "clip_hi"], ["action"])]
     g = helper.make_graph(nodes, "zbot_walking_policy", [helper.make_tensor_value_info("obs", TensorProto.FLOAT, ["batch", n_in])],
                           [helper.make_tensor_value_info("action", TensorProto.FLOAT, ["batch", NUM_OUTPUTS])], inits)
     m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 17)], producer_name="sim/tools/export_policy.py"); m.ir_version = 9
@@ -89,7 +98,7 @@ if action_history > 1: layout.append(("action_history", NUM_OUTPUTS * (action_hi
 task_keys = ["velocity_tracking", "gait_shaping", "target_speed_min", "target_speed_max", "heading_obs", "action_scale", "gait_freq_lower", "gait_freq_upper", "ctrl_dt",
              "servo_model", "leg_servo_speed", "arm_v_max", "cmd_rate_fraction", "clamp_to_real_limits", "start_pose", "dt",
              "action_filter_alpha", "action_history", "leg_delay", "arm_delay", "delay_rand", "speed_zero_prob",
-             "domain_randomize", "foot_friction_min", "foot_friction_max"]
+             "domain_randomize", "foot_friction_min", "foot_friction_max", "foot_friction_log", "imu_tilt_deg"]
 # servo-model policies: the Pi must send the speed register the sim assumed and limit the target rate like the sim did
 import math  # noqa: E402
 _types = [meta["joint_name_to_metadata"][j]["actuator_type"] for j in joints]

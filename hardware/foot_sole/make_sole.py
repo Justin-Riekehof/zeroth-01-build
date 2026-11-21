@@ -24,6 +24,11 @@ sim model fits all - only the contact patch differs). Heights are measured from 
 Dry hard floors: grooves remove contact area and can slightly LOWER mu; they pay off on wet/dusty floors. Studs/nubs
 act on carpet, rubber mats, soft surfaces. Which one wins here is a measurement (README: tilt test), not a given.
 Files: stl/foot_sole_{side}[_profile].stl.
+
+  rubber       for a glued-on rubber sole (climbing-shoe resole rubber, RUBBER_T thick): the TPU floor is RUBBER_T
+               thinner and has no bottom chamfer (the rubber covers the whole flat underside, flush with the wall),
+               so TPU + rubber end on the same sole plane as the other profiles. Also writes
+               print/rubber_template_A4.pdf: the underside outline 1:1 for cutting the rubber.
 """
 import os
 
@@ -50,13 +55,14 @@ CHAMFER = 1.2     # bottom edge
 PITCH = 0.25      # voxel pitch of the distance field / marching cubes
 BAND = 0.9        # mm, band around the surface with exact distances
 SIMPLIFY = 0.02   # mm, merges coplanar triangles of the cavity only within this tolerance
+RUBBER_T = 1.8   # glued-on rubber sheet (profile "rubber")
 TPU_DENSITY = 1.21e-3  # g/mm3
 
 RIB_W, RIB_PITCH, RIB_D, RIB_EDGE = 2.0, 5.0, 1.0, 4.0
 HB_W, HB_PITCH, HB_D, HB_ANGLE = 1.8, 6.0, 1.0, 45.0
 NUB = dict(h=1.0, r0=1.7, r1=1.3, pitch=5.5, edge=2.5)     # nub: base radius, tip radius (flat top, 0.4 mm rounded below)
 STUD = dict(h=1.6, r0=1.8, r1=0.5, pitch=8.0, edge=3.0)
-PROFILES = ("smooth", "ribs", "herringbone", "nubs", "studs")
+PROFILES = ("smooth", "ribs", "herringbone", "nubs", "studs", "rubber")
 
 
 def prism(poly, z0, z1):
@@ -109,7 +115,7 @@ def foot_sdf(m):
     return field, mask, o
 
 
-def build(side):
+def build(side, sole_t=SOLE_T, chamfer=CHAMFER):
     m = trimesh.load(os.path.join(MESHES, f"{side}_ankle_pitch_link_printed.stl"), force="mesh")
     m.vertices = m.vertices * 1000.0
     zmin = m.vertices[:, 2].min()
@@ -138,11 +144,14 @@ def build(side):
     # outside: vertical extrusion of the silhouette (+wall), flat bottom SOLE_T below the old sole plane
     sil = contour_polygon(block.min(axis=2), o[0], o[1])
     outer_fp = sil.buffer(WALL - UNDERSIZE)
-    z_floor = zmin - SOLE_T
+    z_floor = zmin - sole_t
     z_top_body = ztop_hi + LIP_T
-    lower = prism(outer_fp.buffer(-CHAMFER), z_floor, z_floor + CHAMFER * 0.5)
-    mid = prism(outer_fp, z_floor + CHAMFER * 0.5, z_top_body)
-    body = trimesh.boolean.union([lower, mid], engine="manifold")
+    if chamfer > 0:
+        lower = prism(outer_fp.buffer(-chamfer), z_floor, z_floor + chamfer * 0.5)
+        mid = prism(outer_fp, z_floor + chamfer * 0.5, z_top_body)
+        body = trimesh.boolean.union([lower, mid], engine="manifold")
+    else:
+        body = prism(outer_fp, z_floor, z_top_body)
 
     # cavity = true negative (foot eroded by UNDERSIZE)
     v, f, _, _ = measure.marching_cubes(block, level=-UNDERSIZE, spacing=(PITCH,) * 3)
@@ -160,7 +169,7 @@ def build(side):
     opening = prism(opening_fp, ztop - 2.0, z_top_body + 1.0)
 
     shoe = trimesh.boolean.difference([body, cavity, opening], engine="manifold")
-    return shoe, m, (ztop - zmin, ztop_hi - zmin)
+    return shoe, m, outer_fp
 
 
 def sole_outline(shoe, z_floor):
@@ -222,19 +231,77 @@ def apply_profile(shoe, profile, z_floor):
     return raised_contacts(shoe, z_floor, cfg, rnd)
 
 
+def rubber_template(outlines, path, margin=2.0):
+    """A4 PDF, 1:1: underside outline of both shoes seen from BELOW (= looking at the tread of the rubber), toe up.
+    Solid line = cut line (flush with the TPU wall), dashed = +margin for cut-oversize-glue-trim."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    W, H = 210.0, 297.0
+    fig = plt.figure(figsize=(W / 25.4, H / 25.4))
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, W); ax.set_ylim(0, H); ax.set_aspect("equal"); ax.axis("off")
+    # seen from below with the toe (+x) up: page_x = +y (robot left is on the right of the page), page_y = x
+    for (side, poly), cx in zip(outlines.items(), (W * 0.27, W * 0.73)):
+        b = poly.bounds
+        dx, dy = cx - 0.5 * (b[1] + b[3]), 175.0 - 0.5 * (b[0] + b[2])
+        for p, ls, lw in ((poly, "-", 0.5), (poly.buffer(margin, join_style=2), (0, (3, 2)), 0.3)):
+            x, y = np.asarray(p.exterior.coords).T
+            ax.plot(y + dx, x + dy, color="k", ls=ls, lw=lw)
+        ax.annotate("", xy=(cx, 175 + 0.5 * (b[2] - b[0]) + 14), xytext=(cx, 175 + 0.5 * (b[2] - b[0]) + 4),
+                    arrowprops=dict(arrowstyle="->", lw=0.8))
+        ax.text(cx, 175 + 0.5 * (b[2] - b[0]) + 16, "Spitze", ha="center", va="bottom", fontsize=8)
+        name = {"left": "LINKS", "right": "RECHTS"}[side]
+        ax.text(cx, 175 - 0.5 * (b[2] - b[0]) - 8, f"{name}\n{b[2] - b[0]:.1f} x {b[3] - b[1]:.1f} mm",
+                ha="center", va="top", fontsize=9, weight="bold")
+    for x0, y0, horiz in ((20, 60, True), (190, 20, False)):     # scale check: 100 mm each way
+        x1, y1 = (x0 + 100, y0) if horiz else (x0, y0 + 100)
+        ax.plot([x0, x1], [y0, y1], color="k", lw=0.8)
+        for t in range(0, 101, 10):
+            px, py = (x0 + t, y0) if horiz else (x0, y0 + t)
+            k = 3 if t % 50 == 0 else 1.5
+            ax.plot([px, px] if horiz else [px - k, px], [py, py + k] if horiz else [py, py], color="k", lw=0.5)
+    ax.text(70, 55, "100 mm  (nachmessen!)", ha="center", va="top", fontsize=8)
+    ax.text(186, 70, "100 mm", ha="right", va="center", fontsize=8, rotation=90)
+    ax.text(20, 45, "Gummi-Schablone TPU-Überschuh (Profil rubber, Gummi %.1f mm)\n"
+            "Drucken mit 100 %% / Tatsächliche Größe, nicht \"An Seite anpassen\". Maßstäbe prüfen.\n"
+            "Ansicht von UNTEN: Lauffläche (glatte Seite) des Gummis nach oben, Schablone darauf.\n"
+            "Raue Seite = Klebeseite zur TPU-Sohle.\n"
+            "Durchgezogen: Schnittlinie (bündig mit der Wand).  Gestrichelt: +%.0f mm zum Übermaß-Schneiden,\n"
+            "dann aufkleben und mit dem Cutter an der TPU-Kante bündig beschneiden (genauer)." % (RUBBER_T, margin),
+            ha="left", va="top", fontsize=7.5, linespacing=1.5)
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def main():
     import sys
     os.makedirs(OUT, exist_ok=True)
     only = sys.argv[1:] or list(PROFILES)
+    outlines = {}
     for side in ("left", "right"):
-        shoe, foot, top_h = build(side)
+        if "rubber" in only:
+            shoe, foot, fp = build(side, SOLE_T - RUBBER_T, 0.0)
+            out = os.path.join(OUT, f"foot_sole_{side}_rubber.stl")
+            shoe.export(out)
+            outlines[side] = max(fp.geoms, key=lambda g: g.area) if isinstance(fp, MultiPolygon) else fp
+            print(f"{side} rubber: watertight={shoe.is_watertight} vol={shoe.volume:.0f} mm3 "
+                  f"mass~{shoe.volume * TPU_DENSITY:.1f} g (solid) bottom z={shoe.bounds[0, 2]:.2f} "
+                  f"(+{RUBBER_T} mm rubber) -> {out}")
+        if not [p for p in only if p != "rubber"]:
+            continue
+        shoe, foot, _ = build(side)
         z_floor = foot.vertices[:, 2].min() - SOLE_T
-        for prof in only:
+        for prof in [p for p in only if p != "rubber"]:
             var, n = apply_profile(shoe, prof, z_floor)
             out = os.path.join(OUT, f"foot_sole_{side}.stl" if prof == "smooth" else f"foot_sole_{side}_{prof}.stl")
             var.export(out)
             print(f"{side} {prof}: watertight={var.is_watertight} n={n} vol={var.volume:.0f} mm3 "
                   f"mass~{var.volume * TPU_DENSITY:.1f} g (solid) bottom z={var.bounds[0, 2]:.2f} -> {out}")
+    if outlines:
+        pdf = os.path.join(HERE, "print", "rubber_template_A4.pdf")
+        rubber_template(outlines, pdf)
+        print("wrote", pdf)
 
 
 if __name__ == "__main__":

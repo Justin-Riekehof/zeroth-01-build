@@ -581,6 +581,27 @@
      ]
     }
    ]
+  },
+  {
+   "id": "neck_piece",
+   "label": "Hals: verst\u00e4rktes Halsst\u00fcck (Torso to Neck)",
+   "file": "neck_piece.glb",
+   "visible": true,
+   "parts": [
+    {
+     "node": "neck_p_neck_piece_reinforced",
+     "label": "Halsst\u00fcck verst\u00e4rkt: massive Laschen, Frontkralle, durchgeschraubt (Druck)",
+     "color": "#caa21a",
+     "opacity": 1.0
+    },
+    {
+     "node": "neck_p_neck_screws",
+     "label": "2 x M3x35 Senkkopf durch Kralle + Torso + Lasche, Sicherungsmutter DIN 985",
+     "color": "#9aa0a6",
+     "opacity": 1.0
+    }
+   ],
+   "groups": []
   }
  ],
  "hide": [
@@ -639,11 +660,11 @@
   },
   {
    "id": "head_neck",
-   "label": "hide neck piece on the torso (Torso to Neck)",
+   "label": "hide original neck piece (Torso to Neck) - replaced by the reinforced one",
    "patterns": [
     "Torso to Neck"
    ],
-   "default": false
+   "default": true
   }
  ]
 }

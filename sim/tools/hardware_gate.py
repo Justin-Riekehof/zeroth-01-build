@@ -40,9 +40,11 @@ MARGIN_DEG = 5.0
 LEG_SPEED, ARM_SPEED, SPEED_TOL, OVER_TOL, BUFFER = 3.07, 1.8, 1.00, 1.10, 0.85
 THRESH = {"falls": 0, "target_out_share": 0.01, "margin_share": 0.01, "speed_leg_p99": LEG_SPEED * SPEED_TOL,
           "speed_arm_p99": ARM_SPEED * SPEED_TOL, "gap_mean": 0.15, "gap_p99": 0.6, "rate_mean": 0.10,
-          "rate_p99": 0.35, "saturation_share": 0.01, "tracking_ratio": 0.75, "speed_over_share": 0.02, "speed_buffer_share": 0.20, "limiter_share": 0.20,
-          "jerk_p99": 0.04, "highfreq_share": 0.15, "tracking_ratio_max": 1.3, "zero_cmd_drift_abs": 0.02,
+          "rate_p99": 0.35, "saturation_share": 0.01, "tracking_ratio": 0.5, "speed_over_share": 0.02, "speed_buffer_share": 0.20, "limiter_share": 0.20,
+          "jerk_p99": 0.04, "highfreq_share": 0.15, "tracking_ratio_max": 2.0, "zero_cmd_drift_abs": 0.02,
           "foot_tilt_over5_share": 0.30}
+# tracking 0.5-2.0 (was 0.75-1.3): user 2026-11-06 "Soll und Ist-Tempo ist gar nicht die Prio. Wichtig ist, dass der
+# Roboter vorwärts kommt, stabil, ohne Zittern und mit Sohlen parallel zum Boden" - forward, yes; the exact speed, no
 LEGS = ("hip", "knee", "ankle")
 
 

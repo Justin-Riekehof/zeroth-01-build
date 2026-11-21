@@ -1,0 +1,39 @@
+{
+ "volume_old_cm3": 34.0,
+ "volume_new_cm3": 47.28,
+ "clearance_mm": {
+  "left_shoulder_pitch_motor_4847bb": 3.88,
+  "left_shoulder_pitch_motor_21114c": 3.87,
+  "Torso": 0.01,
+  "right_shoulder_pitch_motor_37b8a4": 3.84,
+  "right_shoulder_pitch_motor_46311a": 3.79,
+  "MilkVHat_RevB_40365f": 1.69,
+  "MilkVHat_RevB_6925b8": 2.69,
+  "Head_aae9ac": 1.2,
+  "head_shell_cam3.stl": 1.2,
+  "Torso (stitched)": 0.0
+ },
+ "points_inside": {
+  "left_shoulder_pitch_motor_4847bb": 0,
+  "left_shoulder_pitch_motor_21114c": 0,
+  "Torso": 0,
+  "right_shoulder_pitch_motor_37b8a4": 0,
+  "right_shoulder_pitch_motor_46311a": 0,
+  "MilkVHat_RevB_40365f": 0,
+  "MilkVHat_RevB_6925b8": 0,
+  "Head_aae9ac": 0,
+  "head_shell_cam3.stl": 0,
+  "Torso (stitched)": 0
+ },
+ "screw": {
+  "name": "M3x35 ISO 10642 (countersunk) + lock nut DIN 985",
+  "length": 35.0
+ },
+ "nut": {
+  "name": "DIN 985 M3",
+  "af": 5.5,
+  "h": 4.0
+ },
+ "screw_head_y": -28.65,
+ "screw_tip_y": 6.35
+}

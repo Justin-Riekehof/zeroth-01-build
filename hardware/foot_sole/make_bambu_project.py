@@ -4,9 +4,9 @@
 Takes stl/foot_sole_{left,right}.stl (sole down, open side up, no supports), arranges both on the plate, flattens the P2S machine /
 0.20 mm process / Bambu TPU 95A chains itself (the CLI does not resolve `inherits`) and writes the project:
 
-    .cad/bin/python hardware/foot_sole/make_bambu_project.py [--slice]
+    .cad/bin/python hardware/foot_sole/make_bambu_project.py [--slice] [--variant rubber]
 
-Output: print/Robot_Shoes_TPU_project.3mf. Open in Bambu Studio and press "Slice plate".
+Output: print/Robot_Shoes_TPU_project.3mf (with --variant X: stl/foot_sole_{side}_X.stl -> print/Robot_Shoes_TPU_X_project.3mf). Open in Bambu Studio and press "Slice plate".
 """
 import argparse
 import json
@@ -83,6 +83,7 @@ def mark_changes(proj: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--slice", action="store_true", help="also slice (project then contains G-code)")
+    ap.add_argument("--variant", default="", help="profile suffix of the STLs, e.g. rubber")
     a = ap.parse_args()
     tmp = HERE / "_cli"
     shutil.rmtree(tmp, ignore_errors=True)
@@ -93,8 +94,9 @@ def main():
     for d, n, t in ((m, "machine", "machine"), (p, "process", "process"), (f, "filament", "filament")):
         d.update({"type": t, "name": {"machine": MACHINE, "process": PROCESS, "filament": FILAMENT}[t], "from": "system"})
         (tmp / f"{n}.json").write_text(json.dumps(d, indent=1))
-    shutil.copy(HERE / "stl" / "foot_sole_left.stl", tmp / "foot_sole_left.stl")
-    shutil.copy(HERE / "stl" / "foot_sole_right.stl", tmp / "foot_sole_right.stl")
+    suf = f"_{a.variant}" if a.variant else ""
+    shutil.copy(HERE / "stl" / f"foot_sole_left{suf}.stl", tmp / "foot_sole_left.stl")
+    shutil.copy(HERE / "stl" / f"foot_sole_right{suf}.stl", tmp / "foot_sole_right.stl")
     out = tmp / "out"
     out.mkdir(exist_ok=True)
     cmd = ["flatpak", "run", "com.bambulab.BambuStudio",
@@ -107,7 +109,7 @@ def main():
         print(r.stdout[-1500:], r.stderr[-1500:])
         sys.exit("CLI produced no project")
     PRINT.mkdir(exist_ok=True)
-    dst = PRINT / "Robot_Shoes_TPU_project.3mf"
+    dst = PRINT / f"Robot_Shoes_TPU{suf}_project.3mf"
     shutil.copy(proj, dst)
     mark_changes(dst)
     print("wrote", dst.relative_to(HERE.parent.parent))

@@ -704,6 +704,397 @@ Gemeinsame Basis aller Läufe: Servo-Modell mit gemessener Verzögerung, Tempo- 
 - **1.11. Fußreibung im Training:** `FloorFrictionRandomizer` skaliert `geom_friction` des Bodens ×0,1–2,0. In MuJoCo geprüft: Bei 0,1 / 1,0 / 2,0 bleibt die Kontaktreibung der Füße 1,1, die `<pair>`-Einträge in `robot.mjcf` übersteuern sie (MJX nicht eigens geprüft). `servo_tpu5` kennt also effektiv nur μ = 1,1.
 - **1.11. Nutzer:** „Das ist ja ein fundamentaler Policy-Fehler... beginne sofort das Training einer Policy. Und zwar tatsächlich am besten von vorne." Umgesetzt: `FootFrictionRandomizer` setzt `pair_friction` (μ 0,2–1,2 je Umgebung; in MJX bis in die Kontakte geprüft), ersetzt den wirkungslosen Boden-Randomizer. In den Checkpoints von `servo_tpu1` und `servo_tpu5` steht `domain_randomize: true`, die Randomisierung lief also, nur ohne Wirkung auf die Füße. Start `sim/tools/launch_servo_fric.sh`: `servo_fric1` von null auf `zbot-cad-tpu` mit den Startbelohnungen aus dem Checkpoint von `servo_tpu1` (`naive_velocity_scale` 1,5, Momentantempo, Schrittlänge ohne Soll), weil die Fenster-Belohnungen allein von null das Fallen lehren (`servo_tpu3`); Kette `zbot-chain-friction` wechselt danach auf `servo_fric2`. Noch nicht gestartet.
 
+### `servo_fric1` — von null mit Fußreibung 0,1–1,5 (gestartet 1.11. 22:55, GPU 0)
+- **Nutzer:** „Starte ein neues Policy-Training von 0. Nimm dabei alle Erkenntnisse der bisherigen Trainings mit. Es soll Reibung von 0,1 bis 1,5 abgedeckt werden." und „es geht nach wie vor nur ums geradeaus laufen".
+- **Start:** `GPU=0 EVAL_GPU=1 sim/tools/launch_servo_fric.sh`, Modell `zbot-cad-tpu` (beide Hüft-Roll-Achsen korrekt, Schuh 22 g, also Export ohne `--flip-joints`). `qwen-vllm` dafür gestoppt (Nutzer: ja). Bewertung und Videos alle 100 Iterationen auf GPU 1.
+- **Übernommen aus den bisherigen Läufen:** Servo-Modell mit gemessener Totzeit, Ratenbegrenzer 70 %, reale Gelenkgrenzen, Aktionsverlauf 4, `dt=0.002`, Startbelohnungen von `servo_tpu1` (sonst lernt der Lauf von null zu fallen, `servo_tpu3`), danach Übergabe per Kette an `servo_fric2` mit Tempo über 0,8-s-Mittel und Fortschrittsbonus.
+- **Neu gegenüber `servo_tpu1`:**
+  - μ gleichverteilt 0,1–1,5 je Umgebung auf den Fuß-Kontaktpaaren.
+  - `speed_zero_prob=0`: nur Vorwärtsbefehle 3–6 cm/s, das Drift-Kriterium bei Soll 0 entfällt damit.
+  - `imu_tilt_deg=8`: feste IMU-Neigung bis ±8° je Umgebung, neu als `ImuTiltRandomizer`. Grund: real 9–13° gegen 17,2° im Modell; nicht getrennt, ob Kopfhalterung oder Nachgiebigkeit der Beine.
+- **Vorab behoben:** `train_chain.py` setzte jede Folgestufe fest auf `zbot-cad` und GPU 1, Bewertung auf GPU 0. `servo_fric2` wäre damit auf dem falschen Fußmodell gelaufen. Modell und GPU kommen jetzt aus der `launch.sh` des Vorgängers, die Bewertung läuft auf der anderen GPU.
+- **Kontaktmodell geprüft** (starrer Block 2,62 kg, Löser wie im Training): Unterhalb der Rutschgrenze kriecht er nur 0,01–8 mm/s, `impratio` und Reibkegel bleiben daher unverändert. Gerutscht wird früher als μ·M·g: bei μ 0,1 und 1,1 zwischen 80 und 95 %, bei μ 0,5 und 1,5 zwischen 50 und 80 %. Das obere Ende wirkt also schwächer als nominell.
+- **Nicht abgebildet:** die 1-s-Einblendrampe des Pi (in allen 12 Bodenläufen fällt die Neigung schon dort über 25°), das Spiel im rechten Bein und die IMU-Latenz. μ ≈ 0,2 für Laminat bleibt unkalibriert.
+- **Ergebnis (2.11. 06:26, Wächter: Stagnation nach Bewertung 875):** bester Score 0,749 bei Schritt 750 mit 3/16 Stürzen, Tracking 1,31, 42 % echte Schritte. Spätere Bewertungen schwanken zwischen 6 und 10 Stürzen. Echte Schritte seit Schritt 335 nur 35–43 % (`servo_tpu1`: 81–94 %). Gate nicht bestanden. Kette `zbot-chain-friction` gestoppt, weil kein Checkpoint ≥ 50 % echte Schritte erreicht: `servo_fric2` nicht gestartet. Letztes Video `servo_fric1/videos/servo_fric1_step00795.mp4`.
+- **Sweep Checkpoint 750 je μ** (`servo_fric1/mu_sweep_750/`, 16 Episoden à 5 s, μ fest):
+
+  | μ | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 0,1 | 16 | – | – | – |
+  | 0,2 | 15 | 0,50 | 18 % | 53 % |
+  | 0,4 | 6 | 0,76 | 32 % | 42 % |
+  | 0,8 | 3 | 1,67 | 59 % | 37 % |
+  | 1,5 | 3 | 1,63 | 80 % | 39 % |
+
+  **Tiefpunkt:** Der Bereich um μ 0,2, in dem der Laminat-Schätzwert liegt, wird gerade nicht beherrscht. Bei μ 0,8 und 1,5 geht sie echte Schritte mit 7 cm/s (Soll 3–6), aber seitlich rund 17 cm auf 35 cm Strecke, also nicht gerade. Die 42 % echte Schritte im Mittel kamen vor allem von den glatten Umgebungen. Gleichverteilt lagen nur 21 % der Umgebungen unter μ 0,4; neu vorbereitet ist `foot_friction_log` (51 % darunter).
+
+### `servo_fric2` — weiter ab `servo_fric1` 750 mit log-verteilter Reibung (gestartet 2.11., GPU 0)
+- **Nutzer:** Weiter ab Checkpoint 750 statt von null (Auswahl auf Rückfrage). `qwen-vllm` bleibt dafür aus.
+- **Änderung:** nur `foot_friction_log=True` (μ 0,1–1,5, 51 % der Umgebungen unter 0,4 statt 21 %). Belohnungen unverändert, damit eine Änderung bei den Stürzen auf die Verteilung zurückgeht.
+- **Start:** `sim/tools/launch_servo_fric2.sh`, bis Schritt 3250. Kette `zbot-chain-friction2` wechselt bei höchstens 4/16 Stürzen und ≥ 50 % echten Schritten (zweimal in Folge) auf `servo_fric3` mit den Tempo-Korrekturen.
+- **Ergebnis (2.11. 11:05, von Hand gestoppt bei 1205):** keine Besserung. 4–13/16 Stürze, Tracking 0,64–1,20, echte Schritte nur noch 15–21 % (fric1: ~40 %). Die glatten Umgebungen haben die Policy ins Tippeln gedrängt. Gestoppt, weil der Nutzer auf Kletterschuhgummi umsteigt. Checkpoints bleiben (`servo_fric2/snapshots/`).
+
+### `servo_rubber1` — von null für Kletterschuhgummi, μ 0,5–1,3 (gestartet 2.11. ~11:10, GPU 0)
+- **Nutzer:** „ich habe kletterschuh-sohlen-gummi bestellt und erwarte eine haftung von 0,6 bis 1,0. starte ein entsprechendes policy training von Null. nach dem besten wissen, das du bisher hast"
+- **Reibung gleichverteilt 0,5–1,3:**
+  - Unten 0,1 Reserve unter der Erwartung.
+  - Oben 0,3 darüber, weil das Kontaktmodell schon bei 50–95 % von μ·M·g rutschen lässt.
+  - Die Erwartung 0,6–1,0 ist noch nicht gemessen. Vor dem Hardware-Test mit dem Kipptest prüfen.
+- **Modell:** `zbot-cad-tpu` (flache Sohle über die ganze Fußfläche, 3,5 mm tiefer, 22 g). Annahme: Der Gummi wird flach unter die PETG-Sohle geklebt, eine 3–4-mm-Platte wiegt etwa 20–30 g. Weichen Dicke oder Gewicht deutlich ab, muss das Modell neu gebaut werden.
+- **Sonst wie `servo_fric1`:**
+  - Bootstrap-Belohnungen von `servo_tpu1`.
+  - Nur Vorwärtsbefehle 3–6 cm/s.
+  - IMU-Neigung ±8°.
+  - Servo-Modell, Ratenbegrenzer, Aktionsverlauf 4.
+  - Kette `zbot-chain-rubber` wechselt auf `servo_rubber2` mit den Tempo-Korrekturen, sobald der Lauf zweimal in Folge höchstens 4/16 Stürze und ≥ 50 % echte Schritte hat.
+- **Erwartung aus `servo_fric1`:** Bei μ 0,8–1,5 hatte Checkpoint 750 3/16 Stürze und 59–80 % echte Schritte. Ab μ ≥ 0,5 sollte die Kette diesmal greifen.
+- **Ergebnis (2.11. 18:26, Wächter: Stagnation nach 885):** echte Schritte früh über 50 % (54–67 % ab Schritt 425), aber die Stürze blieben hoch: 6–14 von 16, bester Score 0,742 bei 760 mit 9 Stürzen. Das Wenigste waren 4/16 bei Schritt 175. Zum Vergleich `servo_fric1` 750 bei festem μ 0,8–1,5: 3/16, hier aber über den ganzen Bereich ab 0,5 bewertet. Das Bootstrap-Kriterium (≤ 4 Stürze zweimal in Folge) wurde nie erreicht; die Kette übernahm beim Wächter-Ende den Checkpoint mit den wenigsten Stürzen bei ≥ 50 % echten Schritten: **Schritt 175**.
+
+### `servo_rubber2` — Tempo-Korrekturen ab `servo_rubber1` 175 (gestartet 2.11. 18:34, Kette, GPU 0)
+- Tempo über 0,8-s-Mittel, Schrittlänge nur bei Soll, kein `naive_velocity`, Fortschrittsbonus 10. Sonst wie `servo_rubber1`.
+- **Verlauf (Stand 20:38):**
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 175 | 5 | 1,86 | 52 % | 43 % |
+  | 230 | 7 | 1,31 | 49 % | 50 % |
+  | 270 | 6 | 1,12 | 53 % | 42 % |
+  | 315 | 4 | 1,20 | 51 % | 36 % |
+  | 355 | 3 | 1,16 | 54 % | 43 % |
+
+  | 400 | 2 | 1,09 | 50 % | 48 % |
+  | 440 | 1 | 1,17 | 47 % | 43 % |
+  | 481 | 6 | 1,18 | 48 % | 43 % |
+  | 525 | 3 | 1,37 | 49 % | 48 % |
+
+- **Ergebnis (Wächter: Stagnation nach 525):** bester Checkpoint **440**: 1/16 Stürze, Tempo 1,17-fach, 47 % echte Schritte, Score 0,747. Gate nicht bestanden: Stürze, Fußneigung (43 % statt ≤ 30 %), Zittern und Ratenbegrenzer. Danach wieder 3–6 Stürze. Kette damit zu Ende, keine weitere Stufe. Video `servo_rubber2/videos/servo_rubber2_step00440.mp4`.
+- **Export (3.11.):** `sim/policies/servo_rubber2_step440` (ONNX = JAX, keine Gelenk-Spiegelung, Metadaten mit μ 0,5–1,3). Noch nicht auf dem Pi.
+- **Sweep Checkpoint 440 je μ** (`servo_rubber2/mu_sweep_440/`, 16 Episoden à 5 s):
+
+  | μ | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 0,5 | 2 | 1,04 | 30 % | 55 % |
+  | 0,7 | 6 | 1,18 | 41 % | 50 % |
+  | 1,0 | 1 | 1,08 | 83 % | 52 % |
+  | 1,3 | 2 | 1,08 | 93 % | 55 % |
+
+  Insgesamt 11 von 64 Episoden gestürzt (17 %). Die 1/16 der Wächter-Bewertung war Glück. Die Stürze hängen nicht klar von μ ab (0,7 schlechter als 0,5), bei 16 Episoden streut das stark. Bei fester Reibung neigen sich die Füße in über 50 % der Kontaktzeit mehr als 5°, also noch mehr als in der gemischten Bewertung.
+
+### `servo_rubber3` — von null, Fußstrafe −30 (gestartet 3.11. ~18:05, GPU 0)
+- **Nutzer:** „ja, setze das so um" (Vorschlag: Export von 440 und neuer Lauf mit stärkerer Fußstrafe von Anfang an).
+- **Einstellungen:** wie `servo_rubber1` (μ 0,5–1,3, Bootstrap-Belohnungen, nur vorwärts, IMU ±8°), aber `foot_flat_penalty=-30` statt −8. Kette `zbot-chain-rubber3` → `servo_rubber4` mit Tempo-Korrekturen.
+- **Ab jetzt autonom (Nutzer, 3.11.):** „bitte agiere ab jetzt komplett autonom. wenn eine Policy aus Stagnation abbricht, analysiere die Ursachen und stoße entsprechend ab einem geeigneten Checkpoint ein angepasstes Training an oder treffe andere geeignete Maßnahmen."
+- **Ergebnis:** 16/16 Stürze bis 130, dann rasch besser: 335 mit 3/16 Stürzen, 64 % echten Schritten und nur **18 %** Fußneigung > 5° (`servo_rubber2`: 43 %). **Die stärkere Fußstrafe von Anfang an wirkt.** Bootstrap-Kriterium zweimal erfüllt → Kette übergab 3.11. 21:12 an `servo_rubber4` ab 335.
+
+### `servo_rubber4` — Tempo-Korrekturen ab `servo_rubber3` 335 (3.11. 21:12–23:36)
+- **Verlauf:**
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 345 | 2 | 1,53 | 63 % | 33 % |
+  | 385 | 1 | 1,51 | 63 % | 16 % |
+  | 465 | 1 | 1,47 | 63 % | 17 % |
+  | 545 | 1 | 1,51 | 59 % | 21 % |
+  | 585 | 2 | 1,18 | 63 % | 27 % |
+
+- **Highlight:** bester Stand bisher. 1–2/16 Stürze und flache Füße zugleich. Bester Checkpoint **465** (Score 0,758).
+- **Ende 23:36 (Stagnation).** Danach standen die GPUs bis 4.11. 05:50 still: Mein Hintergrund-Wecker hatte sich schon beim Kettenwechsel um 21:14 beendet und lief danach nicht weiter.
+- **Analyse (autonom, 4.11.):** Gate scheitert an Stürzen, `tracking_ratio_max` (1,47 > 1,3) und den alten Dauerbrennern Zittern, Ratenbegrenzer und Zielgrenzen. Die Fußneigung ist mit 17 % bestanden.
+  - **Ursache für das Übertempo:** Die Schrittlängen-Belohnung zahlt voll erst bei 4 cm Fußweg pro Schwung. Bei 1,0–1,25 Hz Gangtakt sind das 4–5 cm/s, egal welches Soll gilt. Bei Soll 3 cm/s lohnt also Übertempo.
+  - Das passt zum gemessenen Tracking von 1,2–1,6.
+
+### `servo_rubber5` — Schrittlänge passend zum Soll (gestartet 4.11. ~05:58, ab `servo_rubber4` 465, GPU 0)
+- **Änderung:** nur `stride_per_command=True`. Ziel-Schrittlänge = Soll-Tempo ÷ Gangtakt, höchstens 4 cm (bei 3 cm/s und 1 Hz also 3 cm). Im Einzeltest geprüft.
+- Neues Startskript `sim/tools/launch_continue.sh` (Lauf + Wächter, Modell vom Quell-Lauf). Wächter: Stagnation ab 200 Iterationen.
+- **Ergebnis:** Ende 4.11. 08:17 (Stagnation).
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 465 (Start) | 1 | 1,76 | 61 % | 35 % |
+  | 520 | 3 | 1,32 | 58 % | 32 % |
+  | 560 | 1 | 1,68 | 60 % | 29 % |
+  | **600** | **1** | **1,18** | 60 % | **20 %** |
+  | 640 | 2 | 1,43 | 57 % | 35 % |
+  | 680 | 3 | 1,65 | 61 % | 23 % |
+  | 720 | 4 | 1,37 | 59 % | 33 % |
+
+- **Analyse:** Step 600 ist der erste Checkpoint, bei dem Tracking (1,18 ≤ 1,3) und Fußneigung (20 % ≤ 30 %) zugleich im Ziel liegen. Am Gate fehlen nur noch 1 Sturz und die alten Dauerbrenner. Danach pendelte der Lauf: Tracking 1,4–1,7, Stürze stiegen auf 4. Die Belohnungsstruktur scheint zu stimmen, aber die Policy springt mit Lernrate 3e-4 zwischen guten und schlechten Ständen hin und her.
+- **Panne:** Der Wecker meldete das Ende um 08:17, die Nachricht erreichte mich aber erst um 19:27. Die GPU stand also wieder ~11 h still. Der sitzungsunabhängige Supervisor ist weiterhin nicht installiert.
+
+### `servo_rubber6` — Festigen mit kleinerer Lernrate (gestartet 4.11. 19:30, ab `servo_rubber5` 600, GPU 0)
+- **Änderung:** nur `learning_rate=1e-4` statt 3e-4. Ziel ist, den guten Stand von 600 zu halten und Stürze sowie Tempo-Schwankung zu senken, statt wieder wegzupendeln.
+- **Ergebnis:** Ende 4.11. 21:47 (Stagnation). Gemeldet wurde es mir erst am 5.11. um 06:02, die GPU stand also wieder ~8 h still.
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 605 | 2 | 1,14 | 60 % | 30 % |
+  | **645** | **1** | **1,13** | 60 % | 29 % |
+  | 685 | 3 | 1,35 | 59 % | 37 % |
+  | 725 | 2 | 1,61 | 60 % | 34 % |
+  | 765 | 1 | 1,41 | 62 % | 18 % |
+  | 805 | 1 | 1,48 | 57 % | 34 % |
+  | 845 | 1 | 1,34 | 62 % | 20 % |
+
+- **Analyse:** Die kleinere Lernrate hat das Pendeln nicht beseitigt. Das Tempo schwankt weiter zwischen 1,13 und 1,61, die Fußneigung zwischen 18 und 37 %. Es liegt also nicht an zu großen Lernschritten. Das Übertempo ist offenbar zu billig: Mit `track_error_scale=0.03` (L1) verliert die Policy bei 1,5-fachem Tempo und Soll 4,5 cm/s nur gut die Hälfte der Tracking-Belohnung, und Schrittlänge und Vortrieb gleichen das teilweise aus.
+
+### `servo_rubber7` — schärferes Tempo-Tracking (gestartet 5.11. 06:05, ab `servo_rubber6` 645, GPU 0)
+- **Änderung:** nur `track_error_scale=0.015` statt 0,03. Bei 1,5-fachem Tempo bleiben damit ~22 % statt ~47 % der Tracking-Belohnung. Lernrate bleibt 1e-4.
+- **Ergebnis:** Ende 5.11. 08:28 (Stagnation), bester Stand blieb der Start 645. Tracking wurde **schlechter**: 1,26 → 1,45–1,70. Stürze 1–3, Fußneigung 12–26 %.
+- **Analyse je Episode (Step 900):** Bei Soll 3,2–5,2 cm/s läuft die Policy **immer 6–10 cm/s, im Mittel ~8 cm/s**, egal welches Soll gilt.
+  - Der Belohnungssensor misst dieselbe Geschwindigkeit wie die Weltposition, ein Messfehler ist es also nicht.
+  - Die Policy verzichtet bewusst auf den Großteil der Tracking-Belohnung (pro Episode 1–3 statt bis ~30). Ihr Gang hat also ein festes Tempo.
+  - **Ursache:** Die Startbelohnung für Läufe von null, `NaiveVelocityReward` (Skala 1,5 in `servo_rubber3`), zahlt für jede Vorwärtsgeschwindigkeit bis 5 m/s. Der Gang mit festem, hohem Tempo entsteht dort, und alle Folgeläufe (`servo_rubber4`–7) erben ihn. Wie schon bei `servo_ctrl_v13`–v31 entfernt Umgewichten im Nachhinein so einen Fehler nicht.
+
+### `servo_rubber8` — von null, Start-Tempo gedeckelt (gestartet 5.11. ~12:30, GPU 0, Kette `rubber8` → `servo_rubber9`)
+- **Code:** `NaiveVelocityReward` hat den neuen Schalter `naive_velocity_cap`. Ist er gesetzt, zahlt die Belohnung höchstens bis zum 1,2-fachen Soll-Tempo. Im Einzeltest geprüft: 8 cm/s bei Soll 4 cm/s → 4,8 statt 8.
+- **Einstellungen:** wie `servo_rubber3` (μ 0,5–1,3, Fußstrafe −30, IMU ±8°, Startbelohnungen), dazu `naive_velocity_cap=1.2` und `stride_per_command=True` von Anfang an.
+- **Kette:** Sobald der Lauf überlebt und echte Schritte macht, wechselt die Kette `rubber8` wie bisher zu `servo_rubber9` mit den Folge-Einstellungen (Fenster 0,8 s, Vortrieb 10, keine naive Belohnung).
+- **Ergebnis:** Bootstrap-Kriterium bei 600 erfüllt. Bester Stand 400 mit 1/16 Stürzen, Tracking 0,99, Fußneigung 21 %. Die Kette übergab ab 400 an `servo_rubber9`.
+
+### `servo_rubber9` — Folge-Einstellungen ab `servo_rubber8` 400 (Kette, Ende 5.11. 20:13)
+- **Verlauf:**
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 401 | 9 | 0,59 | 66 % | 28 % |
+  | 460 | 2 | 1,42 | 61 % | 18 % |
+  | 500 | 2 | 1,17 | 58 % | 28 % |
+  | 585 | 3 | 1,60 | 56 % | 36 % |
+  | 665 | 1 | 1,13 | 60 % | 35 % |
+  | **705** | **1** | 1,38 | 60 % | **19 %** |
+
+- **Analyse je Episode (705):** Das Tempo liegt bei 4,5–7,3 cm/s, im Mittel ~6 cm/s statt ~8 cm/s bei `servo_rubber7`. Die Tracking-Belohnung pro Episode beträgt 4–9 statt 1–3. **Der Deckel wirkt.** Das Soll befolgt die Policy aber noch kaum: Bei Soll 3,2 läuft sie 6,6 cm/s, bei Soll 5,2 nur 4,6 cm/s.
+- Die GPU stand von 20:13 bis 22:35 still, weil der Wecker wieder zu spät kam.
+
+### `servo_rubber10` — schärferes Tempo-Tracking ab `servo_rubber9` 705 (gestartet 5.11. 22:36, GPU 0)
+- **Änderung:** nur `track_error_scale=0.015` statt 0,03. Bei `servo_rubber7` half das nicht, weil der Gang dort fest auf ~8 cm/s stand. Hier liegt das Tempo schon nahe am Soll, also sollte sich ein Anpassen ans Soll jetzt deutlich mehr lohnen. Lernrate wieder 3e-4.
+- **Ergebnis:** Ende 6.11. 00:59 (Stagnation), bester Stand blieb der Start 705. Das Tempo **stieg** von 1,18 auf 2,0, Stürze 3–7.
+  - Je Episode (960): 7,4–9,4 cm/s bei Soll 3,2–4,6. Tracking-Belohnung 0,2–2, Vortrieb fast immer die vollen 10.
+- **Ursache, jetzt klar (gilt auch für `servo_rubber7`):** Der schärfere Tracking-Kern macht die Tracking-Belohnung für jedes erreichbare Tempo fast null, und damit gibt sie keine Richtung mehr vor. Übrig bleibt `ForwardProgressReward`. Der Vortrieb ist zwar beim Soll gedeckelt, Übertempo zahlt aber genauso voll und hält jedes 0,8-s-Fenster sicher bei 1. Also lohnt sich Übertempo.
+
+### `servo_rubber11` — Vortrieb mit Spitze beim Soll (gestartet 6.11. ~06:10, ab `servo_rubber9` 705, GPU 0)
+- **Code:** neuer Schalter `forward_progress_peak`. Der Vortrieb ist dann min(v/Soll, 2 − v/Soll): Er ist beim Soll am höchsten und fällt bei doppeltem Soll auf 0. Im Einzeltest geprüft: bei Soll 4 cm/s und Tempo 2/4/6/8 cm/s → 0,5/1/0,5/0. Die 7 bestehenden Tests laufen weiter durch.
+- **Änderung:** nur `forward_progress_peak=True`. Tracking-Skala wieder 0,03 wie in `servo_rubber9`.
+- **Ergebnis:** Ende 6.11. 08:28 (Stagnation). Gemeldet erst um 13:57, die GPU stand also ~5,5 h still. Das Tempo kippte ins Gegenteil:
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° |
+  | --- | --- | --- | --- | --- |
+  | 705 | 2 | 1,41 | 59 % | 26 % |
+  | **760** | **1** | **0,69** | 57 % | 27 % |
+  | 800 | 2 | 0,26 | 58 % | 32 % |
+  | 885 | 1 | 0,60 | 55 % | 32 % |
+  | 965 | 3 | 0,49 | 60 % | 23 % |
+
+- **Analyse je Episode (965):** Die Policy schlurft mit −3 bis 4 cm/s, manchmal rückwärts. Einen Zusammenhang mit dem Soll gibt es weiter nicht.
+  - Die spitze Belohnung bestraft auch die kurzen Tempo-Spitzen innerhalb eines Schritts. Langsam laufen ist damit die sichere Wahl.
+  - Mit den Läufen 9 und 10 zusammen heißt das: Der Vortrieb steuert das mittlere Tempo, aber nicht, ob die Policy dem Soll folgt.
+
+### `servo_rubber12` — Vortrieb mit Plateau (gestartet 6.11. ~14:05, ab `servo_rubber11` 760, GPU 0)
+- **Code:** `forward_progress_peak_tol`. Volle Belohnung beim 1,0- bis 1,3-fachen Soll, also genau im Gate-Band. Darüber fällt sie linear und ist beim 2,3-fachen Soll 0. Im Einzeltest geprüft: 0,5/1/1,3/1,8/2,3 × Soll → 0,5/1/1/0,5/0.
+- **Änderung:** nur `forward_progress_peak_tol=0.3`. Start bei 760 (Tracking 0,69, 1 Sturz), weil der Stand zwischen zu schnell (705) und zu langsam (800+) liegt.
+- **Ergebnis:** Ende 6.11. 16:19 (Stagnation). **Erste sturzfreie Checkpoints der Gummi-Serie.**
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° | > 5 Hz | Begrenzer |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | **765** | **0** | 0,76 | 57 % | 36 % | 0,28 | 0,83 |
+  | **805** | **0** | 0,74 | 57 % | 37 % | 0,28 | 0,82 |
+  | 845 | 3 | 0,64 | 60 % | 32 % | 0,30 | 0,83 |
+  | **885** | **0** | 0,77 | 57 % | 37 % | 0,27 | 0,83 |
+  | 1005 | 4 | 0,74 | 58 % | 33 % | 0,29 | 0,83 |
+
+  Es bleiben die Fußneigung (36 % statt ≤ 30 %) und das Zittern. Das Zittern ist seit Wochen in allen Läufen gleich: Ziel-Zickzack p99 = 0,086 = volle Richtungsumkehr am Begrenzer, Begrenzer 83 % aktiv, 27–30 % über 5 Hz.
+
+### Neue Prioritäten (Nutzer, 6.11. ~14:30)
+„das soll und ist tempo ist gar nicht die Prio. wichtig ist, dass der roboter vorwärts kommt. und das stabil ohne zittern und mit sohlen, die parallel zum boden auftreten. und gerne andere Metriken etc, die vielversprechend sind um das laufen stabiler zu machen"
+- Gate: Tracking-Band jetzt 0,5–2,0 statt 0,75–1,3 (`sim/tools/hardware_gate.py`). Vorwärts muss er, das genaue Tempo ist egal.
+- Weitere Schwerpunkte: Stürze, Zittern, Fußneigung.
+
+### `servo_rubber13` — CAPS-Glättung im Verlust (gestartet 6.11. ~17:25, ab `servo_rubber12` 765, GPU 0)
+- **Idee (Mysore et al. 2021, „Regularizing Action Policies for Smooth Control"):** Glättung nicht als Belohnung, sondern direkt als Term im Verlust des Actors.
+  - Als Belohnung kosteten die Zitter-Strafen PPO fast nichts (`servo_ctrl_v4`: ~3 % der Rendite). Stärkere Strafen ließen die Policy das Laufen aufgeben (`servo_ctrl_v5`/v6), weil das Zittern damals die Gangart *war* (Hüpfer).
+  - Heute macht die Policy echte Schritte (57–65 % ≥ 0,2 s). Der Gradient im Verlust geht direkt in den Actor und braucht keine Zuordnung über die Rendite.
+- **Code (`get_loss_and_metrics` in `walking.py`):**
+  - `caps_temporal`: quadratische 2. Differenz der *mittleren* Aktion über aufeinanderfolgende Schritte. Ein 1-Hz-Gang mit 0,3 rad Amplitude hat ~0,005 rad Ruck, der 5–6-Hz-Zickzack ~0,17 rad. Quadriert trifft der Term das Zittern also ~1000-mal stärker als den Gang.
+  - `caps_spatial`: quadratische Änderung der mittleren Aktion, wenn die Sensoreingänge leicht verrauscht werden (Gelenkwinkel 0,01 rad, Gelenkgeschwindigkeit 0,1 rad/s, Gyro 0,05 rad/s, Beschleunigung 0,1 m/s²). Das senkt die Verstärkung des Regelkreises, der laut Diagnose vom 28.10. über die Totzeit schwingt.
+- **Änderung:** `caps_temporal=1.0 caps_spatial=1.0`, sonst wie `servo_rubber12`.
+- **Rauchtest:** Das Training läuft. Der PPO-Verlust stieg von ~0,01 auf ~0,03–0,04 (die CAPS-Terme), die Ruckstrafe der Belohnung sank in den ersten Iterationen um ~20 %. Die Gesamtbelohnung pro Schritt fiel von 0,037 auf 0,021–0,028. Das muss die Auswertung zeigen.
+- **Ergebnis:** Ende 6.11. 20:20 (Stagnation). Gemeldet erst 7.11. 09:40, die GPU stand also ~13 h still.
+
+  | Schritt | Stürze | Tracking | Fußneigung > 5° | > 5 Hz | Begrenzer |
+  | --- | --- | --- | --- | --- | --- |
+  | 765 (Start) | 2 | 0,76 | 33 % | 0,29 | 0,83 |
+  | 855 | 2 | 0,63 | 28 % | 0,29 | 0,68 |
+  | **910** | **1** | **0,82** | **23 %** | 0,29 | 0,61 |
+  | 1005 | 2 | 0,64 | 21 % | 0,28 | 0,56 |
+  | 1060 | 3 | 0,68 | 25 % | 0,27 | 0,54 |
+
+- **Analyse:** **CAPS wirkt.**
+  - Der Begrenzer ist nur noch 54 % aktiv (vorher 83 %), stetig fallend.
+  - Die Fußneigung ist jetzt **bestanden** (21–25 %). Ruhigere Aktionen setzen den Fuß offenbar flacher auf.
+  - Spektrum (1060 gegen `servo_rubber12` 1005): Der scharfe 5–6-Hz-Gipfel der Regelschwingung ist weg, die Spitze liegt beim Gangtakt 1,6 Hz bzw. 3,2 Hz. Anteil über 5 Hz in der Aktion 0,62 → 0,40. In den Gelenken über 5 Hz Effektivwert: Hüfte-Pitch 1,21° → 1,04°, Knie 1,11° → 0,90°, Knöchel 1,46° → 1,22°, Hüfte-Roll 1,40° → 0,93°.
+  - Das Gate-Kriterium „> 5 Hz" (Amplitudenspektrum, 0,15) sieht davon kaum etwas (0,29 → 0,27). Es zählt auch den breitbandigen Anteil der Fußaufsätze mit. Ziel-Zickzack p99 bleibt 0,086.
+  - Stürze 1–3, also etwas mehr als in `servo_rubber12`.
+
+### `servo_rubber14` — CAPS ×3 (gestartet 7.11. ~09:50, ab `servo_rubber13` 910, GPU 0)
+- **Änderung:** nur `caps_temporal=3.0 caps_spatial=3.0`. Die Richtung stimmt, die Stärke reicht noch nicht.
+- **Ergebnis:** Ende 7.11. 14:23 (Stagnation). **Bester Lauf bisher** (höchster Score 0,825).
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° | > 5 Hz | Begrenzer | Zickzack p99 |
+  | --- | --- | --- | --- | --- | --- | --- | --- |
+  | 910 (Start) | 1 | 0,73 | 60 % | 21 % | 0,30 | 0,61 | 0,086 |
+  | 1000 | **0** | 0,43 | 63 % | 25 % | 0,28 | 0,41 | 0,086 |
+  | 1110 | **0** | 0,78 | 63 % | 24 % | 0,29 | 0,31 | 0,086 |
+  | 1150 | **0** | 0,71 | 63 % | 23 % | 0,28 | 0,30 | 0,086 |
+  | **1205** | **0** | **0,93** | 64 % | **22 %** | 0,27 | 0,26 | 0,082 |
+  | 1260 | 1 | 0,99 | 63 % | 14 % | 0,29 | 0,25 | 0,083 |
+  | 1355 | 1 | 0,96 | 67 % | 13 % | 0,29 | 0,24 | 0,081 |
+  | 1410 | 1 | 0,70 | 70 % | 34 % | 0,28 | 0,19 | 0,077 |
+
+- **Highlight:** Drei sturzfreie Checkpoints hintereinander. Fußneigung bestanden, und der Begrenzer greift nur noch 26 % der Zeit (`servo_rubber12`: 83 %). Mit 1410 fällt zum ersten Mal überhaupt auch der Ziel-Zickzack unter die volle Umkehr (0,077).
+  - Stärkere CAPS-Gewichte kosten also kein Laufen, eher im Gegenteil: echte Schritte 60 → 70 %.
+  - Das Gate-Kriterium „> 5 Hz" bleibt bei 0,27–0,29 (siehe Analyse `servo_rubber13`).
+- **Export:** `sim/policies/servo_rubber14_step1205` (ONNX = JAX, Abweichung 0). Nicht auf den Pi kopiert, die Hardware entscheidet der Nutzer.
+
+### `servo_rubber15` — CAPS ×6 (gestartet 7.11. ~16:00, ab `servo_rubber14` 1205, GPU 0)
+- **Änderung:** nur `caps_temporal=6.0 caps_spatial=6.0`. Der Begrenzer-Anteil fiel bis zuletzt stetig, das Laufen blieb dabei gut. Ziel: Begrenzer ≤ 20 % und Zickzack deutlich unter 0,086 bei 0 Stürzen.
+- **Ergebnis:** Ende 7.11. 19:03 (Stagnation nach der 3-%-Regel, die Einzelwerte wurden aber weiter besser).
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° | > 5 Hz | Begrenzer | Zickzack p99 |
+  | --- | --- | --- | --- | --- | --- | --- | --- |
+  | 1206 | 0 | 0,88 | 62 % | 22 % | 0,28 | 0,26 | 0,083 |
+  | **1265** | **0** | 0,91 | 67 % | **19 %** | 0,28 | 0,22 | 0,076 |
+  | 1320 | 1 | 0,88 | 67 % | 21 % | 0,28 | 0,19 | 0,073 |
+  | 1375 | 0 | 0,86 | 72 % | 30 % | 0,27 | **0,16** | 0,069 |
+  | 1430 | 0 | 0,81 | 75 % | 35 % | 0,27 | 0,15 | 0,067 |
+  | 1470 | 0 | 0,88 | 79 % | 36 % | 0,27 | 0,14 | 0,067 |
+  | **1525** | **0** | 0,83 | 78 % | 32 % | 0,27 | **0,13** | **0,065** |
+
+- **Highlight:** 6 von 7 Auswertungen sturzfrei. **Begrenzer-Kriterium (≤ 20 %) erstmals bestanden**, ab 1375. Zickzack 0,086 → 0,065, echte Schritte 62 → 78 %.
+- **Rückschritt:** Die Fußneigung stieg mit den längeren, echteren Schritten wieder auf 30–36 %.
+  - Bester Kompromiss für die Hardware ist 1265: 0 Stürze, 19 % Neigung, Begrenzer 22 %.
+  - 1525 ist am ruhigsten, setzt den Fuß aber schräger auf.
+
+### `servo_rubber16` — Fußstrafe −50 (gestartet 7.11. ~19:10, ab `servo_rubber15` 1525, GPU 0)
+- **Änderung:** nur `foot_flat_penalty=-50` statt −30, CAPS bleibt bei 6. Ziel: die Ruhe von 1525 behalten und die Sohlen wieder ≤ 30 % (besser ~20 %) bringen.
+- **Zwischenfall:** Der Rechner wurde zwischen 19:29 und 19:52 neu gestartet. Der Watchdog startete den Lauf ab seinem eigenen Checkpoint (~1560) neu, der Wächter fehlte aber. Ich habe ihn von Hand neu gestartet. `zbot_watchdog.sh` startet seitdem auch den Wächter eines laufenden Laufs neu.
+- **Ergebnis:** Ende 7.11. 22:30 (Stagnation).
+
+  | Schritt | Stürze | Tracking | echte Schritte | Fußneigung > 5° | Begrenzer | Zickzack p99 |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 1530 | 0 | 0,90 | 80 % | 32 % | 0,13 | 0,063 |
+  | 1575 | 1 | 0,81 | 82 % | 35 % | 0,12 | 0,063 |
+  | 1685 | 0 | 0,94 | 79 % | 28 % | 0,12 | 0,061 |
+  | 1780 | 0 | 0,92 | 86 % | 33 % | 0,12 | 0,061 |
+  | **1835** | **0** | **0,94** | **89 %** | **28 %** | 0,12 | 0,061 |
+
+- **Highlight:** 6 von 7 Auswertungen sturzfrei, 89 % echte Schritte, höchster Score bisher (0,848). Die Fußneigung liegt knapp unter 30 %.
+- **Analyse der Dauerbrenner „Ziel außerhalb" (≈ 100 %) und „an der Grenze" (93 %), je Gelenk (1835):**
+  - Alle Gelenke bleiben weit weg von ihren Grenzen, **nur die Hüftdrehung nicht**. Ihre realen Grenzen sind einseitig eng: rechts [−3°, 90°], links [−90°, 5°].
+  - Die Policy fordert rechts bis −19° und links bis +29°, also beide Füße stark nach innen. Damit liegt das Ziel 59 % bzw. 43 % der Zeit jenseits der Grenze.
+  - Der Clamp (Sim wie Pi) hält das Gelenk bei −3°/+5°, gemessen −3,6°/+5,6°. Die Policy nutzt den Clamp also als Anschlag.
+  - Für die Hardware ist das der wichtigste offene Punkt (vgl. das gerissene Hüftteil vom 22.10.).
+  - `target_limit_penalty=-4` ist linear und über 16 Gelenke gemittelt, also zu schwach.
+
+### `servo_rubber17` — Zielgrenzen-Strafe −20 (gestartet 7.11. ~22:33, wirklich trainierend ab ~22:50, ab `servo_rubber16` 1835, GPU 0)
+- **Änderung:** nur `target_limit_penalty=-20` statt −4. Ziel: die Hüftdrehung innerhalb der realen Grenzen halten, ohne Stürze und Sohlen zu verschlechtern.
+- **Zwischenfall:** `qwen-vllm` ist ein aktivierter Dienst mit Neustart bei Fehler. Seit dem Neustart des Rechners hatte er es 175-mal versucht und belegte in der Minute, in der `servo_rubber16` die GPUs freigab, beide GPUs. Der neue Lauf brach dreimal mit CUDA-Speichermangel ab. Ich habe den Dienst wieder gestoppt (Zustimmung des Nutzers vom 1.11.), aber nicht deaktiviert. **Nach jedem Neustart des Rechners wiederholt sich das.**
+- **Nachtrag 7.11.:** Auf Wunsch des Nutzers ist der Automatismus abgeschaltet. qwen-vllm hat kein Restart mehr, ist deaktiviert und wird nur noch von Hand im Qwen-Core-Monitor (http://localhost:8090) geschaltet. Der Monitor zeigt die GPU-Belegung und verweigert den Start während eines Trainings (409).
+- **Ergebnis (Wächter-Stopp 8.11. 01:39, Stagnation bei 2125, bestes 1935, Score 0,849):** Stürze bei 0, Sohlen-Kippanteil 0,25–0,30, Limiter 0,10–0,12. Die Strafe hat aber **nichts** bewirkt: target_out_share 0,99, margin_share 0,94, wie in rubber16.
+- **Ursachenanalyse (limits.py auf 2125):** Ausschließlich die Hüftdrehung ist betroffen. Die Policy steuert rechts bis −17,7° an (Grenze −3°, in 60 % der Schritte jenseits) und links bis +25° (Grenze +5°, in 40 %). Die Klemme des Sim-Aktuators (`clamp_to_real_limits`) und auf dem Pi dient ihr als Anschlag.
+  - `TargetLimitPenalty` und `JointLimitPenalty` **mitteln über alle 20 Gelenke**. Zwei betroffene Gelenke kosten dadurch nur ein Zehntel. Mit −20 waren das −0,001 bei einer Gesamtbelohnung von 0,041; das hat die Policy in Kauf genommen.
+- **Probe ohne Training:** Checkpoint 1935 mit geklemmtem Policy-Ausgang (s. rubber18). target_out_share fällt auf **0**, aber margin_share bleibt bei 0,85 und es gibt 2 Stürze. Unter Last drückt der Boden das Gelenk etwa 1,5° über den Sollwert hinaus bis an den Anschlag (rechts −3,0°, links +4,9°). Die Policy muss lernen, den Sollwert aktiv weiter nach innen zu legen.
+- **Videos:** `servo_rubber17/videos/` (automatisch alle 100 Iterationen).
+
+### `servo_rubber18` — Policy-Ausgang hart geklemmt + Gelenkgrenzen-Strafe als Summe (gestartet 8.11. ~09:35, ab `servo_rubber17` 1935, GPU 0)
+- **Neu in `walking.py`:**
+  - `action_clip_margin_deg` (>0): `ZbotActor` klemmt den Mittelwert jedes Gelenks auf den echten Bereich minus Rand. Der Rand ist höchstens die halbe Distanz zur Nullstellung und entspricht damit genau dem Gate-Rand (Hüftdrehung 1,5°/2,5°).
+  - Die Klemme steckt im Netz selbst. `export_policy.py` schreibt sie als Max/Min-Knoten ins ONNX, der Pi braucht seine Klemme also nicht mehr. Die Gate-Prüfung „Sollwert in den Grenzen" ist damit konstruktiv erfüllt.
+  - `joint_limit_sum`: `JointLimitPenalty` summiert über die Gelenke (Tiefe auf 2 gekappt), statt zu mitteln.
+- **Änderungen:** `action_clip_margin_deg=5`, `joint_limit_sum=true`, `joint_limit_penalty=-8`. Der erste Start mit −2 ergab im Log nur −0,0011 bei einer Gesamtbelohnung von 0,044 (2,5 %, so schwach wie die wirkungslose Strafe in rubber17). Nach dem ersten Schritt abgebrochen (`_aborted_servo_rubber18a`) und mit −8 neu gestartet: −0,0044 von 0,040, also etwa 11 %.
+- **Ziel:** margin_share < 0,01, Stürze bei 0, Kippanteil ≤ 0,30.
+- **Ergebnis (Wächter-Stopp 8.11. 12:47, „Stagnation“ bei 2245, bester Score 2095 mit 0,904):** Der Clip wirkt: target_out_share **0** in allen Bewertungen. margin_share sinkt stetig von 0,87 (1935) über 0,79 (2095) auf **0,48** (2245), die Hüftdrehung entfernt sich also vom Anschlag. Stürze immer 0, Kippanteil 0,17–0,24, Limiter 0,10, echte Schritte 84–87 %. Ruck (0,061–0,066) und Hochfrequenzanteil (0,25–0,28) bleiben über dem Gate.
+  - Der Abbruch war verfrüht. Der Score misst nur, ob ein Kriterium besteht, nicht wie weit es entfernt ist, deshalb hat er den Fortschritt bei margin_share kaum abgebildet.
+
+### `servo_rubber19` — Fortsetzung, Gelenkgrenzen-Strafe −12 (gestartet 8.11. 12:50, ab `servo_rubber18` 2245, GPU 0)
+- **Änderungen:** `joint_limit_penalty=-12` (statt −8); Wächter mit `MIN_ITERS=500`, damit die Stagnationsregel den laufenden Rückgang von margin_share nicht wieder abschneidet.
+- **Ziel:** margin_share < 0,01, Stürze bei 0, Kippanteil ≤ 0,30.
+- **Ergebnis (Wächter-Stopp 8.11. 17:29 bei 2745, bester Score 2745 mit 0,903):** margin_share bleibt auf einem Plateau von 0,39–0,54, −12 statt −8 hat nicht weitergeholfen. Bei 2445, 2540, 2650 und 2705 gab es 1–2 Stürze, bei 2745 wieder 0. Kippanteil 0,11–0,26, Limiter 0,10, target_out 0.
+- **Analyse (Datensatz 2745):** Der Sollwert der **rechten** Hüftdrehung liegt in 53 % der Schritte genau auf der Klemme bei −1,5° (Median = Klemme). Die Policy will rechts weiter nach außen drehen, als die Grenze von −3° erlaubt. Unter Last gibt das Gelenk über den Sollwert hinaus nach und landet in 40 % der Schritte im Sicherheitsabstand. Links ist das nur in 5 % der Schritte der Fall.
+
+### `servo_rubber20` — Lastreserve in der Klemme (gestartet 8.11. 17:33, ab `servo_rubber19` 2745, GPU 0)
+- **Neu:** `action_clip_reserve_deg` hält den Sollwert zusätzlich zum Gate-Rand weiter innen, nie über die Nullstellung hinaus. Auch der Export übernimmt den Wert.
+- **Änderungen:** `action_clip_reserve_deg=1.5`. Klemme der Hüftdrehung damit rechts bei 0° (statt −1,5°), links bei +1,0° (statt +2,5°), alle anderen Gelenke bei 6,5° Abstand zur WebUI-Grenze. Die Grenzen selbst kommen weiter aus `hardware/joint_limits.json`. `joint_limit_penalty=-12` bleibt. Wächter mit `MIN_ITERS=400`.
+- **Ziel:** margin_share < 0,01 bei 0 Stürzen.
+- **Ergebnis (Wächter-Stopp 8.11. 21:50 bei 3200, bester Score 2845 mit 0,960):** Die Lastreserve löst das Grenzproblem. margin_share ist bei 2750 und 2845 **0,000**, bei 2995 0,007, target_out immer 0.
+  - 2750, 2845 und 2995 haben 0 Stürze, Kippanteil 0,20–0,21, Limiter 0,10, 88–91 % echte Schritte. **Nur noch Ruck (jerk_p99 ≈ 0,060 statt ≤ 0,04) und Hochfrequenzanteil (0,24–0,27 statt ≤ 0,15) verfehlen das Gate.**
+  - Ab 3050 wird es wieder schlechter: je 1 Sturz, margin_share steigt bis 0,12.
+- **Videos:** `servo_rubber20/videos/`.
+
+### `servo_rubber21` — Ruck angehen (gestartet 8.11. 22:30, ab `servo_rubber20` 2845, GPU 0)
+- **Analyse:** jerk_p99 misst die zweite Differenz der gesendeten (ratenbegrenzten) Sollwerte. 0,060 rad liegt über einem vollen Limiter-Schritt (0,7·3,07 rad/s·0,02 s = 0,043 rad). Die Spitzen entstehen also, wenn ein Gelenk aus der Ruhe mit voller Begrenzer-Geschwindigkeit startet oder abrupt umkehrt.
+  - `action_jerk_penalty=-0,1` mittelt über 16 Gelenke und lag im Log bei −0,00002 von 0,04 Gesamtbelohnung, war also wirkungslos.
+- **Änderungen:** `action_jerk_penalty=-3` (30-fach), `caps_temporal=12` (statt 6). Wächter mit `MIN_ITERS=300`.
+- **Ziel:** jerk_p99 → 0,04, ohne Stürze und ohne dass margin_share zurückkommt.
+- **Ergebnis (Wächter-Stopp 9.11. 01:54 bei 3200, bester Score 2995 mit 0,969):** Der Ruck sinkt von 0,062 auf **0,050**. In allen Bewertungen 0 Stürze, der Kippanteil sinkt bis 0,14, Limiter 0,08, 88–95 % echte Schritte. margin_share bleibt bis 2995 unter 0,01 (0,006) und steigt danach langsam auf 0,04.
+- **Analyse (Datensatz 3200):**
+  - **Ruck:** Die Spitzen über p99 kommen von Knien und Sprunggelenken (rechtes Knie 28 %, rechtes Sprunggelenk 18 %). 43 % davon sind Umkehrungen bei voller Begrenzer-Geschwindigkeit, also Bang-Bang am Limiter; ein Start aus der Ruhe ist nur in 4 % der Fälle die Ursache.
+  - **Hochfrequenzanteil:** kein Gipfel über 5 Hz. Die Bänder 5–8, 8–12, 12–18 und 18–25 Hz liegen bei je 0,05–0,07, das ist ein flaches Breitband. Die gesendeten Sollwerte haben denselben Anteil (0,254). Es ist also Rauschen im Policy-Ausgang, kein mechanisches Zittern.
+
+### `servo_rubber22` — Ruck und Ausgangsrauschen (gestartet 9.11. ~05:10, ab `servo_rubber21` 2995, GPU 0)
+- **Änderungen:** `action_jerk_penalty=-10` (statt −3), `caps_spatial=12` (statt 6; macht die Policy unempfindlich gegen Rauschen in den Beobachtungen und zielt auf das Breitband). Wächter mit `MIN_ITERS=300`.
+- **Ziel:** jerk_p99 ≤ 0,04, highfreq_share sinkt, 0 Stürze, margin_share ≤ 0,01.
+- **Ergebnis (Wächter-Stopp 9.11. 08:16 bei 3305, bester Score 3060 mit 0,971; die Benachrichtigung kam erst 20:12, die GPU stand ~12 h still):**
+  - **Bestanden in allen Bewertungen:** 0 Stürze, margin_share ≤ 0,005 (3210: 0,000), Limiter 0,06–0,07, Kippanteil 0,17–0,25, 90–94 % echte Schritte.
+  - **Noch nicht bestanden:** jerk_p99 stagniert bei 0,047–0,049, highfreq_share bei 0,22–0,25. Die Strafen sind ausgereizt.
+- **Export:** 3210 nach `sim/policies/servo_rubber22_step3210/`. Der Clip ist als Max/Min im ONNX, die Abweichung ONNX gegen JAX beträgt 1e-11. **Nicht auf dem Pi.** Das ist der aktuelle Hardware-Kandidat.
+
+### `servo_rubber23` — milder Tiefpass α = 0,5 (gestartet 9.11. 20:14, ab `servo_rubber22` 3210, GPU 0)
+- **Begründung:**
+  - Früher (servo_ctrl_v3) half der Tiefpass nicht: Gegen die Totzeit-Regelschwingung wirkte er wie zusätzliche Totzeit.
+  - Seit `action_history=4` schwingt die Policy nicht mehr. Der Rest-Ruck besteht aus Umkehrungen bei voller Begrenzer-Geschwindigkeit, der Hochfrequenzanteil ist flaches Breitbandrauschen im Ausgang.
+  - α = 0,5 lässt ein Zickzack über zwei Schritte nur zu ~33 % durch und fügt ~1 Steuerschritt (20 ms) Totzeit hinzu.
+  - Sim, Gate (`sent_targets`) und Pi-Runner (`action_filter_alpha` in `policy_meta.json`) filtern identisch.
+- **Änderung:** nur `action_filter_alpha=0.5`. Wächter mit `MIN_ITERS=300`.
+- **Ziel:** jerk_p99 ≤ 0,04, highfreq_share runter, ohne Stürze.
+- **Ergebnis (Wächter-Stopp 9.11. 23:12 bei 3520; die Benachrichtigung kam erst 11.11. 20:34, die GPU stand ~45 h still):**
+  - **Bester Checkpoint 3315, Score 0,992.** Der Filter halbiert den Ruck: jerk_p99 0,019–0,023, das Gate verlangt ≤ 0,04 — **bestanden**.
+  - Überall 0 Stürze, margin_share 0,000, Kippanteil 0,14–0,26, Limiter 0,11–0,13, 95–97 % echte Schritte.
+  - **Einziges offenes Gate-Kriterium:** highfreq_share 0,17–0,19 (Grenze 0,15).
+- **Export:** 3315 nach `sim/policies/servo_rubber23_step3315/` (ONNX = JAX, `action_filter_alpha=0.5` in `policy_meta.json`). **Nicht auf dem Pi.** Das ist der beste Kandidat bisher.
+
+### `servo_rubber24` — Tiefpass α = 0,35 (gestartet 11.11. 20:36, ab `servo_rubber23` 3315, GPU 0)
+- **Änderung:** nur `action_filter_alpha=0.35` (statt 0,5). Wächter mit `MIN_ITERS=300`.
+- **Ziel:** highfreq_share ≤ 0,15 ohne Stürze.
+- **Ergebnis:** Auf Wunsch des Nutzers am 11.11. ~21:45 bei Step 3423 gestoppt (letzter Snapshot 3415), noch ohne Auswertung. Alle Trainings ruhen. `active_runs.txt` ist geleert, Sicherung in `active_runs.txt.bak-2026-11-11`.
+
+### Hardwaretest 11.11. ~21:22–21:35, `servo_rubber23_step3315` (vx 0,04, Gangfrequenz 1,1, α 0,5)
+- **Vorab:** Die Winkelgrenzen auf dem Pi sind identisch mit `hardware/joint_limits.json` (16/16), der Policy-Runner ist identisch mit dem im Repo. Hochgeladen wurden nur `policy.onnx` und `policy_meta.json`.
+- **Trockenlauf (14,6 s):** Schritt im Mittel 5,6 ms, p99 8,2 ms, 2 Überläufe (max. 25 ms). Kein Sollwert außerhalb der Grenzen, Hüftklemme wie im Sim (rechts ≥ 0°, links ≤ +1,0°).
+  - Kopf-IMU: 12,7° Neigung, Betrag 1,09 g. Das Modell erwartet 17,4°, die Abweichung von 5° liegt im Trainingsbereich `imu_tilt_deg=8`.
+- **14 echte Läufe:** 2,2 / **10,4** / **14,8 (E-Stop)** / 2,6 / 3,9 / 2,6 / 5,6 (E-Stop) / 2,7 / 2,7 / 2,1 / 6,2 (E-Stop) / 3,9 / 2,5 / 2,3 s. Die übrigen endeten mit Sturzabschaltung (Neigung > 55°).
+  - **Nutzer:** „Es wurde mit jedem Mal schlechter und kürzer. Insgesamt lief er immer nach links statt geradeaus. Bei den ersten Versuchen sogar selbstständig mehrere Schritte. Das linke Bein hat mittlerweile sehr viel Spiel."
+  - **Log:** Das linke Bein folgt in jedem Lauf schlechter (mittlere Abweichung Soll/Ist 1,4–2,0° gegenüber rechts 1,1–1,6°).
+  - In der ersten Sekunde geht der Roboter aus der Mittelpose in dieselbe Gangpose wie im Sim (Hüfte L ≈ 7°, R ≈ 0°, Sprunggelenk R ≈ 14°). Der Anfang verläuft also wie im Sim.
+- **Erster Meilenstein:** mehrere selbstständige Schritte auf echter Hardware mit einer Policy, die alle Gelenkgrenzen einhält.
+- **Nächster Schritt:** Spiel im linken Bein beheben (Nutzer), dann 2–3 Vergleichsläufe mit gleichen Einstellungen. Logs in `sim/policies/servo_rubber23_step3315/hw_logs_2026-11-11/`.
+
+### Hardwaretest 21.11. 16:44, `servo_rubber23_step3315`, rechtes Bein/Hüfte repariert (Nutzer)
+- **Drei Läufe** (vx 0,045, Gangfrequenz 1,125): 17,9 s (E-Stop), 6,0 s (E-Stop), 7,3 s (Sturz, Neigung 75°). Nutzer: zweimal einfach nach vorn gefallen, beim dritten Mal wie zuletzt mehrere Schritte nach links.
+- **Beinfolge:** Soll/Ist-Abweichung links 0,9–2,0°, rechts 0,9–1,4°. Der Unterschied ist viel kleiner als am 11.11. (1,4–2,0° gegen 1,1–1,6° bei jedem Lauf).
+- **Dynamik viel heftiger als im Sim:** Drehraten der Kopf-IMU im Mittel 36–76 °/s auf allen Achsen, im Sim 60/16/11 °/s (x/y/z). Neigung (aus dem Beschleunigungssensor, enthält Stoßanteile) im Median 18–30°, p95 46–60°, im Sim p95 13°. Jeder Lauf beginnt mit einem Vorwärtsausfall (Neigung 35–55° nach ~1,3–2 s), den die Hüfte abfängt oder nicht.
+- **Ruhephase:** Lauf 1 steht von 3,8 s bis 10 s reglos in einer stabilen Pose (linkes Knie 15°, linke Hüftdrehung −13°, rechte Hüftdrehung 0°). Die Policy hat dort nicht gegangen, nur gestanden.
+- **Linksdrall steckt schon im Sim:** Alle 16 Sim-Episoden driften nach links (+4 bis +9 cm seitlich bei 16–27 cm vorwärts), der Kurswinkel ist im Mittel kaum verdreht. Das Gate lässt das zu (Seitenverhältnis ≤ 0,26).
+- **Ursache offen.** Logs: `sim/policies/servo_rubber23_step3315/hw_logs_2026-11-21/`.
+
+
+
+
+
+
+
+
+
+
 ## Video-Archiv
 
 | Datei (unter `sim/train/zbot_walking_task/`) | Zeigt |
