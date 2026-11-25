@@ -52,7 +52,7 @@ IMU_STALE_S = 0.25          # firmware streams ~20 Hz; older than this = link de
 TILT_ABORT_DEG = 55.0       # body up-axis vs. gravity, low-passed
 TILT_ABORT_STEPS = 5        # consecutive steps above the threshold
 BUS_FAIL_STEPS = 3          # consecutive failed bus transactions
-RAMP_STEPS = 50             # 1 s: blend from the current pose into the policy
+RAMP_STEPS = 50             # 1 s: blend from the current pose into the policy (default for policies without a trained start)
 GYRO_CAL_S = 1.0            # standing still at start: measure the gyro zero offset
 GYRO_STILL_DPS = 8.0        # per-axis std-dev above this = robot is being moved -> no calibration
 STANDING_G_TOL = 1.5        # |chip-Y reading - 9.81| allowed at start (m/s²)
@@ -166,6 +166,11 @@ class LoadedPolicy:
         if self.cmd_rate is not None and len(self.cmd_rate) != len(m["joint_order"]):
             raise PolicyError(f"{self.dir.name}: command_rate_limit_rad_s has {len(self.cmd_rate)} entries, "
                               f"expected {len(m['joint_order'])}")
+        # start blend: a policy trained from the centre pose (start_pose=center) acts at full authority from step 0 in
+        # the sim -- a 1 s blend holds it back while its gait clock runs on, and it hits the floor at the blend's end
+        # (servo_rubber23, 21.11.2026). policy_meta "start_ramp_steps" overrides; older policies keep the 1 s blend.
+        ramp = m.get("start_ramp_steps")
+        self.ramp_steps = int(ramp) if ramp is not None else (0 if tc.get("start_pose") == "center" else RAMP_STEPS)
         self.zero_speed_trained = float(tc.get("speed_zero_prob") or 0.0) > 0   # stepping on the spot was trained too
         self.speed_range = (float(tc.get("target_speed_min", 0.0)),
                             float(tc.get("target_speed_max", 0.0)))
@@ -539,8 +544,8 @@ class PolicyRunner:
                 ob.advance(action)
                 filt = low_pass(pol.sign * action * pol.action_scale, filt, pol.action_filter)
                 target = np.clip(filt, lo, hi)
-                if k < RAMP_STEPS:                      # blend in from where the robot stands
-                    a = (k + 1) / RAMP_STEPS
+                if k < pol.ramp_steps:                  # blend in from where the robot stands
+                    a = (k + 1) / pol.ramp_steps
                     target = start_pos + a * (target - start_pos)
                 target = limit_rate(target, prev_target, pol.cmd_rate, CTRL_DT)
                 prev_target = target
@@ -617,7 +622,7 @@ class PolicyRunner:
                 "steps": len(slog), "truncated": slog.full, "ctrl_dt": CTRL_DT,
                 "joints": pol.joints, "joint_sign_flip": pol.flip, "ids": [e["id"] for e in plan],
                 "offsets": [e["offset"] for e in plan], "limits_deg": [[e["lo"], e["hi"]] for e in plan],
-                "action_scale": pol.action_scale, "servo_speed": speed, "servo_acc": acc,
+                "action_scale": pol.action_scale, "servo_speed": speed, "servo_acc": acc, "start_ramp_steps": pol.ramp_steps,
                 "gyro_bias_dps": [float(x) for x in gyro_bias], "cmd": cmd,
                 "start_pose_dev_deg": self._start_dev, "start_acc_mg": self._start_acc_mg,
                 "obs_layout": [[n, k] for n, k in EXPECTED_LAYOUT],

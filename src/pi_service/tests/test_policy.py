@@ -327,7 +327,7 @@ def test_sign_flip_mirrors_measurement_and_command_of_that_joint_only(client, ru
     runner.root = root
     pol = P.LoadedPolicy(root / "flipped")
     runner.start("flipped")
-    time.sleep(1.5)                                       # past the 1 s ramp
+    time.sleep(1.5)                                       # past a 1 s ramp, if any
     runner.stop()
     _wait_done(runner)
     d = np.load(runner.log_path(runner.status()["last_log"]))
@@ -337,7 +337,7 @@ def test_sign_flip_mirrors_measurement_and_command_of_that_joint_only(client, ru
     flip = [J.index("left_hip_roll"), J.index("right_hip_roll")]
     keep = J.index("left_knee_pitch")
     k = meta["steps"] - 1
-    assert k > P.RAMP_STEPS
+    assert k > pol.ramp_steps
     servo = np.radians((d["pos_ticks"][k] - 2048) * 360 / 4096 - np.asarray(off))
     np.testing.assert_allclose(d["obs"][k, 4:20][flip], -servo[flip], atol=1e-5)    # policy sees the mirrored angle
     np.testing.assert_allclose(d["obs"][k, 4:20][keep], servo[keep], atol=1e-5)     # the others untouched
@@ -345,3 +345,23 @@ def test_sign_flip_mirrors_measurement_and_command_of_that_joint_only(client, ru
     want = np.clip(pol.sign * d["action"][k] * pol.action_scale, lo, hi)
     np.testing.assert_allclose(d["target"][k], want, atol=1e-5)                     # and commands it mirrored
     np.testing.assert_allclose(pol(d["obs"][k]), d["action"][k], atol=1e-5)         # the log stays replayable
+
+
+def test_start_ramp_follows_the_trained_start(tmp_path):
+    """A policy trained from the centre pose acts at full authority from step 0 (as in the sim); older policies keep
+    the 1 s blend; policy_meta start_ramp_steps overrides both."""
+    import json
+    root = _policy_copy(tmp_path, [])
+    f = root / "flipped" / "policy_meta.json"
+    m = json.loads(f.read_text())
+    tc = m.get("task_config", {})
+    assert P.LoadedPolicy(root / "flipped").ramp_steps == (0 if tc.get("start_pose") == "center" else P.RAMP_STEPS)
+    m["task_config"] = {**tc, "start_pose": "center"}
+    f.write_text(json.dumps(m))
+    assert P.LoadedPolicy(root / "flipped").ramp_steps == 0
+    m["task_config"] = {**tc, "start_pose": "zero"}
+    f.write_text(json.dumps(m))
+    assert P.LoadedPolicy(root / "flipped").ramp_steps == P.RAMP_STEPS
+    m["start_ramp_steps"] = 5
+    f.write_text(json.dumps(m))
+    assert P.LoadedPolicy(root / "flipped").ramp_steps == 5

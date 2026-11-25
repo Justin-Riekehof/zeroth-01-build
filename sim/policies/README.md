@@ -24,6 +24,11 @@ IMU-Korrektur. Je Ordner das Minimum, um die Policy zu deployen oder weiterzutra
 hat, bewertet Tempo und Ruhe über 5 s — **nicht Robustheit**. Vor einem Einsatz gegen einen späteren
 Checkpoint über 30 s mit Stößen gegenprüfen. Die anderen vier stammen aus der zweiten Trainingshälfte.
 
+## Reibungsbedingungen aller Policies
+
+Mit welchem Fußmodell und welcher Fuß-Boden-Reibung jede Policy hier trainiert wurde (und dass bis `servo_tpu5`
+nur ein fester Wert wirkte): [docs/policy-friction.md](../../docs/policy-friction.md).
+
 ## Vor dem Deployment unbedingt lesen
 
 Ablauf, Endpunkte und offene Punkte: [docs/policy-deploy.md](../../docs/policy-deploy.md).
