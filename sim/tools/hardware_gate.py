@@ -42,7 +42,9 @@ THRESH = {"falls": 0, "target_out_share": 0.01, "margin_share": 0.01, "speed_leg
           "speed_arm_p99": ARM_SPEED * SPEED_TOL, "gap_mean": 0.15, "gap_p99": 0.6, "rate_mean": 0.10,
           "rate_p99": 0.35, "saturation_share": 0.01, "tracking_ratio": 0.5, "speed_over_share": 0.02, "speed_buffer_share": 0.20, "limiter_share": 0.20,
           "jerk_p99": 0.04, "highfreq_share": 0.15, "tracking_ratio_max": 2.0, "zero_cmd_drift_abs": 0.02,
-          "foot_tilt_over5_share": 0.30}
+          "foot_tilt_over5_share": 0.30, "lateral_ratio": 0.25}
+# lateral_ratio (25.11.2026): median over the episodes of |sideways| / forward base displacement. The goal is walking
+# STRAIGHT; servo_rubber23 had 0.15 on the stiff sim model and 0.74 with joint play/elasticity (joint_compliance)
 # tracking 0.5-2.0 (was 0.75-1.3): user 2026-11-06 "Soll und Ist-Tempo ist gar nicht die Prio. Wichtig ist, dass der
 # Roboter vorwärts kommt, stabil, ohne Zittern und mit Sohlen parallel zum Boden" - forward, yes; the exact speed, no
 LEGS = ("hip", "knee", "ankle")
@@ -191,6 +193,11 @@ def metrics(path, cfg=None):
         m["tracking_ratio"] = float(v[fwd].mean() / c[fwd].mean()) if fwd.any() else float("nan")
         if (~fwd).any():
             m["zero_cmd_drift_mps"] = float(v[~fwd].mean())
+        base = d["xpos"][ok][:, :, 1, :2]
+        dx, dy = base[:, -1, 0] - base[:, 0, 0], base[:, -1, 1] - base[:, 0, 1]
+        go = fwd.any(1) & (dx > 0.02)                  # episodes that were told to walk and did get somewhere
+        if go.any():
+            m["lateral_ratio"] = float(np.median(np.abs(dy[go]) / dx[go]))
     else:
         m["tracking_ratio"] = float("nan")
     if "contact" in d:
@@ -220,6 +227,9 @@ def verdict(m):
     if "zero_cmd_drift_mps" in m:
         d0 = abs(m["zero_cmd_drift_mps"])
         rows.append(("zero_cmd_drift_abs", d0, THRESH["zero_cmd_drift_abs"], bool(d0 <= THRESH["zero_cmd_drift_abs"])))
+    if "lateral_ratio" in m:
+        lr = m["lateral_ratio"]
+        rows.append(("lateral_ratio", lr, THRESH["lateral_ratio"], bool(lr <= THRESH["lateral_ratio"])))
     if "foot_tilt_over5_share" in m:
         ft = m["foot_tilt_over5_share"]
         rows.append(("foot_tilt_over5_share", ft, THRESH["foot_tilt_over5_share"], bool(ft <= THRESH["foot_tilt_over5_share"])))

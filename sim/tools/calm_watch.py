@@ -91,7 +91,7 @@ def evaluate(run: str, step: int) -> dict:
     out.mkdir(exist_ok=True)
     ds = out / f"rollouts_{step}.ds"
     cmd = [str(ROOT / "sim/tools/eval_policy.sh"), str(T / run / "snapshots" / f"ckpt.{step}.bin"), str(ds), assets(run),
-           "batch_size=16", "num_envs=16", "dataset_num_batches=16", "collect_dataset_argmax_action=True"] + overrides(run)
+           "batch_size=16", "num_envs=16", "dataset_num_batches=1", "collect_dataset_argmax_action=True"] + overrides(run)
     # eval_policy.sh does `CUDA_VISIBLE_DEVICES=${GPU:-0}`: an EMPTY GPU still means GPU 0 and the "CPU" evaluation
     # grabbed ~1.5 GB of a training GPU (which then died with cuSolver/OOM errors). -1 hides every GPU.
     env = {**os.environ, "GPU": "-1", "JAX_PLATFORMS": "cpu"} if EVAL_GPU == "-1" else \

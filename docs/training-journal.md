@@ -1084,7 +1084,14 @@ Gemeinsame Basis aller Läufe: Servo-Modell mit gemessener Verzögerung, Tempo- 
 - **Dynamik viel heftiger als im Sim:** Drehraten der Kopf-IMU im Mittel 36–76 °/s auf allen Achsen, im Sim 60/16/11 °/s (x/y/z). Neigung (aus dem Beschleunigungssensor, enthält Stoßanteile) im Median 18–30°, p95 46–60°, im Sim p95 13°. Jeder Lauf beginnt mit einem Vorwärtsausfall (Neigung 35–55° nach ~1,3–2 s), den die Hüfte abfängt oder nicht.
 - **Ruhephase:** Lauf 1 steht von 3,8 s bis 10 s reglos in einer stabilen Pose (linkes Knie 15°, linke Hüftdrehung −13°, rechte Hüftdrehung 0°). Die Policy hat dort nicht gegangen, nur gestanden.
 - **Linksdrall steckt schon im Sim:** Alle 16 Sim-Episoden driften nach links (+4 bis +9 cm seitlich bei 16–27 cm vorwärts), der Kurswinkel ist im Mittel kaum verdreht. Das Gate lässt das zu (Seitenverhältnis ≤ 0,26).
-- **Ursache offen.** Logs: `sim/policies/servo_rubber23_step3315/hw_logs_2026-11-21/`.
+- **Sohle:** Kletterschuh-Gummi (Nutzer). Gewicht 2687 g (Nutzer) gegen 2671 g im Modell, also 0,6 % Unterschied.
+- **Empfindlichkeits-Sweep im Sim** (Checkpoint 3315, je 16 Episoden à 5 s, Modellvarianten mit veränderter Masse/Schwerpunkt von Rumpf und Rucksack): Basis 0 Stürze; Reibung 0,5/1,3/1,8 0 Stürze; Reibung 2,5 2 Stürze (Fuß klebt, kein Vorwärtskommen); Schwerpunkt +2 cm nach vorn 0 Stürze, +2 cm hoch 0 Stürze, **−2 cm nach hinten 5 Stürze** (Schwerpunkt hinten); Masse +15 %/+30 % 0 Stürze. Die maximale Neigung bleibt in **allen** Szenarien bei 14–16°, real sind es 35–55°. **Keine dieser Störungen erzeugt den Vorwärtsausfall der Hardware.**
+- **Zeitverhalten real:** Servo-Verzögerung 2 Schritte (40 ms), wie modelliert. Die IMU-Daten sind im Mittel 13 ms alt (p95 30 ms), das fehlt im Sim.
+- **Ursache offen.** Verdächtig: IMU-Latenz, Spiel/Nachgiebigkeit in Sprunggelenken oder Knien, Kontaktgeometrie der Sohle. Logs: `sim/policies/servo_rubber23_step3315/hw_logs_2026-11-21/`.
+- **Zeitlupen der Läufe 1 und 2** (WhatsApp, 4-fache Zeitlupe, `media/hw_tests/2026-11-21/190243_*`, `190306_*`, s. [Index](../media/hw_tests/README.md), Seitenansicht, Einstellung vx 0,045 / Gang 1,125 Hz): Der Rumpf steht schon vor dem Start nach vorn geneigt. Lauf 2: Der ganze Körper kippt steif über die vordere Sohlenkante nach vorn. Die Ferse hebt ab, und es kommt kein Ausfallschritt, der ihn fängt. Lauf 1: Er stolpert in kurzen Trippelschritten und **dreht sich dabei um die Hochachse** (am Ende steht er frontal zur Kamera). Das „nach links Laufen“ ist also eher ein Linksdrehen und passt zur Asymmetrie, dass nur die linke Hüftgierung arbeitet. Drei weitere Läufe mit vx 0,03 / Gang 1,0 Hz folgen.
+- **Hardware 21.11. ~19:13, `servo_rubber23_step3315`, vx 0,03 / Gang 1,0 Hz** (3 Läufe, Zeitlupen in `media/hw_tests/2026-11-21/1913*`, Logs `hw_logs_2026-11-21/` dazu): 2,5 s (Sturz), 5,3 s (E-Stopp), 1,9 s (Sturz). Kaum besser als mit 0,045/1,125 (1,9/5,2/3,8 s). Die Neigung überschreitet 30° bei 1,2/1,2/0,66 s (vorher immer ~0,62 s), das Kippen beginnt also etwas später, kommt aber trotzdem. Die Gierung dreht in allen 6 Läufen in den ersten 2 s um 16–37° (im Sim praktisch 0). Video (4-fache Zeitlupe, 120 FPS): Er steht ~0,7–1 s still, macht innerhalb von ~0,5–1 s nur 1–2 Schritte mit Drehung und kippt dann steif nach vorn, ohne Ausfallschritt, also schon im ersten Gangzyklus. **Langsamer hilft nicht, der Fehler steckt in den ersten 1–2 Schritten.** Hinweis: `tilt_deg` im Log ist auf `up_in_imu` des Modells bezogen und zeigt im Stand schon 14–16° (Montageversatz Kopf-IMU, Modell 17,2° gegen real 9–13°).
+- **Sim/Hardware-Vergleich der ersten 2 s (21.11. abends)** (`hw_logs_2026-11-21/sim_vs_hw_first2s.txt`; Sim: 16 Starts je Befehl, Reibung 0,9). **Ursache gefunden: Der Pi-Runner blendet die ersten 50 Schritte (1 s, `RAMP_STEPS` in `src/pi_service/policy.py`) linear von der Startpose in die Policy-Sollwerte ein, das Sim nicht.** Im Sim ist die Hüftnickung links nach 0,2 s von 18,7° auf ~1° unten, das rechte Sprunggelenk von 0 auf 13°, die linke Hüftgierung auf −11°. Real laufen dieselben Gelenke mit ~13–20 °/s als Rampe und erreichen diese Werte erst nach ~0,9 s. Die Policy gibt anfangs dieselben Sollwerte wie im Sim aus (z. B. linke Hüftgierung −8,5° gegen −8,8°). Während der Rampe hält sie diese Sollwerte, der Gangtakt läuft aber weiter. Wenn die Rampe bei 1 s endet, steht der Roboter in einem Zustand, den sie nie gesehen hat. Dann springen die Sollwerte (Hüftnickung links +20°, Hüftgierung rechts +9–15°), und er kippt nach 1,2 s. Die IMU-Ruhewerte passen dagegen (Sim acc z 2,96 gegen real 2,7–3,2 m/s²).
+- **Nebenbefund ksim:** `RLTask.collect_dataset` speichert pro Batch nur Umgebung 0 (`range(0, len(done), batch_size)`). Alle bisherigen Gate-, Sweep- und Validierungs-Auswertungen mit „16 Episoden à 5 s“ waren in Wirklichkeit **eine** Umgebung über 80 s mit genau einem Start. Behelf für Auswertungen: Wrapper mit Stride 1 (scratchpad `cmp/walkfix.py`).
 
 
 
@@ -1127,3 +1134,83 @@ nachrendern (einmal mit altem Modell, einmal mit Servo-Modell = "so sah es in de
 13. **Tief:** v5/v6 — dreißigfache Strafe, Zittern unverändert, Laufen schlechter.
 14. **Wendepunkt:** Es gibt gar keine Schritte — 0 % Schwünge ≥ 0,2 s seit v2; das Zittern ist die Gangart (Mikro-Hüpfer).
 15. *(folgt: `servo_ctrl_v7`, echte Schritte)*
+- **Fix Startrampe (21.11. abends):** `src/pi_service/policy.py` hat jetzt `LoadedPolicy.ramp_steps`. Policies mit `start_pose=center` bekommen 0 (volle Wirkung ab Schritt 0 wie im Sim), ältere Policies behalten 50. Ein Eintrag `start_ramp_steps` in `policy_meta.json` überschreibt beides, und das Log-Meta enthält den Wert. Test `test_start_ramp_follows_the_trained_start`, `test_policy.py` 26/26 bestanden. Auf den Pi kopiert (Backup `policy.py.bak-2026-11-21`), `zbot-pi` neu gestartet, `servo_rubber23_step3315` lädt mit `ramp_steps 0`. Ratenbegrenzung und Tiefpass starten wie im Sim an der aktuellen Pose.
+- **Hardware 21.11. ~21:01, `servo_rubber23_step3315` OHNE Startrampe** (`start_ramp_steps 0`, vx 0,03 / Gang 1,0 Hz, 3 Läufe, Zeitlupen `media/hw_tests/2026-11-21/2101*`): 2,2 s, 1,7 s, 2,3 s, alle drei Sturz (Neigung > 30° nach 0,7–0,9 s). Vergleich mit dem Sim (`sim_vs_hw_first2s_noramp.txt`): **Die ersten 0,4 s stimmen jetzt Gelenk für Gelenk mit dem Sim überein** (Hüftnickung 18,7°→0°, Knie, Sprunggelenk, Hüftrollen, Policy-Sollwerte), und er macht von Anfang an echte Schritte (Video). **Neuer Hauptunterschied: Gierrate** (Roh-gyro_y = Körper-Hochachse). Beim ersten Umstellen (0,2 s, linke Hüftgierung auf −11° bei beiden Füßen am Boden) dreht sich der echte Körper mit 64–88 °/s, im Sim mit 4 °/s (p90 19). Auch im Gang ist die Gierrate 2–3-mal größer. Die rechte Hüftgierung bleibt laut Encoder auf 0. Also verdreht sich entweder der rechte Fuß auf dem Boden, oder im rechten Bein bzw. in der Hüfte gibt etwas um die Hochachse nach. Im Sim hält die flache Fußbox mit Eckkontakten (Paar-condim 3, μ 1,1) gegen Verdrehung voll. Die Nick- und Rollraten liegen näher am Sim (gyro_x 60–95 gegen 39 °/s bei 0,1 s).
+- **Hardware 22.11. ~12:56, `servo_rubber23_step3315`, ohne Startrampe, linke Hüfte fixiert (saß locker)**, vx 0,03 / Gang 1,0 Hz, 6 Läufe (Zeitlupen `media/hw_tests/2026-11-22/`, 3 seitlich, 3 von oben; von oben sind die Füße vom Rucksack verdeckt). Dauer 1,4 / 2,4 / 1,1 / 1,7 / 2,2 / 2,3 s, zwei Stürze und vier E-Stopps. Gierung in den ersten 2 s −8 bis +73°. Die neigungsbasierte Schwelle „> 30° nach 0,24 s“ ist hier ein Beschleunigungsartefakt des Umstellruckens (acc_x 4 m/s²), kein echtes Kippen. **Die Gierspitze beim ersten Umstellen bleibt: 76–94 °/s nach 0,2 s (Sim 4 °/s)**, also nicht vom Hüftspiel verursacht. Handtest des Nutzers (Rumpf in Center-Pose bei Bodenkontakt um die Hochachse gedreht): kein Spiel, nur leichte elastische Torsion. Schluss: Die Policy macht beim Start im Doppelstand eine schnelle Hüftgier-Bewegung (−11° in 0,2 s), die im Sim die Füße abfangen (Fußbox, 4 Ecken, μ 1,1). Real dreht dabei der Körper samt rechtem Fuß und Bein mit. Logs `hw_logs_2026-11-22/`, Vergleich `report_d.txt`.
+- **23.11., Torsions-Handtest und Sim-Fußgierung: Die echten Füße drehen nicht, die Sim-Füße schon.** Fotos `media/hw_tests/2026-11-23/` (3× Füße mit Krepp-Marken, 3× von oben, ohne Moment, im und gegen den Uhrzeigersinn per Hand). Die Sohlen bleiben auf allen Fotos an den Marken. Gegen den Uhrzeigersinn gibt der Körper etwa 3° elastisch nach, im Uhrzeigersinn ist nichts zu sehen. Gegenprüfung im Sim (`slow2`, 16 Starts, Vorwärtskinematik aus `qpos`): Zwischen 0,1 und 0,26 s trägt **der linke Fuß allein** (≈ 22 N, rechter Fuß in der Luft). Die Policy dreht dabei die linke Hüftgierung auf −11°, und **der belastete linke Fuß dreht sich im Sim um −5° auf dem Boden** (p10 −6,8° bei 0,2 s). Der Rumpf bleibt fast stehen (+0,5°). Real haftet die Gummisohle, also dreht stattdessen der Körper: Das integrierte gyro_y liegt bei 0,3 s bei +6 bis +10° und bleibt dort, federt also nicht zurück. Das passt zur Größe der Hüftbewegung. **Die frühere Vermutung kehrt sich damit um: Nicht die Hardware ist zu weich gegen Verdrehen, sondern die Sim-Sohle hält kein Bohrmoment.** Der Kontakt `Foot_collision_box`–`floor` hat condim 3, die Torsionsreibung 0,005 im `<pair>` wird damit gar nicht ausgewertet. Die Policy hat gelernt, dass eine Hüftgier-Bewegung im Standbein den Fuß dreht statt den Körper. Folge für ein Retraining (noch nicht freigegeben): Fußkontakt mit condim 4/6 und realistischer Torsionsreibung, statt Torsionsnachgiebigkeit einzubauen. Nachtrag 24.11.: Die Sim-Sohle steht in dieser Phase 5–10° schräg (max. 14°), meist mit nur einem Kontaktpunkt. Damit fehlt auch der Hebelarm mehrerer Ecken, und der Fuß dreht frei. Übersicht aller Policies mit Fußmodell und Reibung: [policy-friction.md](policy-friction.md).
+- **24.11., Sim-Test Bohrreibung (kein Training):** `servo_rubber23_step3315`, 16 Starts, vx 0,03 / Gang 1,0 Hz, μ 0,9. Die Fußpaare laufen mit `condim 4` und einer Bohrreibung von 0,01, 0,03, 0,1 und 0,3 m. Das Repo-Modell bleibt unverändert, die Varianten liegen nur im Scratchpad. Zum Vergleich die Basis (`condim 3`) und die 6 Hardwareläufe vom 22.11.:
+
+  | Variante | gyro_y bei 0,1 / 0,2 / 0,3 s (°/s) | Rumpfgier bei 0,2 / 0,3 / 0,4 s | linker Fuß gier bei 0,2 s | Stürze | \|Gier\| nach 5 s |
+  |---|---|---|---|---|---|
+  | Hardware 22.11. | −14 / **85** / 20 | 4,3 / 8,5 / 9,0° | (fest, Fotos) | – | – |
+  | Basis condim 3 | 2 / 4 / 20 | 0,5 / 2,6 / 4,1° | −5,0° | 1/16 | 15° |
+  | condim 4, 0,01 | 4 / 9 / 20 | 0,7 / 2,9 / 4,7° | −4,8° | 2/16 | 13° |
+  | condim 4, 0,03 | 11 / 13 / 19 | 1,9 / 4,3 / 6,4° | −3,6° | 2/16 | 12° |
+  | condim 4, 0,1 | 20 / 13 / 15 | 2,8 / 4,6 / 7,1° | −2,7° | 3/16 | 34° |
+  | condim 4, 0,3 | 24 / 14 / 13 | 3,2 / 4,6 / 7,3° | −2,1° | 4/16 | 38° |
+
+  **Ergebnis:**
+  - Je fester der Fuß hält, desto mehr dreht der Rumpf mit. Nach 0,4 s sind es 7° statt 4°, nahe an den 9° der Hardware.
+  - Die Policy wird dabei schlechter: Die Stürze steigen von 1/16 auf 3–4/16, und die Gierabweichung nach 5 s steigt von 15° auf 34–38°. **Sie verlässt sich also darauf, dass der Fuß sich drehen kann.** Das spricht für ein Retraining mit Bohrreibung.
+  - **Nicht nachgebildet wird die schmale Spitze von 85 °/s bei 0,2 s.** Im Sim liegt die Gierrate auch bei festem Fuß nur bei 13–24 °/s, mit dem Maximum schon bei 0,1 s. Auch der Rumpfwinkel bei 0,3 s ist real doppelt so groß. Die Hardware hat also zusätzlich etwas Nachgiebiges oder Schnelles um die Hochachse, zum Beispiel den Kopf mit der IMU am Hals, das Spiel im Hüftgier-Servo oder die Torsion der Beine. Die Bohrreibung allein erklärt die Abweichung nicht.
+- **25.11., Nutzer:** „der Kopf bewegt sich auf dem Rumpf kein bisschen“. Hals scheidet aus.
+- **25.11., Starrkörper-Gegenrechnung** (`sim/tools/hw_kin_yaw.py`): Aus den gemessenen Gelenkwinkeln allein wird berechnet, wie weit sich der Rumpf drehen müsste, wenn der linke Fuß fest steht und der Roboter starr ist. Am Sim geprüft: Vorhersage plus wahre Fußdrehung trifft die wahre Rumpfgier auf ≤ 1°, das integrierte gyro_y ebenfalls.
+
+  | t | 0,1 s | 0,2 s | 0,3 s | 0,4 s | 0,6 s |
+  |---|---|---|---|---|---|
+  | HW starr, Fuß fest (Mittel 6 Läufe) | 5,6° | 7,3° | 6,9° | 6,4° | 5,6° |
+  | HW integriertes gyro_y | −0,4° | 4,3° | 8,5° | 9,0° | 10,6° |
+  | Sim starr, Fuß fest | 4,1° | 6,0° | 6,2° | 5,7° | 5,0° |
+  | Sim wahre Rumpfgier | −0,2° | 0,5° | 2,6° | 4,1° | 5,9° |
+
+  **Befund:**
+  - In den ersten 0,1 s dreht die Hüftgierung den Rumpf auf der Hardware gar nicht, obwohl er starr schon 5,6° weit sein müsste. Die Hardware verhält sich hier wie der Sim, nur ohne Fußdrehung: Etwas zwischen Servo-Abtrieb und Boden verdreht sich um etwa 5–6°.
+  - Zwischen 0,1 und 0,3 s holt der Rumpf das nach und schießt über die starre Lage hinaus (8,5 statt 6,9°). Das ist die Gierspitze von 85 °/s.
+  - **Signatur einer Torsionsfeder, die erst aufgezogen wird und dann losschnellt.** Im Sim rutscht der Fuß stattdessen dauerhaft weg.
+  - Die Richtung passt zum Handtest: Der Start dreht den Rumpf gegen den Uhrzeigersinn (gyro_y > 0, von oben gesehen), und nur in diese Richtung hat der Nutzer ein Nachgeben gesehen.
+
+  **Kandidaten:**
+  - Scherung der Gummisohle (3–4 mm Kletterschuhgummi, geklebt)
+  - Fuß- oder Sprunggelenkhalter
+  - Torsion der PETG-Beinteile
+  - Servohorn oder Getriebespiel der linken Hüftgierung, falls der Encoder hinter dem Spiel misst
+- **25.11., Nutzer:** „es ist eigentlich auch egal, was die genaue Ursache ist. Die Policie muss robust gegen ein gewisses Gelenkspiel und Elastizitäten sein“.
+- **25.11., Sim-Erweiterung Gelenkspiel und Elastizität** (`sim/train/common.py`, `joint_compliance`, Standard aus):
+  - **Modell:** Jedes Beinservo treibt nur noch seinen eigenen Abtrieb θ_s. Das ist der Wert, den der Encoder liest. Das Glied hängt über eine Totzone ±Spiel und eine Feder k (Dämpfung k·5 ms) daran.
+  - **Lösung je Physikschritt:** Der Abtrieb ist masselos. Das Servo-Drehmoment (Duty-Gesetz auf θ_s) ist gleich dem Federmoment und wird per Bisektion gelöst, eindeutig, weil die eine Seite fällt und die andere steigt.
+  - **Beobachtung:** Die Policy sieht θ_s und dessen Geschwindigkeit, wie am Pi. Die Netzeingänge bleiben gleich, alte Checkpoints laufen also weiter.
+  - **Zufallswerte je Episode:**
+    - Hüftgierung: Spiel 0–2° je Seite, k 8–60 Nm/rad
+    - Hüftrollen: Spiel 0–1°, k 60–400
+    - Hüftnicken, Knie, Sprunggelenk: Spiel 0–0,5°, k 200–1000 Nm/rad (steif gehalten, weil die gemessenen 45 Nm/rad schon im Servo stecken)
+    - Arme: unverändert direkt
+    - `compliance_prob` regelt den Anteil der Episoden mit Spiel.
+  - **Fußkontakt:** dazu `foot_condim` (4 = mit Bohrreibung) und `foot_torsion` (Bereich in m, je Umgebung).
+  - **Tests:** `sim/tests/test_joint_compliance.py` (14 Tests): steife Feder ohne Spiel = altes Servo, statische Auslenkung = Spiel + Reihenfedern, im Spiel wird nichts übertragen, Sättigung, Ziehen je Episode, ohne Spiel identisches Moment, Sprungantwort stabil. Mit `test_servo_model.py` und `test_foot_friction.py` zusammen 50/50 bestanden.
+- **25.11., `servo_rubber23_step3315` im erweiterten Sim** (16 Starts, vx 0,03 / 1,0 Hz, μ 0,9, `condim 4`, Bohrreibung 0,02–0,04 m, kein Training):
+
+  | Variante | Stürze | Tempo | seitlich/vorwärts (Median) | \|Gier\| nach 5 s |
+  |---|---|---|---|---|
+  | wie trainiert (`condim 3`, starr) | 1/16 | 0,034 m/s | 0,15 | 13° |
+  | nur Bohrreibung 0,03 | 2/16 | 0,025 m/s | 0,14 | 14° |
+  | + Spiel/Elastizität zufällig | 2/16 | 0,035 m/s | **0,74** | 21° |
+  | + Hüftgierung k 10, Spiel bis 2° | 2/16 | 0,022 m/s | 0,36 | 10° |
+
+  - **Folgen für die Policy:** Mit Spiel und Elastizität läuft sie nicht mehr gerade. Der seitliche Versatz steigt auf das Fünffache. Sie ist dagegen also nicht robust.
+  - **Was sich jetzt deckt:** Der Sim-Fuß hält jetzt (−1,6° statt −5°), und der Rumpf folgt der Starrkörper-Vorhersage.
+  - **Was noch fehlt:** Die Hardware-Signatur entsteht noch nicht. Die Hardware steht bis 0,1 s still und dreht bei 0,3 s schon um 8,5°. Der Sim dreht dagegen sofort mit (1,5° bei 0,1 s) und kommt bei 0,3 s nur auf 4,5–5°.
+  - **Mögliche Erklärung, offen:** Der Sim hebt den rechten Fuß schon nach 0,1 s ab. Real steht er vermutlich länger, hält den Rumpf gegen die drehende linke Hüfte und gibt ihn beim Abheben frei. Prüfbar an den Zeitlupen.
+
+### `servo_comp1`: Feintuning ab `servo_rubber23` 3315 mit Gelenkspiel, Elastizität und Bohrreibung (gestartet 25.11., GPU 0)
+- **Nutzer:** „ja, starte das Training so“
+- **Start:** `GPU=0 ASSETS=zbot-cad-tpu sim/tools/train_backpack.sh servo_comp1 …` mit allen Einstellungen von `servo_rubber24` (μ 0,5–1,3, Filter α 0,35, Ratenbegrenzer 70 %, Aktionsverlauf 4, Totzeit ±20 ms, IMU ±8°, Startpose Mitte). Neu:
+  - `joint_compliance=True compliance_prob=0.8`: Spiel und Elastizität in 80 % der Episoden, Bereiche wie oben.
+  - `foot_condim=4 foot_torsion=0.01,0.05`: Bohrreibung der Sohle je Umgebung.
+- **Lauf:** ab `servo_rubber23/snapshots/ckpt.3315.bin` bis Schritt 6315.
+- **Wächter:** `zbot-calmwatch-servo_comp1`, alle 40 Iterationen, Bewertung auf GPU 1, Videos alle 100.
+- **Bewertung jetzt echt:**
+  - `sim/train/walking.py` korrigiert den ksim-Fehler in `collect_dataset` beim Import. Er schrieb nur Umgebung 0 je Batch.
+  - `calm_watch.py`, `sweep_snapshots.sh`, `validate_policy.sh` und `long_walk.sh` nehmen jetzt einen Batch mit 16 Umgebungen, also 16 echte Starts.
+  - Die Bewertung läuft mit den Einstellungen des Laufs, also mit Spiel und Elastizität.
+- **Neues Gate-Kriterium:** `lateral_ratio` ≤ 0,25 (Median des Verhältnisses seitlicher zu Vorwärts-Versatz, `hardware_gate.py`). `servo_rubber23` hat starr 0,15, mit Spiel 0,89.
+- **Vergleichbarkeit:** Werte aus früheren Wächter-Läufen (ein Start, 80 s) sind mit den neuen nicht direkt vergleichbar.

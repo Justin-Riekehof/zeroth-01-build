@@ -52,6 +52,30 @@ except ImportError:  # allow `python sim/train/walking.py` as well as `python -m
 
 logger = logging.getLogger(__name__)
 
+
+def _fix_collect_dataset() -> None:
+    """ksim 0.0.31 RLTask.collect_dataset writes trajectories[0::batch_size]: only env 0 of every batch, and env 0 keeps
+    running across batches. Every "16 episodes x 5 s" evaluation with dataset_num_batches=16 was ONE environment over
+    80 s with a single start (found 21.11.2026). Patched to write every environment; evaluations use one batch of 16."""
+    import inspect
+    import textwrap
+
+    import ksim.task.rl as rl
+
+    if getattr(rl.RLTask.collect_dataset, "_zbot_fixed", False):
+        return
+    src = textwrap.dedent(inspect.getsource(rl.RLTask.collect_dataset))
+    bad = "range(0, len(trajectories.done), self.batch_size)"
+    if bad not in src:
+        raise RuntimeError("ksim collect_dataset changed: check whether the env-0-only bug is still there")
+    ns: dict = {}
+    exec(compile(src.replace(bad, "range(len(trajectories.done))"), rl.__file__, "exec"), rl.__dict__, ns)
+    ns["collect_dataset"]._zbot_fixed = True
+    rl.RLTask.collect_dataset = ns["collect_dataset"]
+
+
+_fix_collect_dataset()
+
 # Constants for history handling
 HISTORY_LENGTH = 0
 SINGLE_STEP_HISTORY_SIZE = 0
@@ -81,15 +105,22 @@ class FootFrictionRandomizer(ksim.PhysicsRandomizer):
     mu_lower: float = attrs.field()
     mu_upper: float = attrs.field()
     log_uniform: bool = attrs.field(default=False)
+    # torsional friction (m) of the pairs, uniform per environment; only acts with foot_condim >= 4. None = keep the model's
+    torsion_lower: float | None = attrs.field(default=None)
+    torsion_upper: float | None = attrs.field(default=None)
 
     def __call__(self, model: ksim.PhysicsModel, rng: jax.Array) -> dict[str, jax.Array]:
         if model.npair == 0:
             raise ValueError("The model has no contact pairs: nothing to randomize.")
+        mu_rng, tor_rng = jax.random.split(rng)
         if self.log_uniform:
-            mu = jnp.exp(jax.random.uniform(rng, minval=jnp.log(self.mu_lower), maxval=jnp.log(self.mu_upper)))
+            mu = jnp.exp(jax.random.uniform(mu_rng, minval=jnp.log(self.mu_lower), maxval=jnp.log(self.mu_upper)))
         else:
-            mu = jax.random.uniform(rng, minval=self.mu_lower, maxval=self.mu_upper)
-        return {"pair_friction": jnp.asarray(model.pair_friction).at[:, :2].set(mu)}     # both tangential directions
+            mu = jax.random.uniform(mu_rng, minval=self.mu_lower, maxval=self.mu_upper)
+        fr = jnp.asarray(model.pair_friction).at[:, :2].set(mu)                          # both tangential directions
+        if self.torsion_lower is not None and self.torsion_upper is not None:
+            fr = fr.at[:, 2].set(jax.random.uniform(tor_rng, minval=self.torsion_lower, maxval=self.torsion_upper))
+        return {"pair_friction": fr}
 
 
 @attrs.define(frozen=True, kw_only=True)
@@ -230,9 +261,25 @@ class JointPositionObservation(ksim.Observation):
     noise: float = attrs.field(default=0.0)
 
     def observe(self, state: ksim.ObservationInput, rng: PRNGKeyArray) -> Array:
-        qpos = state.physics_state.data.qpos[7:]  # (N,)
+        qpos = encoder_side(state, state.physics_state.data.qpos[7:], "theta_s")  # (N,)
         diff = qpos - jnp.array(self.default_targets)
         return diff
+
+
+def encoder_side(state: ksim.ObservationInput, link: Array, field: str) -> Array:
+    """What the servo encoders read: with joint_compliance the servo output (planner state), else the link itself."""
+    ps = state.physics_state.planner_state
+    if not hasattr(ps, "play_k"):
+        return link
+    return jnp.where(ps.play_k > 0, getattr(ps, field), link)
+
+
+@attrs.define(frozen=True, kw_only=True)
+class JointVelocityObservation(ksim.Observation):
+    """ksim.JointVelocityObservation, but from the servo side when the servo model has play/elasticity."""
+
+    def observe(self, state: ksim.ObservationInput, rng: PRNGKeyArray) -> Array:
+        return encoder_side(state, state.physics_state.data.qvel[6:], "omega_s")
 
 
 @attrs.define(frozen=True)
@@ -1535,6 +1582,8 @@ class ZbotWalkingTaskConfig(ZbotTaskConfig):
     foot_friction_min: float = xax.field(value=0.2, help="Foot/floor friction, lower bound per environment (domain_randomize). Laminate measured ~0.2 on 2026-11-01, uncalibrated.")
     foot_friction_max: float = xax.field(value=1.2, help="Foot/floor friction, upper bound per environment (domain_randomize).")
     foot_friction_log: bool = xax.field(value=False, help="Draw the foot friction log-uniformly: half the environments below the geometric mean. servo_fric1 (uniform 0.1-1.5, 21 % below 0.4) fell 15-16 of 16 at mu 0.1-0.2, 3 of 16 at mu 0.8-1.5.")
+    foot_condim: int = xax.field(value=3, help="condim of the foot-floor <pair>s. 3 (all policies up to servo_rubber24): sliding friction only, a foot on one edge spins freely. 4: plus torsional friction (the real rubber sole holds against twisting, 23.11.2026).")
+    foot_torsion: str = xax.field(value="", help="'min,max' torsional friction of the foot pairs in m, uniform per environment (domain_randomize, needs foot_condim >= 4). Empty = the model's 0.005.")
     imu_tilt_deg: float = xax.field(value=0.0, help="Constant IMU tilt per environment, up to this angle (domain_randomize). The real IMU differs from the model by 4-8 deg. 0 = off.")
     forward_progress_reward: float = xax.field(value=0.0, help="Scale of the forward speed as a share of the command (-1..1, 0 at command 0), e.g. 10: makes walking pay more than stepping on the spot.")
     forward_progress_peak: bool = xax.field(value=False, help="Forward progress peaks at the command and falls again above it (2 - v/cmd), so overspeed stops paying.")
@@ -1574,7 +1623,10 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         if self.config.domain_randomize:
             return [
                 FootFrictionRandomizer(mu_lower=self.config.foot_friction_min, mu_upper=self.config.foot_friction_max,
-                                       log_uniform=self.config.foot_friction_log),
+                                       log_uniform=self.config.foot_friction_log,
+                                       **({"torsion_lower": float(self.config.foot_torsion.split(",")[0]),
+                                           "torsion_upper": float(self.config.foot_torsion.split(",")[1])}
+                                          if self.config.foot_torsion else {})),
                 ksim.StaticFrictionRandomizer(scale_lower=0.5, scale_upper=1.5),
                 ksim.ArmatureRandomizer(),
                 ksim.MassAdditionRandomizer.from_body_name(
@@ -1650,7 +1702,7 @@ class ZbotWalkingTask(ZbotTask[ZbotWalkingTaskConfig, ZbotModel]):
         return [
             TimestepPhaseObservation(),
             JointPositionObservation(noise=joint_pos_noise),
-            ksim.JointVelocityObservation(noise=vel_obs_noise),
+            JointVelocityObservation(noise=vel_obs_noise),
             ksim.ActuatorForceObservation(),
             ksim.SensorObservation.create(physics_model=physics_model, sensor_name="imu_acc", noise=imu_acc_noise),
             ksim.SensorObservation.create(physics_model=physics_model, sensor_name="imu_gyro", noise=imu_gyro_noise),

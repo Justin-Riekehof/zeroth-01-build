@@ -16,7 +16,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Generic, Optional, Sequence, TypedDict, TypeVar, Union, cast
+from typing import Any, Callable, Generic, Optional, Sequence, TypedDict, TypeVar, Union, cast
 
 import attrs
 import equinox as eqx
@@ -143,6 +143,29 @@ class ZbotTaskConfig(ksim.PPOConfig):
         "0.02 = legs 20-60 ms: the policy cannot tune its feedback to one exact delay (a delay-tuned high-gain loop "
         "oscillates at ~1 / (2 x total lag), the 5-6 Hz jitter of servo_ctrl_v1-v3).",
     )
+    # --- play and elasticity between servo output and link (24.11.2026) --------------------------------------------
+    # The real legs give way where the encoders cannot see it (servo_rubber23 on the robot: the left hip yaw winds up
+    # ~5-6 deg of twist in the first 0.1 s of the start and releases it as an 85 deg/s yaw spike). Each leg servo then
+    # drives its own output (theta_s, what the encoder reads and the policy observes) and the link only through a
+    # dead band +-play and a spring k: torque = k * dz(theta_s - q, play) + c * d/dt dz. Drawn per episode.
+    joint_compliance: bool = xax.field(
+        value=False,
+        help="servo_model: put a random play (dead band) and spring between every leg servo and its link; the policy "
+        "observes the servo side. Off = the servo drives the link directly (all policies up to servo_rubber24).",
+    )
+    compliance_prob: float = xax.field(value=1.0, help="Share of episodes with play/elasticity; the rest are stiff.")
+    play_yaw_deg: float = xax.field(value=2.0, help="Hip yaw: half play drawn uniform in [0, this] deg per episode.")
+    play_roll_deg: float = xax.field(value=1.0, help="Hip roll: half play, uniform in [0, this] deg.")
+    play_pitch_deg: float = xax.field(value=0.5, help="Hip pitch, knee, ankle: half play, uniform in [0, this] deg.")
+    k_yaw: str = xax.field(value="8,60", help="Hip yaw spring Nm/rad, 'min,max' log-uniform.")
+    k_roll: str = xax.field(value="60,400", help="Hip roll spring Nm/rad, 'min,max' log-uniform.")
+    k_pitch: str = xax.field(
+        value="200,1000",
+        help="Hip pitch/knee/ankle spring Nm/rad, log-uniform. The bench sag test measured ~45 Nm/rad in total, which "
+        "the servo (kp 32) already gives: keep these stiff.",
+    )
+    compliance_damping_s: float = xax.field(value=0.005, help="Spring damping c = k * this (s).")
+
     start_pose: str = xax.field(
         value="zero",
         help="'zero': every episode starts with all joints at 0 (upright). 'center': the real robot's centre pose "
@@ -333,9 +356,96 @@ class ServoState(PlannerState):
     delay_shift: Array
     actions: Array
     tick: Array
+    # joint_compliance: servo output angle/speed (what the encoder reads), the spring's dead-band deflection of the last
+    # physics step, and the episode's half play (rad) and spring (Nm/rad); play_k 0 = joint without compliance
+    theta_s: Array
+    omega_s: Array
+    dz: Array
+    play_b: Array
+    play_k: Array
 
 
 DELAY_UNSET = -(2 ** 20)
+
+
+@dataclass(frozen=True)
+class ComplianceRanges:
+    """Per joint (MuJoCo joint order): half play upper bound (rad) and log-uniform spring range (Nm/rad). k_hi 0 = no
+    compliance on this joint (arms)."""
+
+    play_max: Array
+    k_lo: Array
+    k_hi: Array
+    damping_s: float
+    prob: float
+
+
+def compliance_ranges(config: Any, names: list[str]) -> ComplianceRanges:
+    def rng(text: str) -> tuple[float, float]:
+        lo, hi = (float(x) for x in text.split(","))
+        if not 0 < lo <= hi:
+            raise ValueError(f"spring range must be 0 < min <= max, got {text!r}")
+        return lo, hi
+
+    play, klo, khi = [], [], []
+    for n in names:
+        if "hip_yaw" in n:
+            p, (a, b) = config.play_yaw_deg, rng(config.k_yaw)
+        elif "hip_roll" in n:
+            p, (a, b) = config.play_roll_deg, rng(config.k_roll)
+        elif any(s in n for s in ("hip_pitch", "knee", "ankle")):
+            p, (a, b) = config.play_pitch_deg, rng(config.k_pitch)
+        else:                                            # arms and anything else: driven directly as before
+            p, a, b = 0.0, 0.0, 0.0
+        play.append(np.radians(p)); klo.append(a); khi.append(b)
+    logger.info("joint compliance: %s", ", ".join(f"{n} play<={np.degrees(p):.1f}deg k {a:g}-{b:g}"
+                                                   for n, p, a, b in zip(names, play, klo, khi) if b > 0))
+    return ComplianceRanges(play_max=jnp.array(play), k_lo=jnp.array(klo), k_hi=jnp.array(khi),
+                            damping_s=float(config.compliance_damping_s), prob=float(config.compliance_prob))
+
+
+def dead_zone(e: Array, b: Array) -> Array:
+    return jnp.sign(e) * jnp.maximum(jnp.abs(e) - b, 0.0)
+
+
+def solve_servo_output(
+    setpoint: Array, setpoint_vel: Array, q: Array, theta_prev: Array, dz_prev: Array, play_b: Array, play_k: Array,
+    damping_s: float, kp_duty: Array, kd_duty: Array, gain: Array, max_pwm: Array, dt: float, iters: int = 32,
+) -> tuple[Array, Array]:
+    """Servo output angle theta_s with a massless servo output: the servo torque (duty law on its OWN angle and speed)
+    equals the torque the dead-band spring passes to the link,
+
+        gain * clip(kp_duty (setpoint - th) + kd_duty (setpoint_vel - (th - theta_prev)/dt), +-max_pwm)
+          = k dz(th - q) + c (dz(th - q) - dz_prev) / dt,      c = k * damping_s
+
+    The left side falls with th, the right side rises: one root, found by bisection between the angles at which the
+    spring passes -max torque and +max torque. Returns (theta_s, torque on the link)."""
+    c = play_k * damping_s
+    t_max = gain * max_pwm
+
+    def spring(th: Array) -> Array:
+        dz = dead_zone(th - q, play_b)
+        return play_k * dz + c * (dz - dz_prev) / dt
+
+    def f(th: Array) -> Array:
+        duty = kp_duty * (setpoint - th) + kd_duty * (setpoint_vel - (th - theta_prev) / dt)
+        return gain * jnp.clip(duty, -max_pwm, max_pwm) - spring(th)
+
+    def angle_for(torque: Array) -> Array:             # the th at which spring(th) == torque
+        dz = (torque + c * dz_prev / dt) / (play_k + c / dt)
+        return q + jnp.where(dz >= 0, play_b + dz, -play_b + dz)
+
+    lo, hi = angle_for(-t_max) - 1e-6, angle_for(t_max) + 1e-6
+
+    def body(_: int, bracket: tuple[Array, Array]) -> tuple[Array, Array]:
+        lo, hi = bracket
+        mid = 0.5 * (lo + hi)
+        pos = f(mid) > 0                               # root lies above mid
+        return jnp.where(pos, mid, lo), jnp.where(pos, hi, mid)
+
+    lo, hi = jax.lax.fori_loop(0, iters, body, (lo, hi))
+    th = 0.5 * (lo + hi)
+    return th, spring(th)
 
 
 def servo_step(
@@ -364,8 +474,9 @@ class ServoModelActuators(FeetechActuators):
     def __init__(self, *args, v_max_j: Array, a_max_j: Array, delay_steps_j: Array,
                  lo_j: Array | None = None, hi_j: Array | None = None, cmd_rate_j: Array | None = None,
                  filter_alpha_phys: float = 0.0, delay_rand_steps: int = 0, action_history: int = 1,
-                 phys_per_ctrl: int = 1, **kwargs) -> None:
+                 phys_per_ctrl: int = 1, compliance: ComplianceRanges | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.compliance = compliance             # None: the servo drives the link directly (old model)
         self.lo_j, self.hi_j = lo_j, hi_j        # the Pi clamps every policy target to the joint limits: so does the sim
         self.cmd_rate_j = cmd_rate_j             # rad/s the commanded target may move (Pi: command_rate_limit_rad_s)
         # per PHYSICS step: (1 - a)^n = (1 - alpha) over the n physics steps of one control step, so a constant action
@@ -389,7 +500,9 @@ class ServoModelActuators(FeetechActuators):
                           last_cmd=initial_position, filt=initial_position,
                           delay_shift=jnp.array(DELAY_UNSET, dtype=jnp.int32),
                           actions=jnp.tile(initial_position[None, :], (self.action_history, 1)),  # = ksim's first action
-                          tick=jnp.array(0, dtype=jnp.int32))
+                          tick=jnp.array(0, dtype=jnp.int32),
+                          theta_s=initial_position, omega_s=initial_velocity, dz=jnp.zeros_like(initial_position),
+                          play_b=jnp.zeros_like(initial_position), play_k=jnp.zeros_like(initial_position))
 
     def delays(self, delay_shift: Array) -> Array:
         """the per-joint delay in physics steps for an episode's shift"""
@@ -404,9 +517,23 @@ class ServoModelActuators(FeetechActuators):
     ) -> tuple[Array, PlannerState]:
         if not isinstance(planner_state, ServoState):   # the plain-MuJoCo render path resets with a PlannerState
             planner_state = self.get_default_state(planner_state.position, planner_state.velocity)
-        delay_rng, tor_rng = jax.random.split(rng)
+        delay_rng, tor_rng, comp_rng = jax.random.split(rng, 3)
         drawn = jax.random.randint(delay_rng, (), -self.delay_rand_steps, self.delay_rand_steps + 1, dtype=jnp.int32)
-        delay_shift = jnp.where(planner_state.delay_shift == DELAY_UNSET, drawn, planner_state.delay_shift)
+        first = planner_state.delay_shift == DELAY_UNSET
+        delay_shift = jnp.where(first, drawn, planner_state.delay_shift)
+        play_b, play_k = planner_state.play_b, planner_state.play_k
+        if self.compliance is not None:               # draw the episode's play and springs on its first physics step
+            cr = self.compliance
+            on_rng, b_rng, k_rng = jax.random.split(comp_rng, 3)
+            on = jax.random.uniform(on_rng) < cr.prob
+            b_new = jax.random.uniform(b_rng, cr.play_max.shape) * cr.play_max
+            u = jax.random.uniform(k_rng, cr.k_hi.shape)
+            has = cr.k_hi > 0
+            k_new = jnp.where(has, jnp.exp(jnp.log(jnp.where(has, cr.k_lo, 1.0))
+                                           + u * (jnp.log(jnp.where(has, cr.k_hi, 1.0)) - jnp.log(jnp.where(has, cr.k_lo, 1.0)))),
+                              0.0)
+            play_b = jnp.where(first, jnp.where(on, b_new, 0.0), play_b)
+            play_k = jnp.where(first, jnp.where(on, k_new, 0.0), play_k)
         last_of_ctrl = (planner_state.tick % self.phys_per_ctrl) == self.phys_per_ctrl - 1
         actions = jnp.where(last_of_ctrl, jnp.concatenate([action[None, :], planner_state.actions[:-1]], axis=0),
                             planner_state.actions)
@@ -428,12 +555,26 @@ class ServoModelActuators(FeetechActuators):
 
         current_pos_j = physics_data.qpos[7:]
         current_vel_j = physics_data.qvel[6:]
+        gain_j = self.vin_j * self.kt_j / self.r_j
         raw_duty_j = self.kp_j * self.error_gain_j * (position - current_pos_j) + self.kd_j * (velocity - current_vel_j)
         duty_j = jnp.clip(raw_duty_j, -self.max_pwm_j, self.max_pwm_j)
-        torque_j = duty_j * self.vin_j * self.kt_j / self.r_j
+        torque_j = duty_j * gain_j
+        theta_s, omega_s, dz = current_pos_j, current_vel_j, jnp.zeros_like(current_pos_j)
+        if self.compliance is not None:
+            comp = play_k > 0
+            safe_k = jnp.where(comp, play_k, 1.0)
+            prev = jnp.where(planner_state.play_k > 0, planner_state.theta_s, current_pos_j)
+            th, tau = solve_servo_output(position, velocity, current_pos_j, prev, planner_state.dz, play_b, safe_k,
+                                         self.compliance.damping_s, self.kp_j * self.error_gain_j, self.kd_j, gain_j,
+                                         self.max_pwm_j, self.dt)
+            torque_j = jnp.where(comp, tau, torque_j)
+            theta_s = jnp.where(comp, th, current_pos_j)
+            omega_s = jnp.where(comp, (th - prev) / self.dt, current_vel_j)
+            dz = jnp.where(comp, dead_zone(th - current_pos_j, play_b), 0.0)
         torque_j = self.add_noise(self.torque_noise, self.torque_noise_type, torque_j, tor_rng)
         return torque_j, ServoState(position=position, velocity=velocity, buffer=buffer, last_cmd=cmd, filt=filt,
-                                    delay_shift=delay_shift, actions=actions, tick=planner_state.tick + 1)
+                                    delay_shift=delay_shift, actions=actions, tick=planner_state.tick + 1,
+                                    theta_s=theta_s, omega_s=omega_s, dz=dz, play_b=play_b, play_k=play_k)
 
 
 def parse_center_pose(text: str) -> dict[str, float]:
@@ -588,6 +729,12 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
             # Apply parameters based on the joint suffix
             self._configure_actuator_params(mj_model, dof_id, joint_name, params)
 
+        foot_condim = int(getattr(self.config, "foot_condim", 3))
+        if foot_condim != 3:
+            if foot_condim not in (1, 3, 4, 6):
+                raise ValueError(f"foot_condim must be 1, 3, 4 or 6, not {foot_condim}")
+            mj_model.pair_dim[:] = foot_condim          # the feet touch the floor only through the explicit <pair>s
+            logger.info("foot contact pairs: condim %d (torsional friction %s)", foot_condim, mj_model.pair_friction[:, 2])
         if self.config.hip_yaw_range_deg > 0:
             lim = np.radians(self.config.hip_yaw_range_deg)
             for i in range(mj_model.njnt):
@@ -756,6 +903,7 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
         # servo id (upstream behavior) scrambles per-joint parameters for this build.
         sorted_joints = sorted(self.joint_mappings.items(), key=lambda x: x[1]["nn_id"])
         is_arm_j = [False] * num_joints
+        names_j: list[str] = []
 
         for i, (joint_name, mapping) in enumerate(sorted_joints):
             joint_metadata = metadata[joint_name]
@@ -768,6 +916,7 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
             if not isinstance(actuator_type, str):
                 raise TypeError(f"'actuator_type' for joint {joint_name} must be a string.")
             is_arm_j[i] = "3215" in actuator_type          # STS3215 = arms, STS3250 = legs
+            names_j.append(joint_name)
 
             params = load_actuator_params(self.config.actuator_params_path, actuator_type)
 
@@ -833,6 +982,7 @@ class ZbotTask(ksim.PPOTask[Config], Generic[Config, ZbotModel]):
                 delay_rand_steps=int(round(self.config.delay_rand / self.config.dt)),
                 action_history=int(getattr(self.config, "action_history", 1)),
                 phys_per_ctrl=int(round(self.config.ctrl_dt / self.config.dt)),
+                compliance=compliance_ranges(self.config, names_j) if self.config.joint_compliance else None,
             )
 
         return FeetechActuators(

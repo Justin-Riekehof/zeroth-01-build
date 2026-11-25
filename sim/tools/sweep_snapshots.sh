@@ -9,7 +9,7 @@ for ck in $(ls "$S" 2>/dev/null | grep -o "ckpt\.[0-9]*\.bin" | sort -t. -k2 -n)
   [ -f "$out/eval.txt" ] && grep -q "forward displacement" "$out/eval.txt" && continue
   mkdir -p "$out"
   if GPU="" JAX_PLATFORMS=cpu flock /tmp/zbot-validate.lock nice -n 10 sim/tools/eval_policy.sh "$S/$ck" "$out/rollouts.ds" "${ASSETS:-zbot-cad}" \
-       batch_size=16 num_envs=16 dataset_num_batches=16 collect_dataset_argmax_action=True $OV > "$out/eval.txt" 2> "$out/eval.log"; then
+       batch_size=16 num_envs=16 dataset_num_batches=1 collect_dataset_argmax_action=True $OV > "$out/eval.txt" 2> "$out/eval.log"; then
     "$V" sim/tools/gait_analyze.py "$out/rollouts.ds" >> "$out/eval.txt" 2>/dev/null
     echo "$step | $(grep -h 'fall/termination\|without falls\|steps per foot\|swing duration' "$out/eval.txt" | sed 's/episodes with a fall\/termination within the horizon/falls/' | tr '\n' ' ')" >> "$S/summary.txt"
   else
