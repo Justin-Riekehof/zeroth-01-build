@@ -1372,5 +1372,6 @@ nachrendern (einmal mit altem Modell, einmal mit Servo-Modell = "so sah es in de
 - **Neues Gate-Kriterium:** `yaw_end_deg` ≤ 10° (Median |Gierung| am Episodenende der laufenden Episoden, `hardware_gate.py`). 6115 hat 21,9°. Der Score des Wächters enthält das Kriterium, ist also mit früheren Läufen nicht direkt vergleichbar.
 - **Ziel:** |Gierung| am Ende ≤ 10° ohne Stürze, `lateral_ratio` ≤ 0,25, Fußneigung nicht schlechter.
 - **Parallel:** Sim-Prüfung von 6115 mit festem IMU-Rollversatz ±3° (Modellkopien mit gedrehter IMU-Site, `imu_tilt_deg=0`), ob ein fester Versatz das Seitwärtslaufen von Lauf 6 erklärt.
+  - **Ergebnis (28.11. ~15:30): IMU-Versatz ist es nicht.** +3° gibt im Sim genau die reale Startmessung (acc_x +0,49 gegen real +0,35…+0,62). Trotzdem gleiche Bahn wie ohne Versatz: Seitenversatz im Median +0,028 / +0,032 / +0,036 m (+3° / 0° / −3°), Vorwärts 0,18–0,19 m, Gierung am Ende −22 / −24 / −23°. Das Sim driftet in allen drei Fällen gleich: leicht nach links versetzt, dabei nach rechts gedreht. Der Roboter drehte dagegen nach links. Der Linkszug kommt also aus der Mechanik (Gier-Nachgiebigkeit/Fußverdrehung), nicht aus der IMU.
 - **Lauf:** 3000 Iterationen. Wächter mit Fenster 12, `MIN_ITERS=600`, Video alle 100, Bewertung auf GPU 1.
 - **Ergebnis:** *folgt.*
