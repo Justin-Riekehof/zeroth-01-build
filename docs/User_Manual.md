@@ -1,4 +1,4 @@
-# Zeroth-01 — User Manual (development & programming reference)
+# Pixel-01 (Zeroth-01 build) — User Manual (development & programming reference)
 
 Living reference for everything needed to program and operate this build.
 The narrative build log lives in the dated entries next to this file; the

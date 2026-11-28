@@ -5,6 +5,11 @@ run are in [docs/training-journal.md](docs/training-journal.md) (German).
 
 ## 2026-11-28 — first steps on a learned policy
 
+- **The robot is now called Pixel-01.** The repository was renamed from `zeroth-01-build` to
+  `Robot-Project-Pixel-DIY-Humanoid`; GitHub redirects the old web and git URLs. It is still a build of the K-Scale
+  Zeroth-01. The sim assets keep their names: `zbot-pixel`/`zbot-pixel-backpack` are the old, wrong models from the
+  K-Scale assets (not Pixel-01), the robot's model is `zbot-cad-tpu`.
+
 - **Milestone:** `servo_comp6_step6115` walked several steps roughly forward on the real robot (run 14:37:05, 5.7 s
   before it tipped over), the first policy to do so. New hero GIF `media/first-steps.gif` (trimmed before the fall).
   Six live runs on parquet with a hand-held safety leash; Pi logs in

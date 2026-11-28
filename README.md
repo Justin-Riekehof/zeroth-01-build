@@ -1,6 +1,6 @@
-# Zeroth-01 Build
+# Pixel-01 — DIY Humanoid
 
-> Building the open-source Zeroth-01 humanoid — from 3D print to RL policy on real hardware.
+> Pixel-01 is my build of the open-source Zeroth-01 humanoid — from 3D print to RL policy on real hardware.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/build-untethered_demos-green.svg)](#build-log)
@@ -12,13 +12,13 @@ Currently: first steps on a trained RL policy (2026-11-28). Clip ends
 before the fall; keep the caption honest.
 ────────────────────────────────────────────────────────────── -->
 
-![Zeroth-01 taking its first steps forward on a reinforcement-learning policy trained in simulation](media/first-steps.gif)
+![Pixel-01 taking its first steps forward on a reinforcement-learning policy trained in simulation](media/first-steps.gif)
 
 *🎉 **First steps on a learned policy (2026-11-28).** The walking policy was trained entirely in simulation (MuJoCo/ksim, on a model with simulated joint play and elasticity) and runs on the Raspberry Pi in the backpack: 50 Hz ONNX inference against the real servo bus, on battery. This is the first time the robot walks several steps roughly forward. The cable in the hand is a loose safety leash. 2× slow motion; the clip ends before the robot tips over after 5.7 s, and it still pulls to the left. Policy `servo_comp6_step6115`, logs and full videos in [media/hw_tests/2026-11-28/](media/hw_tests/2026-11-28/), analysis in the [training journal](docs/training-journal.md).*
 
 > 🚧 **Current status:** **first steps on a trained walking policy** (2026-11-28): several steps forward on the real robot, everything on board. Whole body assembled & calibrated, teach-in demos running **untethered** on battery and Wi-Fi ([push-ups](media/push-ups.gif)), head IMU display + camera. Next: **walk straight** — the policy turns left on the robot and 22° off course even in the sim, so heading is now a gate criterion and the next run (`servo_yaw1`) trains against it.
 
-Based on the **[Zeroth-01 by K-Scale Labs / Zeroth Robotics](https://github.com/zeroth-robotics/zeroth-bot)**. This repo documents my independent build of the platform and the software I write on top of it.
+Pixel-01 is based on the **[Zeroth-01 by K-Scale Labs / Zeroth Robotics](https://github.com/zeroth-robotics/zeroth-bot)**. This repo documents my independent build of the platform and the software I write on top of it. (The repo was called `zeroth-01-build` until 2026-11-28; old links redirect here.)
 
 ## What is the Zeroth-01?
 
@@ -40,6 +40,7 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 
 |                 |                                                        |
 | --------------- | ------------------------------------------------------ |
+| Name            | Pixel-01                                               |
 | Platform        | K-Scale Zeroth-01 (~40 cm humanoid)                    |
 | Actuators       | Feetech STS3215 (arms) · STS3250 (legs/torso, planned) |
 | Onboard compute | Raspberry Pi 4 Model B Rev 1.5 (4 GB)                 |

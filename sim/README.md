@@ -139,7 +139,7 @@ umschifft (JSON-Shim, siehe Kommentar dort).
 
 ## Modell `assets/zbot-cad` — der gebaute Roboter aus dem WebUI-CAD (Stand 2026-09-23)
 
-**Die bisherigen Modelle `zbot-pixel`/`zbot-pixel-backpack` sind der falsche Roboter**: sie stammen aus den
+**Die bisherigen Modelle `zbot-pixel`/`zbot-pixel-backpack` sind der falsche Roboter** (der Ordnername ist älter als der Robotername Pixel-01 und meint *nicht* den gebauten Roboter; Pixel-01 ist `zbot-cad-tpu`): sie stammen aus den
 K-Scale-Assets des *Z-Bot 2* (Greifer-Hände, andere Beinkette). Der gebaute Roboter ist der Zeroth-01
 (`resources/cad/z001-opus-m-93de7567.glb`, genau das Modell der Servo-WebUI, Stummel-Arme). Alle
 Trainingsläufe v1–v10 unten liefen auf dem falschen Modell und dienen nur noch als Pipeline-Nachweis.
