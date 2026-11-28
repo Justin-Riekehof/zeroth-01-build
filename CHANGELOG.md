@@ -3,6 +3,19 @@
 Notable changes to the robot, its parts and the software, newest first. Details and the reasoning behind each training
 run are in [docs/training-journal.md](docs/training-journal.md) (German).
 
+## 2026-11-28 — first steps on a learned policy
+
+- **Milestone:** `servo_comp6_step6115` walked several steps roughly forward on the real robot (run 14:37:05, 5.7 s
+  before it tipped over), the first policy to do so. New hero GIF `media/first-steps.gif` (trimmed before the fall).
+  Six live runs on parquet with a hand-held safety leash; Pi logs in
+  `sim/policies/servo_comp6_step6115/hw_logs_2026-11-28/`, slow-motion videos in `media/hw_tests/2026-11-28/`.
+- **Sim vs. robot:** hip-yaw use and the first second match the sim; the real yaw rate is 2–4× higher (p95 100–210 vs.
+  52 °/s), and the policy ends 22° off course in the sim too (the gate did not check heading).
+- **Gate:** new criterion `yaw_end_deg` ≤ 10° (median |base yaw| at the end of walking episodes,
+  `sim/tools/hardware_gate.py`).
+- **Training:** `servo_yaw1` from 6115 with `heading_penalty` −1 → −8, hip-yaw play up to 4° and springs 4–40 Nm/rad,
+  foot torsion 0.003–0.05. `sim/tools/launch_continue.sh` takes `WINDOW` for the stagnation window.
+
 ## 2026-11-21 — neck, rubber soles, friction-trained policies
 
 Merged into `main` as `d8f2f71` (with `baa98c0`, `61d10c8`, `c290330`).

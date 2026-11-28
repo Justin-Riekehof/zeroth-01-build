@@ -59,3 +59,17 @@ Nutzers abgeleitet: Nur gegen den Uhrzeigersinn war ein Unterschied zu sehen.
 | `torsion_top_none.jpg` | ohne | Referenz: Kopfkante etwa parallel zur Linie durch die Fußmarken |
 | `torsion_top_ccw.jpg` | gegen Uhrzeigersinn | Kopf etwa 3° gegen die Fußmarken verdreht (Schätzung aus dem Foto, ±1°), elastisch |
 | `torsion_top_cw.jpg` | im Uhrzeigersinn | wie ohne Moment |
+
+## 2026-11-28, `servo_comp6_step6115` (vx 0,045, Gang 1,1 Hz, Parkett, Kabel als Leine)
+
+Erste Policy aus dem Training mit Gelenkspiel/Elastizität. WhatsApp-Zeitlupen (120 FPS, 4-fach). Benannt nach der Pi-Log-Zeit
+(Reihenfolge = Logs). Dauer = Policy-Laufzeit laut Pi-Log, Ende in Klammern.
+
+| Datei | Dauer | Beobachtung |
+|---|---|---|
+| `143521_side_servo_comp6_step6115.mp4` | 2,0 s (Sturz) | 2–3 Schritte, dreht, kippt nach vorn |
+| `143558_top_servo_comp6_step6115.mp4` | 2,1 s (E-Stopp) | Gierung ~30–45° im Uhrzeigersinn, kippt |
+| `143626_side_servo_comp6_step6115.mp4` | 1,7 s (Sturz) | kleine Schritte, dreht, fällt über den vorderen Fuß |
+| `143641_top_servo_comp6_step6115.mp4` | 1,8 s (Sturz) | Gierung ~30–40° |
+| `143705_side_servo_comp6_step6115.mp4` | 5,7 s (Sturz) | **erste mehreren Schritte etwa vorwärts** (Meilenstein), starker Zug nach links |
+| `143853_top_servo_comp6_step6115.mp4` | 3,3 s (E-Stopp) | mehrere Schritte fast rein nach links, kaum vorwärts |

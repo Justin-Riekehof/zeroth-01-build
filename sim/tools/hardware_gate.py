@@ -42,7 +42,9 @@ THRESH = {"falls": 0, "target_out_share": 0.01, "margin_share": 0.01, "speed_leg
           "speed_arm_p99": ARM_SPEED * SPEED_TOL, "gap_mean": 0.15, "gap_p99": 0.6, "rate_mean": 0.10,
           "rate_p99": 0.35, "saturation_share": 0.01, "tracking_ratio": 0.5, "speed_over_share": 0.02, "speed_buffer_share": 0.20, "limiter_share": 0.20,
           "jerk_p99": 0.04, "highfreq_share": 0.15, "tracking_ratio_max": 2.0, "zero_cmd_drift_abs": 0.02,
-          "foot_tilt_over5_share": 0.30, "lateral_ratio": 0.25}
+          "foot_tilt_over5_share": 0.30, "lateral_ratio": 0.25, "yaw_end_deg": 10.0}
+# yaw_end_deg (28.11.2026): median over the walking episodes of |base yaw| at the end (deg). servo_comp6 6115 passed
+# lateral_ratio (0.25) but ended 22 deg off course in the sim (-35..+23) and turned 22-30 deg left on the robot
 # lateral_ratio (25.11.2026): median over the episodes of |sideways| / forward base displacement. The goal is walking
 # STRAIGHT; servo_rubber23 had 0.15 on the stiff sim model and 0.74 with joint play/elasticity (joint_compliance)
 # tracking 0.5-2.0 (was 0.75-1.3): user 2026-11-06 "Soll und Ist-Tempo ist gar nicht die Prio. Wichtig ist, dass der
@@ -198,6 +200,12 @@ def metrics(path, cfg=None):
         go = fwd.any(1) & (dx > 0.02)                  # episodes that were told to walk and did get somewhere
         if go.any():
             m["lateral_ratio"] = float(np.median(np.abs(dy[go]) / dx[go]))
+            if "xquat" in d:
+                qb = d["xquat"][ok][:, :, 1, :]
+                yaw = np.arctan2(2 * (qb[..., 0] * qb[..., 3] + qb[..., 1] * qb[..., 2]),
+                                 1 - 2 * (qb[..., 2] ** 2 + qb[..., 3] ** 2))
+                yaw = np.unwrap(yaw, axis=1); yaw = yaw - yaw[:, :1]
+                m["yaw_end_deg"] = float(np.degrees(np.median(np.abs(yaw[go, -1]))))
     else:
         m["tracking_ratio"] = float("nan")
     if "contact" in d:
@@ -230,6 +238,9 @@ def verdict(m):
     if "lateral_ratio" in m:
         lr = m["lateral_ratio"]
         rows.append(("lateral_ratio", lr, THRESH["lateral_ratio"], bool(lr <= THRESH["lateral_ratio"])))
+    if "yaw_end_deg" in m:
+        ye = m["yaw_end_deg"]
+        rows.append(("yaw_end_deg", ye, THRESH["yaw_end_deg"], bool(ye <= THRESH["yaw_end_deg"])))
     if "foot_tilt_over5_share" in m:
         ft = m["foot_tilt_over5_share"]
         rows.append(("foot_tilt_over5_share", ft, THRESH["foot_tilt_over5_share"], bool(ft <= THRESH["foot_tilt_over5_share"])))

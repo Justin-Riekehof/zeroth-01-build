@@ -8,15 +8,15 @@
 
 <!-- ─────────────────────────────────────────────────────────────
 HERO SPOT — own footage only.
-Currently: untethered push-ups, everything on board. Upgrade when
-it walks on a trained policy (swap the GIF, keep the caption honest).
+Currently: first steps on a trained RL policy (2026-11-28). Clip ends
+before the fall; keep the caption honest.
 ────────────────────────────────────────────────────────────── -->
 
-![Zeroth-01 doing push-ups untethered — battery and Raspberry Pi in the backpack, animated eye on the head display](media/push-ups.gif)
+![Zeroth-01 taking its first steps forward on a reinforcement-learning policy trained in simulation](media/first-steps.gif)
 
-*Untethered push-ups: no bench PSU, no USB cable. The 3S LiPo and the Raspberry Pi ride in the [backpack](hardware/backpack_v2/), the Pi executes the taught-in sequence locally and the browser only sends the intent. The left eye is a round LCD driven by the head IMU, the right eye is the Camera Module 3 — its live stream is the window open on the laptop in the background (≈7× time-lapse).*
+*🎉 **First steps on a learned policy (2026-11-28).** The walking policy was trained entirely in simulation (MuJoCo/ksim, on a model with simulated joint play and elasticity) and runs on the Raspberry Pi in the backpack: 50 Hz ONNX inference against the real servo bus, on battery. This is the first time the robot walks several steps roughly forward. The cable in the hand is a loose safety leash. 2× slow motion; the clip ends before the robot tips over after 5.7 s, and it still pulls to the left. Policy `servo_comp6_step6115`, logs and full videos in [media/hw_tests/2026-11-28/](media/hw_tests/2026-11-28/), analysis in the [training journal](docs/training-journal.md).*
 
-> 🚧 **Current status:** whole body assembled & calibrated — all 16 servos on the daisy chain, per-joint limits & mount offsets measured, teach-in demos running **untethered** on battery and Wi-Fi. Head sensors are in: IMU display + camera. In simulation, five walking variants are trained on the CAD-accurate model. Next: **export and deploy the first policy on the robot, then measure the sim-to-real gap.**
+> 🚧 **Current status:** **first steps on a trained walking policy** (2026-11-28): several steps forward on the real robot, everything on board. Whole body assembled & calibrated, teach-in demos running **untethered** on battery and Wi-Fi ([push-ups](media/push-ups.gif)), head IMU display + camera. Next: **walk straight** — the policy turns left on the robot and 22° off course even in the sim, so heading is now a gate criterion and the next run (`servo_yaw1`) trains against it.
 
 Based on the **[Zeroth-01 by K-Scale Labs / Zeroth Robotics](https://github.com/zeroth-robotics/zeroth-bot)**. This repo documents my independent build of the platform and the software I write on top of it.
 
@@ -54,11 +54,11 @@ The goal is not just a finished robot, but a working sim-to-real pipeline with o
 - **Phase 1 — Arms** (STS3215) ✅ : assembled, IDs flashed (11–13 / 21–23), center-calibrated, per-joint safe limits measured on the bench (one torn elbow bracket later) — [hardware/joint_limits.json](hardware/joint_limits.json)
 - **Phase 2 — Legs & torso** (STS3250) ✅ : **whole body assembled & calibrated** (IDs 31–35 / 41–45, mount offsets incl. a +90° hip, hand-trimmed zeros), **teach-in motion demos** running on the full body ([demos/](demos/)) — kneeling, waving, push-ups; the first whole-body sequences, still on the bench PSU, are in [this earlier clip](media/whole-body-demo.gif)
 - **Servo test GUI** ✅ : browser tool for bring-up, testing, teach-in and visualization ([src/servo_gui/](src/servo_gui/), see [Software](#software))
-- **Backpack (CAD → built)** ✅ : rear electronics housing for the 3S LiPo, XY-CD63 low-voltage cutoff, inline fuse, anti-spark switch, Waveshare adapter and Pololu buck, plus a torso insert that carries the Pi 4B in the now-empty battery bay — derived from the pinned CAD (torso hole pattern, interior cavity, arm/leg sweep envelopes); every part modelled with its connectors and wire zones, every cable as a tube with its minimum bend radius and checked against parts and envelopes; three support-free PETG parts, shown on the model in the GUI's *Attachments* panel incl. cables ([hardware/backpack_v2/](hardware/backpack_v2/)). **Printed, wired and in use** — it is what makes the robot untethered: the hero GIF above is running entirely off this pack
+- **Backpack (CAD → built)** ✅ : rear electronics housing for the 3S LiPo, XY-CD63 low-voltage cutoff, inline fuse, anti-spark switch, Waveshare adapter and Pololu buck, plus a torso insert that carries the Pi 4B in the now-empty battery bay — derived from the pinned CAD (torso hole pattern, interior cavity, arm/leg sweep envelopes); every part modelled with its connectors and wire zones, every cable as a tube with its minimum bend radius and checked against parts and envelopes; three support-free PETG parts, shown on the model in the GUI's *Attachments* panel incl. cables ([hardware/backpack_v2/](hardware/backpack_v2/)). **Printed, wired and in use** — it is what makes the robot untethered: the [push-ups](media/push-ups.gif) and the first steps above run entirely off this pack
 - **Head sensors** ✅ : the two eye sockets carry the electronics — a Waveshare RP2040-LCD-1.28 (round 1.28" LCD + QMI8658 IMU) on the left, a Camera Module 3 on the right. The LCD runs its own MicroPython firmware ([src/head_display/](src/head_display/)) that draws an animated eye and streams one IMU JSON line per frame over USB serial; the eye reacts to the robot's own attitude, so tipping the body moves the gaze. The camera is served as MJPEG on demand ([src/pi_service/head.py](src/pi_service/head.py)) — the first viewer starts `rpicam-vid`, the last one leaving stops it, so nothing runs while nobody is watching. Neither device sits on the servo bus, and a missing one is a status field rather than an exception
 - **Onboard compute / wireless mode** ✅ : shared motion core ([src/zbot_core/](src/zbot_core/)) + intent service on the Raspberry Pi ([src/pi_service/](src/pi_service/)) — demos execute on the robot, the GUI switches between USB (bench) and wireless (Pi) mode; one-command deploy ([docs/pi-service.md](docs/pi-service.md))
 - **Simulation model & walking policies** ✅ : MuJoCo model generated from the *built* robot rather than the upstream CAD — backpack geometry, datasheet masses from the stitched meshes and the head IMU in its real place and orientation. Five walking variants trained on it on the local GPU rig, with an unattended training queue and a checkpoint picker ([sim/](sim/README.md)). Export tooling is engine-independent, so the same Feetech model runs in the sim and on the robot
-- **Phase 3 — Sim-to-real**: *next* — export a policy to ONNX, run it on the Pi and measure where the simulation and the real robot disagree
+- **Phase 3 — Sim-to-real**: *in progress* — policies run on the Pi (ONNX, 50 Hz) and every hardware test is compared with the sim. **2026-11-28: first steps forward on a learned policy** (`servo_comp6_step6115`, trained with simulated joint play and elasticity, hero GIF above). Open: it turns left and falls after 2–6 s; the real robot yaws 2–4× faster than the sim
 
 Notable changes are listed in the [changelog](CHANGELOG.md). Milestones are tagged as releases (`v0.1-parts-printed`, `v0.2-arms-assembled`, `v0.3-first-motion`, …) so the build history is easy to follow chronologically.
 
@@ -158,7 +158,7 @@ The model is generated from **the robot that actually exists**, not from the ups
 
 Five walking variants are trained on that model, driven by an unattended training queue with a checkpoint picker, so the GPU never idles between stages. The export path is engine-independent: the same Feetech actuator model runs in simulation and on the robot.
 
-What is **not** done yet is the interesting part: none of these policies has run on the real robot. That is the next step, together with measuring where simulation and hardware disagree. Setup, stack decision (post-K-Scale-shutdown state of the ecosystem), the per-variant notes and the sim-to-real notes live in [sim/README.md](sim/README.md).
+Policies now run on the real robot, and each hardware test is compared step by step with the same checkpoint in the sim. On 2026-11-28 `servo_comp6_step6115` took the robot's first steps forward; the remaining gaps (heading drift, too stiff yaw in the sim) are tracked in the [training journal](docs/training-journal.md). Setup, stack decision (post-K-Scale-shutdown state of the ecosystem), the per-variant notes and the sim-to-real notes live in [sim/README.md](sim/README.md).
 
 ## Repository structure
 
@@ -223,6 +223,8 @@ media/      photos, print timelapses, hero GIF
 - [x] Rebuild the model from the *built* robot: backpack geometry, datasheet masses, head IMU in its real pose
 - [x] Train locomotion policies in simulation — five walking variants on an unattended training queue
 - [x] **Deploy the first policies on the robot** — export to ONNX, inference on the Pi against the real servo bus; step logging (`/policy/logs`) verified, all five policies tested (they fall within ~1 s, see above)
+- [x] **First steps forward on a learned policy** (2026-11-28, `servo_comp6_step6115`) — see the hero GIF
+- [ ] **Walk straight** — heading as gate criterion, heading penalty and softer yaw play in training (`servo_yaw1`)
 - [ ] **Sim-to-real gap** — servo speed limit found (1.5 rad/s sent vs 8.9 rad/s in the sim); `speed=3000` damaged the left hip-yaw bracket; next: reprint, bench-test speed vs. pack voltage without a policy, then correct the actuator model, add torque/rate limits and retrain from the center pose
 - [ ] C++ serial tooling against the bench setup: Feetech packet parser, tick ↔ radian conversion, RAII serial-port wrapper
 - [ ] Real-time C++ control node (rclcpp) with ONNX Runtime inference on the Pi 4

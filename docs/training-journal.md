@@ -1214,3 +1214,163 @@ nachrendern (einmal mit altem Modell, einmal mit Servo-Modell = "so sah es in de
   - Die Bewertung läuft mit den Einstellungen des Laufs, also mit Spiel und Elastizität.
 - **Neues Gate-Kriterium:** `lateral_ratio` ≤ 0,25 (Median des Verhältnisses seitlicher zu Vorwärts-Versatz, `hardware_gate.py`). `servo_rubber23` hat starr 0,15, mit Spiel 0,89.
 - **Vergleichbarkeit:** Werte aus früheren Wächter-Läufen (ein Start, 80 s) sind mit den neuen nicht direkt vergleichbar.
+- **Ergebnis `servo_comp1` (25.11. 11:45, Wächter: Stagnation bei 3760, nach 450 Iterationen):**
+  - Bester Score 0,920 bei 3565, Gate nicht bestanden.
+  - **Seitlicher Versatz** (`lateral_ratio`) 0,59 → 0,33–0,41 (Grenze 0,25).
+  - **Stürze:** 0/16 bei 3465–3565, danach wieder 1–2.
+  - **Weitere offene Kriterien:**
+    - `highfreq_share` 0,21–0,23 (Grenze 0,15). Mit Spiel schon am Startpunkt 0,23, starr 0,17.
+    - `foot_tilt_over5_share` 0,35–0,39 (Grenze 0,30)
+    - `margin_share` 0,02–0,03 (Grenze 0,01)
+  - Echte Schritte nur 30–41 %.
+  - **Bewertung:** Mit 16 echten Starts streut der Score stärker (1–2 Stürze kommen und gehen). Die Regel „+3 % in 6 Bewertungen“ hat den Lauf zu früh beendet, obwohl der Versatz noch fiel.
+- **`servo_comp2`** (25.11. 17:57, GPU 0; die GPU stand von 11:45 bis 17:57 still, weil mich die Meldung vom Ende von `servo_comp1` erst spät erreichte): weiter ab `servo_comp1` 3565 mit unveränderten Einstellungen, 3000 Iterationen. Der Wächter hat ein Fenster von 12 Bewertungen und prüft Stagnation erst ab 600 Iterationen. Dafür hat `launch_continue.sh` die neue Option `WINDOW`.
+- **Ergebnis `servo_comp2` (26.11. 01:08, Wächter: Stagnation bei 4270, nach 705 Iterationen):**
+  - Bester Score 0,926 bei 4220, Gate nicht bestanden. Ab 3825 meist 0 Stürze, vereinzelt 1/16.
+  - Plateau über alle offenen Kriterien: `lateral_ratio` 0,28–0,41, `highfreq_share` 0,20–0,23, `foot_tilt_over5_share` 0,37–0,46 (schlechter als `servo_comp1`), `margin_share` 0,02–0,07.
+  - Echte Schritte fallen von 0,40 auf 0,23: Die Policy schlurft zunehmend.
+  - **Lehre:** Mit unveränderten Gewichten bringt Weitertrainieren nichts mehr. Die Belohnung muss sich ändern.
+### `servo_comp3`: Versatz und Fußneigung stärker bestraft (gestartet 26.11. ~01:20, ab `servo_comp2` 4220, GPU 0)
+- **Änderungen:** `lateral_position_penalty` −0,5 → −2,0, `gait_lateral_penalty` −1,0 → −3,0, `foot_flat_penalty` −50 → −80. Sonst alles wie `servo_comp2`.
+- **Ziel:** `lateral_ratio` ≤ 0,25 und `foot_tilt_over5_share` ≤ 0,30 ohne Stürze. Den Anteil echter Schritte im Blick behalten.
+- **Lauf:** 3000 Iterationen. Wächter mit Fenster 12 und `MIN_ITERS=400`, Video alle 100.
+- **Ergebnis `servo_comp3` (26.11. 11:02, Wächter: Stagnation bei 4640, nach 420 Iterationen):**
+  - Bester Score 0,934 bei 4565, Gate nicht bestanden. Durchgehend 1/16 Stürze.
+  - `lateral_ratio` 0,26–0,42 (bester Wert 0,26 bei 4515), kaum besser als `servo_comp2`. `foot_tilt_over5_share` 0,39 → 0,36, `margin_share` 0,03 → 0,006 (jetzt bestanden).
+  - `highfreq_share` unverändert 0,23–0,25 (Grenze 0,15). Echte Schritte 0,25 → 0,23.
+  - **Analyse highfreq (Rollout 4640, je Gelenk):** Schon die rohe Aktion hat 15–53 % Anteil über 5 Hz, am stärksten rechtes Knie (0,53), rechtes Sprunggelenk (0,47) und rechte Hüfte nickend (0,34). Das Zittern kommt also aus der Policy, nicht aus der Feder des Spielmodells.
+  - Die GPU stand von 11:02 bis 20:15 still (kein Supervisor aktiv).
+### `servo_comp4`: Tiefpass α 0,35 → 0,25 (gestartet 26.11. ~20:15, ab `servo_comp3` 4565, GPU 0)
+- **Änderung:** nur `action_filter_alpha=0.25`. Belohnungen wie `servo_comp3`. Bei α 0,25 kommt der Gang mit ~1,2 Hz noch fast ungedämpft durch, 10 Hz deutlich schwächer (vgl. Hilfetext in `common.py`).
+- **Ziel:** `highfreq_share` ≤ 0,15 ohne Stürze, `lateral_ratio` und Fußneigung nicht schlechter.
+- **Lauf:** 3000 Iterationen bis 7565. Wächter mit Fenster 12, `MIN_ITERS=600`, Video alle 100.
+- **Ergebnis `servo_comp4` (27.11. 02:52, Wächter: Stagnation bei 5170, Fenster 12):**
+  - Bester Score 0,946 bei 5170, dem letzten bewerteten Schritt. Gate nicht bestanden.
+  - **Erstmals bestanden:** `lateral_ratio` 0,24 und `foot_tilt_over5_share` 0,24. Die Fußneigung fiel stetig von 0,34 auf 0,24.
+  - **Offen:**
+    - Stürze: weiter 1/16, immer früh, bei 5170 nach 0,84 s.
+    - `highfreq_share` 0,23–0,25, unverändert.
+    - `limiter_share` 0,21–0,235 (Grenze 0,20). Neu durchgefallen, die Folge des stärkeren Filters.
+  - **Analyse:** Der stärkere Filter hat das Zittern nicht gesenkt.
+    - Über 5 Hz liegen in den gefilterten Sollwerten weiter 0,6–0,8° RMS an der rechten Hüfte (nickend) und am rechten Sprunggelenk, wie bei `servo_comp3`.
+    - Die Policy gleicht den Filter also mit stärkerem rohem Zickzack aus. Die Strafen auf die rohe Aktion (Jerk, CAPS) greifen dort nicht.
+    - Als Leistungsanteil sind es nur 1–11 % je Gelenk. `highfreq_share` summiert Betragsspektren und bewertet den Breitbandboden deshalb stark.
+  - Die GPU stand von 02:52 bis 06:55 still. Die Meldung des Weckers kam erst spät an.
+### `servo_comp5`: Strafe auf die Gelenkbeschleunigung (gestartet 27.11. ~06:55, ab `servo_comp4` 5170, GPU 0)
+- **Änderung:** `joint_accel_penalty=-3.0`. Erster Einsatz von `JointAccelerationPenalty`, also mittleres (qvel(t) − qvel(t−1))² der Gelenke selbst. Damit trifft die Strafe das Zittern dort, wo es entsteht, also hinter Filter und Spiel.
+  - Bei 5170 liegt der Rohwert bei 0,048. Mit −3 wiegt die Strafe etwa 6 % der Gesamtbelohnung, ähnlich wie `foot_flat`.
+  - Filter α bleibt 0,25, sonst alles wie `servo_comp4`.
+- **Ziel:** Zittern weg (`highfreq_share` ≤ 0,15) bei gleichbleibendem `lateral_ratio` und gleicher Fußneigung.
+- **Lauf:** 3000 Iterationen. Wächter mit Fenster 12, `MIN_ITERS=600`, Video alle 100.
+- **Ergebnis `servo_comp5` (27.11. 14:30, Wächter: Stagnation bei 5810, Fenster 12):**
+  - Bester Score **0,978 bei 5515**, der bisher beste Wert mit Spiel und Elastizität. Gate nicht bestanden.
+
+  | Schritt | Stürze | `highfreq_share` | `limiter_share` | `lateral_ratio` | Fußneigung > 5° | echte Schritte | Tracking |
+  |---|---|---|---|---|---|---|---|
+  | 5170 (Start) | 1/16 | 0,236 | 0,234 | 0,26 | 0,24 | 0,23 | 1,02 |
+  | 5415 | 1/16 | 0,241 | 0,205 | 0,25 | 0,22 | 0,23 | 0,92 |
+  | **5515** | **0/16** | 0,227 | 0,215 | **0,17** | **0,18** | 0,17 | 1,02 |
+  | 5660 | 2/16 | 0,233 | 0,216 | 0,29 | 0,19 | 0,16 | 1,03 |
+  | 5810 (Ende) | 1/16 | 0,242 | 0,189 | 0,15 | 0,17 | 0,11 | 0,89 |
+
+  - **Besser geworden:** Fußneigung 0,24 → 0,17, Begrenzer 0,23 → 0,19 (am Ende bestanden). Das Tracking bleibt im Band.
+  - **Unverändert:** `highfreq_share` 0,23–0,25, im dritten Lauf hintereinander trotz drei verschiedener Maßnahmen (Belohnungen in `servo_comp3`, Filter in `servo_comp4`, Beschleunigungsstrafe hier). Stürze bis auf 5515 weiter 1–2/16.
+  - **Schlechter geworden:** Der Anteil echter Schritte fällt von 0,23 auf 0,11. Die Policy schlurft immer mehr. Dieser Trend läuft schon seit `servo_comp2` (0,40). Laut Log sind die Gangterme winzig: `swing_duration` 0,0009 und `stride_length` 0,0003 je Schritt, gegen 0,043 für das Tempo-Tracking und 0,023 für den Vorwärtsfortschritt.
+  - **Analyse:** Die Beschleunigungsstrafe war zu schwach, um etwas zu zeigen. Im Trainingslog liegt sie bei −0,0011 je Schritt und ist über 640 Iterationen nur um 17 % gefallen (−0,00135 → −0,00113). Das sind etwa 1,5 % der positiven Belohnung (~0,075), nicht die 6 %, die ich beim Start geschätzt hatte. Aussagekräftig ist der Lauf für die Strafe also noch nicht.
+  - Eigene Zusatzauswertungen (absolutes HF-RMS je Gelenk, Reibungs-Sweep) waren in dieser Supervisor-Sitzung nicht möglich: Python-Aufrufe wurden nicht freigegeben. Offen bleibt deshalb, ob der HF-Anteil im Gelenkwinkel aus dem Spielmodell selbst kommt. Starr lag `servo_rubber23` bei 0,17, mit Spiel schon am Start bei 0,23.
+### `servo_comp6`: Beschleunigungsstrafe vervierfacht (gestartet 27.11. ~14:45 vom Supervisor, ab `servo_comp5` 5515, GPU 0)
+- **Änderung:** nur `joint_accel_penalty` −3 → −12. Damit wiegt die Strafe etwa 6 % der positiven Belohnung, so viel, wie für `servo_comp5` gedacht war. Sonst alles wie `servo_comp5`.
+- **Warum:** `highfreq_share` ist das einzige Gate-Kriterium, das in keinem Lauf seit `servo_comp3` gesunken ist. Die Gelenkbeschleunigung gewichtet hohe Frequenzen mit ω² und trifft damit genau das, was der Gate-Wert misst (Gelenkwinkel der Beine über 5 Hz). Start bei 5515, weil dort als einzigem Schritt Stürze, Versatz und Fußneigung zugleich bestanden waren.
+- **Risiko:** Die Policy könnte noch mehr schlurfen. Der Anteil echter Schritte ist deshalb das Abbruchsignal: Sinkt er unter ~0,08, ohne dass der HF-Anteil fällt, ist die Strafe der falsche Hebel. Dann als Nächstes Gangterme stärken oder den HF-Anteil starr gegen das Spielmodell auswerten.
+- **Lauf:** 3000 Iterationen bis 8515. Wächter mit Fenster 12, `MIN_ITERS=600`, Video alle 100, Bewertung auf GPU 1.
+- **Zwischenstand 27.11. 19:57 (Schritt 6016, nach ~500 Iterationen, manuelle Kontrolle):**
+  - Bester Score bisher 0,970 bei 5960 (0/16 Stürze). Sonst meist 1–2/16.
+  - Fußneigung > 5° weiter fallend: 0,19 → 0,14.
+  - `highfreq_share` unverändert 0,23–0,25. Die Strafe selbst ist um 25 % gesunken (−0,0046 → −0,0035 je Schritt). Die Policy senkt also die Gelenkbeschleunigung, das Gate-Maß reagiert aber nicht. Das spricht dafür, dass der HF-Anteil aus dem Spielmodell kommt und nicht aus der Policy.
+  - Echte Schritte 0,20 → 0,12–0,13, über der Abbruchschwelle 0,08. `lateral_ratio` 0,18–0,30, `limiter_share` um 0,21.
+  - Kein Eingriff. Der Wächter prüft Stagnation ab Iteration 600 (Schritt ~6115), danach übernimmt der Supervisor-Timer.
+  - **Nächster Kandidat, falls der Lauf stagniert:** den HF-Anteil eines Checkpoints starr (ohne `joint_compliance`) gegen mit Spiel auswerten. Liegt er starr unter 0,15, muss das Gate-Maß für Läufe mit Spiel angepasst werden, nicht die Policy.
+- **Ergebnis `servo_comp6` (28.11. ~01:20, Wächter: Stagnation bei 6516, Fenster 12):**
+  - Bester Score **0,979 bei 6115**, knapp über `servo_comp5` (0,978). Gate nicht bestanden, offen nur noch `highfreq_share` und `limiter_share` (0,20–0,215, Grenze 0,20).
+
+  | Schritt | Stürze | `highfreq_share` | `limiter_share` | `lateral_ratio` | Fußneigung > 5° | echte Schritte | Tracking |
+  |---|---|---|---|---|---|---|---|
+  | 5516 (Start) | 1/16 | 0,239 | 0,214 | 0,23 | 0,19 | 0,20 | 1,01 |
+  | 5960 | 0/16 | 0,243 | 0,209 | 0,27 | 0,16 | 0,12 | 0,91 |
+  | **6115** | **0/16** | 0,245 | 0,201 | 0,25 | 0,15 | 0,10 | 0,87 |
+  | 6260 | 0/16 | 0,247 | 0,200 | 0,18 | 0,13 | 0,06 | 0,88 |
+  | 6516 (Ende) | 0/16 | 0,246 | 0,213 | 0,13 | 0,14 | **0,05** | 0,94 |
+
+  - **Gut:** Ab 6115 durchgehend 0/16 Stürze, Fußneigung 0,19 → 0,14, `lateral_ratio` am Ende 0,13. Das sind die besten Werte bisher mit Spiel und Elastizität.
+  - **Schlecht:** Der Anteil echter Schritte fiel von 0,20 auf 0,05, unter die beim Start festgelegte Abbruchschwelle 0,08. Die Policy schlurft fast nur noch. `highfreq_share` blieb trotz vierfacher Beschleunigungsstrafe bei 0,24–0,25.
+  - **Starr gegen Spiel (Supervisor, 16 Starts auf GPU 1, `joint_compliance=False`):** 6115 starr hat `highfreq_share` **0,233**, mit Spiel 0,245. **Die Vermutung vom 27.11. ist damit widerlegt: Der HF-Anteil kommt nicht aus dem Spielmodell, sondern aus der Policy.** Starr macht dieselbe Policy übrigens mehr echte Schritte (0,35), kippt die Füße aber stärker (0,35) und fällt 1/16.
+  - **Absolut ist das Zittern klein:** Über 5 Hz sind es im Mittel 0,4° RMS je Beingelenk (rechte Hüfte nickend 0,85–0,90°, rechtes Sprunggelenk 0,75°), das ist nur 1,6–1,8 % der Bewegungsleistung. `highfreq_share` summiert Betragsspektren, und von 0–25 Hz liegen 80 % der Frequenzstützstellen über 5 Hz. Der Breitbandboden zählt deshalb stark, und je kleiner die Gangbewegung, desto größer der Anteil. **Schlurfen treibt das Gate-Maß also eher nach oben.** Ein Gate auf absolutes HF-RMS (z. B. ≤ 0,5°) wäre aussagekräftiger. Ich ändere das Gate aber nicht eigenmächtig, damit die Läufe vergleichbar bleiben; Vorschlag an den Nutzer.
+  - **Gangbild:** Rechtes Knie bewegt sich im Gangband (< 3 Hz) nur 0,9° RMS, linkes 6°. Der Roboter schiebt das rechte Bein mehr, als er es hebt.
+  - **Belohnungsanteile im Log (je Schritt):** Tempo-Tracking 0,048, Vorwärtsfortschritt 0,024, Schwungdauer nur **0,0007**, Schrittlänge 0,00016, Bodenfreiheit 0,0001. Echtes Schreiten bringt der Policy praktisch nichts, das Tempo bekommt sie auch schlurfend.
+- **Lehre:** Die Beschleunigungsstrafe ist der falsche Hebel gegen `highfreq_share`. Sie senkte die Gelenkbeschleunigung (Strafe −25 %), das Gate-Maß nicht, und förderte das Schlurfen.
+### `servo_comp7`: Schwungbelohnung vervierfacht (gestartet 28.11. ~01:30 vom Supervisor, ab `servo_comp5` 5515, GPU 0)
+- **Änderung:** nur `gait_swing_reward` 2 → 8 gegenüber `servo_comp5`. Die Beschleunigungsstrafe bleibt damit bei −3 wie in `servo_comp5`; die −12 aus `servo_comp6` werden nicht übernommen, weil sie nichts gebracht haben.
+- **Warum:** Das drängendste Problem ist das Schlurfen (echte Schritte 0,40 in `servo_comp2` → 0,05). Die Schwungbelohnung (dicht, +1 je Schritt eines Schwungs von 0,25–0,6 s, Rampe bei kürzeren) misst fast genau das, was `real_step_share` zählt. Mit 8 kann ein echter Gang mit ~40 % Schwungzeit etwa so viel einbringen wie das Tempo-Tracking. Start bei 5515 statt 6115, weil dort noch 17 % echte Schritte waren und die Policy noch nicht auf die starke Beschleunigungsstrafe eingestellt ist. 5515 hatte ebenfalls 0/16 Stürze, Versatz 0,17 und Fußneigung 0,18.
+- **Ziel:** `real_step_share` deutlich über 0,2, ohne Stürze, Fußneigung ≤ 0,30, `lateral_ratio` ≤ 0,25. Nebenbei prüfen, ob `highfreq_share` mit größerer Gangbewegung fällt.
+- **Risiko:** Mehr Schwungphasen können mehr Stürze und mehr Fußneigung bringen. Steigen die Stürze dauerhaft auf ≥ 2/16, ist 8 zu viel (dann z. B. 4).
+- **Lauf:** 3000 Iterationen bis 8515. Wächter mit Fenster 12, `MIN_ITERS=600`, Video alle 100, Bewertung auf GPU 1.
+- **Ergebnis `servo_comp7` (28.11. ~07:52, Wächter: „Stagnation“ bei 6120, nach 605 Iterationen):**
+  - Bester Score 0,978 ist der **Startpunkt 5515** selbst. Gate nicht bestanden, offen `highfreq_share` und `limiter_share`.
+
+  | Schritt | Stürze | `highfreq_share` | `limiter_share` | `lateral_ratio` | Fußneigung > 5° | echte Schritte | Tracking |
+  |---|---|---|---|---|---|---|---|
+  | 5515 (Start) | 0/16 | 0,240 | 0,208 | 0,25 | 0,20 | 0,19 | 1,00 |
+  | 5763 | 2/16 | 0,236 | 0,218 | 0,27 | 0,20 | 0,26 | 0,99 |
+  | 5815 | 2/16 | 0,247 | 0,217 | 0,25 | 0,20 | **0,28** | 0,97 |
+  | 6020 | 1/16 | 0,241 | 0,212 | 0,19 | 0,17 | 0,18 | 0,93 |
+  | **6120 (Ende)** | **0/16** | 0,243 | 0,215 | **0,18** | **0,17** | **0,24** | 1,02 |
+
+  - **Die Schwungbelohnung wirkt:** Der Anteil echter Schritte stieg von 0,19 auf 0,24–0,28. Der Abwärtstrend seit `servo_comp2` ist damit erstmals umgekehrt. Dazwischen gab es 1–2/16 Stürze, am Ende wieder 0/16. `lateral_ratio` und Fußneigung wurden besser (0,25 → 0,18 und 0,20 → 0,17), das Tracking blieb im Band.
+  - **Unverändert:** `highfreq_share` 0,23–0,25 und `limiter_share` 0,21–0,22. Mit etwas mehr Schritten fiel der HF-Anteil also nicht.
+  - **Warum der Lauf endete:** Das lag nicht an der Policy, sondern an der Stagnationsregel. Der Score hat 1,0 als Obergrenze. Bei einem Start mit 0,978 müsste ein späterer Wert über 1,007 liegen, um „+3 %“ zu schaffen, und das geht nicht. Jede Fortsetzung von einem so guten Checkpoint endet deshalb zwangsläufig bei `MIN_ITERS`. Das betraf schon `servo_comp6`, und `real_step_share` fließt in den Score gar nicht ein. Vorschlag an den Nutzer: die Regel auf absolute Verbesserung bzw. auf den Abstand zu 1 umstellen. Ich ändere sie nicht selbst, damit die Läufe vergleichbar bleiben.
+- **Lehre:** Bei Fortsetzungen ab einem Score über ~0,95 entscheidet `MIN_ITERS` über die Laufzeit, nicht die Stagnationsregel.
+### `servo_comp8`: `servo_comp7` unverändert länger (gestartet 28.11. ~07:58 vom Supervisor, ab `servo_comp7` 6120, GPU 0)
+- **Änderung:** keine an Belohnungen oder Sim, alle Einstellungen wie `servo_comp7` (`gait_swing_reward` 8, `joint_accel_penalty` −3). Geändert ist nur die Laufzeit: Der Wächter darf frühestens nach 1500 Iterationen wegen Stagnation stoppen (`MIN_ITERS=1500`, Fenster 12).
+- **Warum:** `servo_comp7` wurde nach 605 Iterationen von der gedeckelten Score-Regel beendet, während die Zielgröße (echte Schritte) noch stieg und die Stürze am Ende wieder bei 0/16 lagen. 6120 ist der beste Kompromiss bisher: 0/16 Stürze, echte Schritte 0,24, Versatz 0,18, Fußneigung 0,17. Eine neue Gewichtung jetzt würde nicht zeigen, ob die Schwungbelohnung allein ausreicht.
+- **Ziel:** echte Schritte stabil über 0,3 bei 0/16 Stürzen, `lateral_ratio` ≤ 0,25, Fußneigung ≤ 0,30. Beobachten, ob `highfreq_share` bei größerer Gangbewegung fällt.
+- **Abbruchsignal für die nächste Stufe:** Stürze dauerhaft ≥ 2/16, dann `gait_swing_reward` auf 5. Bleiben die echten Schritte unter 0,3, dann auf 12.
+- **Lauf:** 3000 Iterationen bis 9120. Wächter mit Fenster 12, `MIN_ITERS=1500`, Video alle 100, Bewertung auf GPU 1.
+- **Ergebnis:** Am 28.11. ~14:55 nach dem Hardwaretest mit Zustimmung des Nutzers bei ~6800 gestoppt („Sounds like a plan, Go Ahead!“). Letzte Bewertungen 6635–6790: Score 0,95, 1/16 Stürze, `lateral_ratio` 0,15–0,18, echte Schritte 0,27–0,29. Der Lauf tat, was er sollte (mehr echte Schritte). Der Hardwaretest zeigte aber, dass der Roboter auch mit 10 % „echten Schritten“ laut Sim sichtbar die Füße hebt, und dass Geradeauslauf das eigentliche Problem ist. Snapshots bleiben als Ausgangspunkt erhalten. Aus `active_runs.txt` entfernt, damit der Watchdog ihn nicht wiederbelebt.
+### Hardwaretest-Vorbereitung 28.11., `servo_comp6_step6115`
+- **Auswahl:** `servo_comp6` 6115 (Score 0,979). 0/16 Stürze bei 6115 und in allen zehn Bewertungen danach bis 6516, Fußneigung 0,15, `lateral_ratio` 0,25, echte Schritte 0,10. Danach schlurft die Policy zunehmend (0,05). Offen im Gate: `highfreq_share` 0,245 und `limiter_share` 0,201. Der Test soll vor allem zeigen, ob das Zittern im Sim am Roboter überhaupt sichtbar ist. Erster Hardwaretest seit `servo_rubber23_step3315` (21./22.11.), erster mit Spiel/Elastizität trainiert.
+- **Export:** nach `sim/policies/servo_comp6_step6115/` (ONNX = JAX, Differenz 0, α 0,25, `start_pose=center`, Tempo 0,03–0,06 m/s, Gang 1,0–1,25 Hz). Nur dieser Ordner per scp auf den Pi kopiert (Prüfsummen gleich), kein Neustart von `zbot-pi`. Der Pi listet die Policy.
+- **Hardwaretest 28.11. ~14:35–14:42** (Parkett, Kabel als Leine in der Hand des Nutzers, vx 0,045, Gang 1,1 Hz; 3 Trockenläufe ohne Befund: Schritt 6 ms, max. 25 ms, IMU-Alter ≤ 50 ms). 6 Läufe, abwechselnd seitlich und von oben gefilmt (120 FPS, 4-fache Zeitlupe, `media/hw_tests/2026-11-28/`):
+
+  | Lauf | Ansicht | Dauer (Video ÷ 4) | Beobachtung |
+  |---|---|---|---|
+  | 1 | seitlich | ~3,2 s | ~0,5 s Stand, 2–3 Schritte, dreht zur Kamera, kippt nach vorn, an der Leine gefangen |
+  | 2 | oben | ~2,5 s | Schritte, dann Gierung ~30–45° im Uhrzeigersinn, kippt |
+  | 3 | seitlich | ~3,1 s | kleine Schritte, dreht, geht über den vorderen Fuß zu Boden |
+  | 4 | oben | ~3,2 s | erst ruhig, dann dieselbe Gierung ~30–40° |
+  | 5 | seitlich | **~8,6 s** | **mehrere Schritte etwa vorwärts**, dreht dabei langsam fast 90° weg, steht am Ende noch |
+  | 6 | oben | ~4,1 s | mehrere Schritte fast nur nach links, Gierpendeln ±20–30° |
+
+  - **Nutzer:** „Especially the 5th run and 6th are memorable: 5th was the first one to walk several steps roughly forward! Great milestone!! But it was still strong tendency to the left. TH 6th run walked several steps pretty much directly left, basically no forward trajectory.“
+  - **Meilenstein:** erste Policy, die am echten Roboter mehrere Schritte etwa vorwärts läuft (Lauf 5). Die Füße heben sichtbar ab, obwohl das Sim nur 10 % echte Schritte misst. Zittern ist im Video nicht zu erkennen.
+  - **Offen:** starker Zug nach links (Lauf 6 fast rein seitlich) und Gierung in den ersten 1–2 s, wie am 21./22.11. Im Sim liegt `lateral_ratio` bei 0,25 und die Gierung bei fast 0. Das Training mit Spiel und Elastizität hat das also nicht behoben.
+  - **Spur:** Im Sim nutzt die Policy die Hüftgierung asymmetrisch (Bewertung 6016: rechts −1…+14,5°, links −5,7…+3,2°). Gleicht sie damit im Sim etwas aus, das es am Roboter nicht gibt, wäre der Linkszug erklärt. Prüfen mit den Pi-Logs (noch auf dem Pi, der war beim Auswerten aus).
+- **Pi-Logs** (`sim/policies/servo_comp6_step6115/hw_logs_2026-11-28/`, Videos jetzt nach Log-Zeit benannt): Laufzeiten 2,0 / 2,1 / 1,7 / 1,8 / **5,7** / 3,3 s (Lauf 2 und 6 E-Stopp, sonst Sturz mit Neigung > 55°). Die Videos sind länger, weil sie vor dem Start beginnen und nach dem Ende weiterlaufen. Lauf 5 (14:37:05) ist trotzdem der längste bisher (`servo_rubber23` max. 2,5 s bis zum Sturz, 5,3 s bis zum E-Stopp).
+- **Vergleich mit dem Sim** (gleicher Checkpoint, 16 Starts à 5 s mit den Einstellungen des Laufs, GPU 1):
+  - **Hüftgierung real = Sim:** Sollwerte links −6…+1°, rechts 0…+14° (Sim −6…+3° / −1…+14°). Die Asymmetrie ist gelernt und auch im Sim da, wo der Roboter trotzdem fast gerade läuft. Sie ist also nicht die Ursache. (Beide Gelenke drehen dabei nach außen, die Vorzeichen sind gespiegelt.)
+  - **Erste Sekunde real = Sim:** Gierwinkel bei 0,5 s real +3…+7°, Sim Median +4°.
+  - **Gierrate real 2–4-mal so hoch:** |gyro| p95 in den ersten 1,5 s real 100–210 °/s, Sim 52 °/s. Wie am 21./22.11. ist die Verdrehung um die Hochachse im Sim zu steif, trotz `foot_condim=4` und `joint_compliance`.
+  - **Das Sim läuft auch nicht gerade:** Nach 5 s ist die Gierung im Median |22°| (−35…+23°), der Seitenversatz liegt bei 0,25 m je Meter vorwärts. Die Linksdrehung von Lauf 5 (+22…+30°) liegt damit im Streubereich des Sims. Das Gate prüft die Gierung gar nicht. Diese Schwäche der Policy hat es also nicht gesehen.
+  - **IMU:** Real misst die Schwerkraft beim Start durchgehend 2–3° zur Seite geneigt (Sim Mittel 0,4°, randomisiert −4…+6°) und ~8 % zu groß (10,8 gegen 9,8 m/s²). Das liegt im trainierten Bereich, könnte als fester Versatz aber zum Seitwärtslaufen (Lauf 6) beitragen. Im Sim mit festem Versatz prüfen.
+  - **Echte Schritte:** Der Roboter hebt die Füße sichtbar, obwohl das Sim nur 10 % echte Schritte zählt. Die Kennzahl unterschätzt das Schrittverhalten offenbar. Dass `servo_comp7` gegen das Schlurfen trainiert, ist damit weniger dringend als gedacht.
+- **Folgerung:** Als Nächstes zählen Geradeauslauf und Gierstabilität: Gierung als Gate-Kriterium, stärkere Strafe auf Kursabweichung, breitere Torsions-/Gierspiel-Randomisierung. Ein fester IMU-Rollversatz von ~3° gehört in die Sim-Prüfung.
+### `servo_yaw1`: Geradeauslauf (gestartet 28.11. ~14:55, ab `servo_comp6` 6115, GPU 0)
+- **Start:** der am Roboter getestete Checkpoint 6115, nicht `servo_comp8`. So lässt sich das nächste Ergebnis direkt mit dem Hardwaretest vergleichen.
+- **Änderungen:**
+  - `heading_penalty` −1 → −8. Der Term lag bei −0,0016 je Schritt, unter 3 % der positiven Belohnung (~0,06), obwohl das Sim nach 5 s im Median 22° vom Kurs ist.
+  - Weicheres Gierspiel, weil die echte Gierrate 2–4-mal so hoch ist wie im Sim: `play_yaw_deg` 2 → 4, `k_yaw` 8–60 → 4–40 Nm/rad, `foot_torsion` 0,01–0,05 → 0,003–0,05.
+  - Alles andere wie `servo_comp6`.
+- **Neues Gate-Kriterium:** `yaw_end_deg` ≤ 10° (Median |Gierung| am Episodenende der laufenden Episoden, `hardware_gate.py`). 6115 hat 21,9°. Der Score des Wächters enthält das Kriterium, ist also mit früheren Läufen nicht direkt vergleichbar.
+- **Ziel:** |Gierung| am Ende ≤ 10° ohne Stürze, `lateral_ratio` ≤ 0,25, Fußneigung nicht schlechter.
+- **Parallel:** Sim-Prüfung von 6115 mit festem IMU-Rollversatz ±3° (Modellkopien mit gedrehter IMU-Site, `imu_tilt_deg=0`), ob ein fester Versatz das Seitwärtslaufen von Lauf 6 erklärt.
+- **Lauf:** 3000 Iterationen. Wächter mit Fenster 12, `MIN_ITERS=600`, Video alle 100, Bewertung auf GPU 1.
+- **Ergebnis:** *folgt.*

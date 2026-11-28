@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Continue a run from one of its snapshots under a new name, with its launch overrides plus changes, and a watcher.
 # Usage: sim/tools/launch_continue.sh <from_run> <from_step> <new_run> [key=value changes...]
-#        (GPU=0 training, EVAL_GPU=1, ITERS=2500, MIN_ITERS=200 before the stagnation rule, VIDEO_EVERY=100)
+#        (GPU=0 training, EVAL_GPU=1, ITERS=2500, MIN_ITERS=200 before the stagnation rule, WINDOW=6 evaluations
+#        for it, VIDEO_EVERY=100)
 # Same model as the source run (its launch.sh). Used for the autonomous follow-up stages from 2026-11-04 on.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -17,6 +18,6 @@ GPU=${GPU:-0} ASSETS=$ASSETS sim/tools/train_backpack.sh "$RUN" "${OV[@]}" "$@" 
 systemctl --user reset-failed "zbot-calmwatch-$RUN" 2>/dev/null || true
 systemd-run --user --collect --quiet --unit="zbot-calmwatch-$RUN" -p Restart=on-failure -p RestartSec=60 \
   -p WorkingDirectory="$PWD" -E HOME="$HOME" -E PATH="$PATH" "$VENV/bin/python" sim/tools/calm_watch.py "$RUN" \
-  --interval 40 --window 6 --min-iters "${MIN_ITERS:-200}" --collapse-after 200 --eval-gpu "${EVAL_GPU:-1}" \
+  --interval 40 --window "${WINDOW:-6}" --min-iters "${MIN_ITERS:-200}" --collapse-after 200 --eval-gpu "${EVAL_GPU:-1}" \
   --video-every "${VIDEO_EVERY:-100}"
 echo "watcher zbot-calmwatch-$RUN started ($ASSETS, from $FROM step $STEP)"
